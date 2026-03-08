@@ -4,3 +4,4 @@ build/
 .flutter-plugins-dependencies
 .packages
 pubspec.lock
+.DS_Store
