@@ -194,36 +194,37 @@
             setInterval(updateClock, 1000);
             updateClock();
 
-            const gateway = `ws://${window.location.hostname}/ws`;
-            let websocket;
-            function initWebSocket() {
-                websocket = new WebSocket(gateway);
-                websocket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.speed !== undefined) document.getElementById('speed').innerText = data.speed;
-                    if (data.rpm !== undefined) document.getElementById('rpm').innerText = data.rpm;
-                    if (data.temp !== undefined) document.getElementById('temp').innerText = data.temp;
-                    if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
-                    if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
-
-                    if (data.tpms_fl !== undefined) document.getElementById('tpms_fl').innerText = data.tpms_fl;
-                    if (data.tpms_fr !== undefined) document.getElementById('tpms_fr').innerText = data.tpms_fr;
-                    if (data.tpms_rl !== undefined) document.getElementById('tpms_rl').innerText = data.tpms_rl;
-                    if (data.tpms_rr !== undefined) document.getElementById('tpms_rr').innerText = data.tpms_rr;
-
-                    // 超速邏輯
-                    const speed = parseInt(document.getElementById('speed').innerText);
-                    const limit = parseInt(document.getElementById('limit_value').innerText);
-                    const sign = document.getElementById('limit_container');
-                    if (speed > limit) {
-                        sign.classList.add('overspeed');
-                    } else {
-                        sign.classList.remove('overspeed');
+            // 由 Flutter 呼叫來更新數值
+            function updateDashboard(data) {
+                if (typeof data === 'string') {
+                    try {
+                        data = JSON.parse(data);
+                    } catch (e) {
+                        console.error('Invalid JSON', e);
+                        return;
                     }
-                };
-                websocket.onclose = () => setTimeout(initWebSocket, 2000);
+                }
+                if (data.speed !== undefined) document.getElementById('speed').innerText = data.speed;
+                if (data.rpm !== undefined) document.getElementById('rpm').innerText = data.rpm;
+                if (data.temp !== undefined) document.getElementById('temp').innerText = data.temp;
+                if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
+                if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
+
+                if (data.tpms_fl !== undefined) document.getElementById('tpms_fl').innerText = data.tpms_fl;
+                if (data.tpms_fr !== undefined) document.getElementById('tpms_fr').innerText = data.tpms_fr;
+                if (data.tpms_rl !== undefined) document.getElementById('tpms_rl').innerText = data.tpms_rl;
+                if (data.tpms_rr !== undefined) document.getElementById('tpms_rr').innerText = data.tpms_rr;
+
+                // 超速邏輯
+                const speed = parseInt(document.getElementById('speed').innerText);
+                const limit = parseInt(document.getElementById('limit_value').innerText);
+                const sign = document.getElementById('limit_container');
+                if (speed > limit) {
+                    sign.classList.add('overspeed');
+                } else {
+                    sign.classList.remove('overspeed');
+                }
             }
-            window.addEventListener('load', initWebSocket);
 
             function resizeApp() {
                 const container = document.getElementById('app-container');

@@ -1,18 +1,28 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.speed_limit_app">
-    
+
     <!-- Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    
+
     <!-- Camera permission -->
     <uses-permission android:name="android.permission.CAMERA" />
-    
+
     <!-- Internet (for ML Kit models if needed) -->
     <uses-permission android:name="android.permission.INTERNET" />
-    
+
+    <!-- 螢幕常亮 (WakeLock) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Foreground Service (防止後台被砍) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- 接收充電狀態廣播 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:label="Speed Limit Warning"
         android:icon="@mipmap/ic_launcher"
@@ -30,12 +40,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
+
+        <!-- FlutterForegroundTask 前景服務 -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="camera|connectedDevice"
+            android:exported="false" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
-    
+
     <!-- Query specific packages for Android 11+ -->
     <queries>
         <intent>
