@@ -138,7 +138,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     _positionSubscription = LocationService.getPositionStream().listen(
       (Position position) {
         if (mounted) {
-          context.read<AppProvider>().updatePosition(position);
+          final appProvider = context.read<AppProvider>();
+          appProvider.updatePosition(position);
+
+          // 核心控制：如果正在充電，依照 GPS 範圍決定鏡頭開關
+          if (_isCharging) {
+            if (appProvider.cameraActive) {
+              _startFrameProcessing();
+            } else {
+              _stopFrameProcessing();
+            }
+          }
         }
       },
       onError: (e) => debugPrint('Location stream error: $e'),
@@ -171,18 +181,32 @@ class _DashboardScreenState extends State<DashboardScreen>
         state == BatteryState.charging || state == BatteryState.full;
 
     if (charging && !_isCharging) {
-      // 切換到充電狀態
+      // 切換到充電狀態：喚醒所有資源
       _isCharging = true;
-      debugPrint('[電源] 偵測到外部電源連接，啟用螢幕常亮與影像辨識');
+      debugPrint('[電源] 偵測到外部電源連接，喚醒系統資源');
       _sleepCountdownTimer?.cancel();
       _sleepCountdownTimer = null;
       WakelockPlus.enable();
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      _startFrameProcessing();
+
+      // 恢復 GPS
+      if (_positionSubscription != null && _positionSubscription!.isPaused) {
+        _positionSubscription!.resume();
+      }
+
+      // 恢復 WebSocket 連線
+      if (!_isWsConnected) {
+        _connectWebSocket();
+      }
+
+      // 如果當前正好在速限牌範圍內，啟動鏡頭
+      if (mounted && context.read<AppProvider>().cameraActive) {
+        _startFrameProcessing();
+      }
     } else if (!charging && _isCharging) {
-      // 切換到未充電狀態
+      // 切換到未充電狀態：立即關閉高耗能鏡頭，啟動睡眠倒數
       _isCharging = false;
-      debugPrint('[電源] 偵測到外部電源中斷，停止影像辨識，10 秒後進入睡眠');
+      debugPrint('[電源] 偵測到外部電源中斷，停止影像辨識，10 秒後進入深度睡眠');
       _stopFrameProcessing();
       _startSleepCountdown();
     }
@@ -202,13 +226,21 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _enterSleepMode() {
-    debugPrint('[電源] 進入睡眠模式，關閉螢幕常亮');
+    debugPrint('[電源] 進入深度睡眠模式，關閉背景高耗電資源');
+
+    // 關閉螢幕常亮與沉浸模式
     WakelockPlus.disable();
-    // 解除沉浸模式後系統將在閒置後自動息屏
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
+
+    // 切斷 WebSocket 以省電
+    _channel?.sink.close();
+    if (mounted) setState(() => _isWsConnected = false);
+
+    // 暫停 GPS 定位以省電
+    _positionSubscription?.pause();
   }
 
   // ──────────────────────────────────────────────
@@ -290,7 +322,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       });
       _isCameraStreaming = true;
-      debugPrint('[相機] 影像辨識串流已啟動（等待 GPS 進入範圍）');
+      debugPrint('[相機] 影像辨識串流已啟動（目前於圖資範圍內）');
     } catch (e) {
       debugPrint('Start image stream error: $e');
     }
@@ -345,8 +377,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
+    // 如果不在充電狀態（睡眠或準備睡眠）就不主動重連
+    if (!_isCharging) return;
+
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) _connectWebSocket();
+      if (mounted && _isCharging) _connectWebSocket();
     });
   }
 
@@ -429,8 +464,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                   // WS 連線狀態
                   _StatusBadge(
                     isActive: _isWsConnected,
-                    activeLabel: 'ESP32 已連線',
-                    inactiveLabel: 'ESP32 未連線',
+                    activeLabel: '已連接',
+                    inactiveLabel: '未連接',
                     activeColor: Colors.lightBlueAccent,
                     inactiveColor: Colors.redAccent,
                     pulseAnimation: _pulseAnimation,
@@ -439,13 +474,33 @@ class _DashboardScreenState extends State<DashboardScreen>
                   // OCR 狀態
                   _StatusBadge(
                     isActive: _isOcrActive,
-                    activeLabel: 'OCR 辨識中',
-                    inactiveLabel: '待機中',
+                    activeLabel: '啟動鏡頭',
+                    inactiveLabel: '關閉鏡頭',
                     activeColor: Colors.greenAccent,
                     inactiveColor: Colors.orange,
                     pulseAnimation: _pulseAnimation,
                   ),
                 ],
+              ),
+            ),
+
+            // 關閉程式按鈕（右上角浮動）
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Material(
+                color: Colors.transparent,
+                child: IconButton(
+                  icon: const Icon(Icons.power_settings_new),
+                  color: Colors.redAccent.withOpacity(0.8),
+                  iconSize: 32,
+                  splashRadius: 28,
+                  onPressed: () {
+                    // 清理並強制關閉程式
+                    FlutterForegroundTask.stopService();
+                    SystemNavigator.pop();
+                  },
+                ),
               ),
             ),
           ],

@@ -80,15 +80,7 @@
 
 <body class="bg-black h-screen w-screen overflow-hidden flex items-center justify-center select-none relative">
 
-    <!-- 全螢幕切換按鈕 -->
-    <button id="fullscreen-btn"
-        class="fixed top-6 right-6 z-50 p-4 bg-gray-800/30 hover:bg-gray-700/60 text-gray-400 hover:text-white rounded-xl backdrop-blur-md transition-all shadow-2xl active:scale-95 border border-gray-600/30">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"
-            class="w-10 h-10">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-        </svg>
-    </button>
+
 
     <div id="app-container" class="w-[2400px] h-[1080px] p-12 origin-center shrink-0 relative overflow-hidden">
         <div class="scanline"></div>
@@ -236,23 +228,7 @@
             window.addEventListener('orientationchange', resizeApp);
             window.addEventListener('load', resizeApp);
 
-            // 全螢幕切換邏輯
-            const fullscreenBtn = document.getElementById('fullscreen-btn');
-            fullscreenBtn.addEventListener('click', () => {
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    if (document.documentElement.requestFullscreen) {
-                        document.documentElement.requestFullscreen();
-                    } else if (document.documentElement.webkitRequestFullscreen) {
-                        document.documentElement.webkitRequestFullscreen(); // Safari
-                    }
-                } else {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    } else if (document.webkitExitFullscreen) {
-                        document.webkitExitFullscreen(); // Safari
-                    }
-                }
-            });
+
         </script>
     </div>
 </body>
