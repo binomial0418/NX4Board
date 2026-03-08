@@ -10,8 +10,10 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:geolocator/geolocator.dart';
 import '../providers/app_provider.dart';
 import '../services/ocr_service.dart';
+import '../services/location_service.dart';
 
 // Foreground Task Handler（必須為 top-level function）
 @pragma('vm:entry-point')
@@ -62,6 +64,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _sleepCountdownTimer;
   bool _isCharging = false;
 
+  // --- GPS 定位管理 ---
+  StreamSubscription<Position>? _positionSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +82,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _initializeWidgets() async {
+    // 請求定位權限
+    await LocationService.requestLocationPermission();
+    _startLocationTracking();
+
     // 強制橫向 + 隱藏 Status Bar
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -119,6 +128,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       notificationTitle: '速限查詢',
       notificationText: '行車儀表板持續運行中',
       callback: startCallback,
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // GPS 定位追蹤
+  // ──────────────────────────────────────────────
+  void _startLocationTracking() {
+    _positionSubscription = LocationService.getPositionStream().listen(
+      (Position position) {
+        if (mounted) {
+          context.read<AppProvider>().updatePosition(position);
+        }
+      },
+      onError: (e) => debugPrint('Location stream error: $e'),
     );
   }
 
@@ -225,16 +248,40 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       _cameraController!.startImageStream((CameraImage image) async {
         if (_isProcessing) return;
+
+        // --- 核心邏輯：不在 150m 範圍內，不執行 OCR ---
+        final appProvider = context.read<AppProvider>();
+        if (!appProvider.cameraActive) {
+          // 不在範圍內，將 OCR 綠燈關閉
+          if (_isOcrActive && mounted) {
+            setState(() => _isOcrActive = false);
+          }
+          return;
+        }
+
+        // 進入範圍內，開啟 OCR 綠燈閃爍
+        if (!_isOcrActive && mounted) {
+          setState(() => _isOcrActive = true);
+        }
+
         _isProcessing = true;
         try {
           final detectedSpeed = await _ocrService?.recognizeSpeedLimit(image);
-          if (mounted && detectedSpeed != null) {
-            context.read<AppProvider>().updateDetectedSpeed(detectedSpeed);
-            final jsonString = '{"limit": $detectedSpeed}';
-            _webViewController?.evaluateJavascript(
-              source:
-                  "if(window.updateDashboard) updateDashboard('$jsonString');",
-            );
+          if (mounted) {
+            // 這會檢查是否與圖資相符且連續 3 幀
+            appProvider.updateDetectedSpeed(detectedSpeed);
+
+            // 只有當 AppProvider 真正確認拿到正確數值時，才送去更新 JS
+            if (appProvider.detectedSpeedLimit != null) {
+              final finalSpeed = appProvider.detectedSpeedLimit;
+              final jsonString = '{"limit": $finalSpeed}';
+              _webViewController?.evaluateJavascript(
+                source:
+                    "if(window.updateDashboard) updateDashboard('$jsonString');",
+              );
+              // 傳送成功後，如果想清空避免一直送相同數值，可選呼叫 resetDetectedSpeed()
+              // appProvider.resetDetectedSpeed();
+            }
           }
         } catch (e) {
           debugPrint('OCR error: $e');
@@ -243,8 +290,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       });
       _isCameraStreaming = true;
-      if (mounted) setState(() => _isOcrActive = true);
-      debugPrint('[相機] 影像辨識串流已啟動');
+      debugPrint('[相機] 影像辨識串流已啟動（等待 GPS 進入範圍）');
     } catch (e) {
       debugPrint('Start image stream error: $e');
     }
@@ -309,6 +355,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   @override
   void dispose() {
+    _positionSubscription?.cancel();
     _batterySubscription?.cancel();
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -371,12 +418,13 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
 
-            // 狀態指示區塊（右上角浮動）
+            // 狀態指示區塊（右下角時間旁邊）
             Positioned(
-              top: 16,
+              bottom: 24,
               right: 16,
-              child: Row(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   // WS 連線狀態
                   _StatusBadge(
@@ -387,7 +435,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     inactiveColor: Colors.redAccent,
                     pulseAnimation: _pulseAnimation,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(height: 10),
                   // OCR 狀態
                   _StatusBadge(
                     isActive: _isOcrActive,
