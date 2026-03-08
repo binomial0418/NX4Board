@@ -37,17 +37,24 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   // --- Camera & OCR ---
   CameraController? _cameraController;
   OcrService? _ocrService;
   bool _isProcessing = false;
   bool _isCameraStreaming = false;
+  bool _isOcrActive = false; // OCR 狀態指示
+
+  // --- 動畫 ---
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   // --- WebView & WebSocket ---
   InAppWebViewController? _webViewController;
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
+  bool _isWsConnected = false; // WebSocket 連線狀態
 
   // --- 電源管理 ---
   final Battery _battery = Battery();
@@ -58,6 +65,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    // 初始化脈衝動畫
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     _initializeWidgets();
   }
 
@@ -228,6 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       });
       _isCameraStreaming = true;
+      if (mounted) setState(() => _isOcrActive = true);
       debugPrint('[相機] 影像辨識串流已啟動');
     } catch (e) {
       debugPrint('Start image stream error: $e');
@@ -240,6 +256,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _cameraController?.stopImageStream();
       _isCameraStreaming = false;
       _isProcessing = false;
+      if (mounted) setState(() => _isOcrActive = false);
       debugPrint('[相機] 影像辨識串流已停止');
     } catch (e) {
       debugPrint('Stop image stream error: $e');
@@ -251,22 +268,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ──────────────────────────────────────────────
   void _connectWebSocket() {
     try {
-      _channel = WebSocketChannel.connect(Uri.parse('ws://192.168.4.1/ws'));
+      _channel = WebSocketChannel.connect(Uri.parse('ws://192.168.4.1:81'));
       _channel!.stream.listen(
         (message) {
+          // 收到訊息即確認連線成功
+          if (!_isWsConnected && mounted) {
+            setState(() => _isWsConnected = true);
+          }
           _webViewController?.evaluateJavascript(
               source:
                   "if(window.updateDashboard) updateDashboard('$message');");
         },
-        onDone: _scheduleReconnect,
+        onDone: () {
+          if (mounted) setState(() => _isWsConnected = false);
+          _scheduleReconnect();
+        },
         onError: (error) {
           debugPrint('WebSocket Error: $error');
+          if (mounted) setState(() => _isWsConnected = false);
           _scheduleReconnect();
         },
         cancelOnError: true,
       );
     } catch (e) {
       debugPrint('WebSocket connection failed: $e');
+      if (mounted) setState(() => _isWsConnected = false);
       _scheduleReconnect();
     }
   }
@@ -286,6 +312,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _batterySubscription?.cancel();
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
+    _pulseController.dispose();
     _stopFrameProcessing();
     _cameraController?.dispose();
     _ocrService?.dispose();
@@ -343,9 +370,114 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 },
               ),
             ),
+
+            // 狀態指示區塊（右上角浮動）
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // WS 連線狀態
+                  _StatusBadge(
+                    isActive: _isWsConnected,
+                    activeLabel: 'ESP32 已連線',
+                    inactiveLabel: 'ESP32 未連線',
+                    activeColor: Colors.lightBlueAccent,
+                    inactiveColor: Colors.redAccent,
+                    pulseAnimation: _pulseAnimation,
+                  ),
+                  const SizedBox(width: 8),
+                  // OCR 狀態
+                  _StatusBadge(
+                    isActive: _isOcrActive,
+                    activeLabel: 'OCR 辨識中',
+                    inactiveLabel: '待機中',
+                    activeColor: Colors.greenAccent,
+                    inactiveColor: Colors.orange,
+                    pulseAnimation: _pulseAnimation,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────
+// 通用狀態指示器 Widget
+// ──────────────────────────────────────────────
+class _StatusBadge extends StatelessWidget {
+  final bool isActive;
+  final String activeLabel;
+  final String inactiveLabel;
+  final Color activeColor;
+  final Color inactiveColor;
+  final Animation<double> pulseAnimation;
+
+  const _StatusBadge({
+    required this.isActive,
+    required this.activeLabel,
+    required this.inactiveLabel,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.pulseAnimation,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? activeColor : inactiveColor;
+    return AnimatedBuilder(
+      animation: pulseAnimation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: isActive ? pulseAnimation.value : 0.65,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.55),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: color.withOpacity(0.7),
+                width: 1.2,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color,
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(isActive ? 0.8 : 0.4),
+                        blurRadius: isActive ? 8 : 3,
+                        spreadRadius: isActive ? 2 : 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isActive ? activeLabel : inactiveLabel,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
