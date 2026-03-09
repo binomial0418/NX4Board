@@ -40,10 +40,10 @@
             font-family: 'ui-monospace', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         }
 
-        /* 速限看板：加大至 18rem */
+        /* 速限看板：加大至 22rem 避免三位數字溢出 */
         .speed-limit-sign {
-            width: 18rem;
-            height: 18rem;
+            width: 22rem;
+            height: 22rem;
             background-color: white;
             border: 2rem solid #ff0000;
             border-radius: 50%;
@@ -89,6 +89,22 @@
                 bottom: -100%;
             }
         }
+
+        .alert-pulse {
+            animation: text-pulse-red 0.8s infinite alternate !important;
+            color: #ff3333 !important;
+            text-shadow: 0 0 20px rgba(255, 0, 0, 0.8) !important;
+        }
+
+        @keyframes text-pulse-red {
+            from {
+                opacity: 1;
+            }
+
+            to {
+                opacity: 0.5;
+            }
+        }
     </style>
 </head>
 
@@ -104,15 +120,17 @@
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
                     <div class="data-card p-8 flex-1 flex flex-col justify-center border-l-blue-400">
-                        <p class="text-blue-400 text-[2.5rem] font-bold mb-2 tracking-widest uppercase">引擎轉速</p>
+                        <p class="text-blue-400 text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline mt-2">
                             <span id="rpm"
                                 class="text-[11rem] font-bold text-white leading-none tracking-tighter">1200</span>
-                            <span class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
+                            <span id="rpm_unit" class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
                         </div>
                     </div>
                     <div class="data-card p-8 w-[45%] flex flex-col justify-center border-l-orange-500">
-                        <p class="text-orange-500 text-[2.5rem] font-bold tracking-widest uppercase mb-6">胎壓(PSI)</p>
+                        <p
+                            class="text-orange-500 text-[3.2rem] whitespace-nowrap font-bold tracking-wider uppercase mb-6">
+                            胎壓(PSI)</p>
 
                         <!-- 前輪 (Front) -->
                         <div class="flex w-full items-center justify-between mb-4">
@@ -142,7 +160,7 @@
                 </div>
 
                 <div class="data-card p-10 flex-1 flex flex-col justify-center border-l-cyan-500 h-[28%]">
-                    <p class="text-cyan-500 text-4xl font-bold mb-4 tracking-widest uppercase">冷卻水溫</p>
+                    <p class="text-cyan-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline mt-2">
                         <span id="temp"
                             class="text-[13rem] font-bold text-white leading-none tracking-tighter">100</span>
@@ -151,7 +169,7 @@
                 </div>
 
                 <div class="data-card p-10 flex-1 flex flex-col justify-center border-l-emerald-500 h-[28%]">
-                    <p class="text-emerald-500 text-4xl font-bold mb-4 tracking-widest uppercase">大電池電量</p>
+                    <p class="text-emerald-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">EV</p>
                     <div class="flex items-baseline mt-2">
                         <span id="battery"
                             class="text-[13rem] font-bold text-white leading-none tracking-tighter">60.5</span>
@@ -211,15 +229,50 @@
                     }
                 }
                 if (data.speed !== undefined) document.getElementById('speed').innerText = data.speed;
-                if (data.rpm !== undefined) document.getElementById('rpm').innerText = data.rpm;
-                if (data.temp !== undefined) document.getElementById('temp').innerText = data.temp;
+                if (data.rpm !== undefined) {
+                    const rpmEl = document.getElementById('rpm');
+                    const rpmUnit = document.getElementById('rpm_unit');
+                    if (parseInt(data.rpm) === 0) {
+                        rpmEl.innerText = "EV";
+                        rpmEl.classList.remove('text-white');
+                        rpmEl.classList.add('text-green-500');
+                        rpmEl.style.letterSpacing = '1rem';
+                        if (rpmUnit) rpmUnit.style.display = 'none';
+                    } else {
+                        rpmEl.innerText = data.rpm;
+                        rpmEl.classList.remove('text-green-500');
+                        rpmEl.classList.add('text-white');
+                        rpmEl.style.letterSpacing = '';
+                        if (rpmUnit) rpmUnit.style.display = 'inline';
+                    }
+                }
+
+                if (data.temp !== undefined) {
+                    const tempEl = document.getElementById('temp');
+                    tempEl.innerText = data.temp;
+                    if (parseInt(data.temp) > 90) {
+                        tempEl.classList.add('alert-pulse');
+                    } else {
+                        tempEl.classList.remove('alert-pulse');
+                    }
+                }
+
                 if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
 
-                if (data.tpms_fl !== undefined) document.getElementById('tpms_fl').innerText = data.tpms_fl;
-                if (data.tpms_fr !== undefined) document.getElementById('tpms_fr').innerText = data.tpms_fr;
-                if (data.tpms_rl !== undefined) document.getElementById('tpms_rl').innerText = data.tpms_rl;
-                if (data.tpms_rr !== undefined) document.getElementById('tpms_rr').innerText = data.tpms_rr;
+                ['tpms_fl', 'tpms_fr', 'tpms_rl', 'tpms_rr'].forEach(key => {
+                    if (data[key] !== undefined) {
+                        const el = document.getElementById(key);
+                        if (el) {
+                            el.innerText = data[key];
+                            if (parseFloat(data[key]) < 32) {
+                                el.classList.add('alert-pulse');
+                            } else {
+                                el.classList.remove('alert-pulse');
+                            }
+                        }
+                    }
+                });
 
                 // 超速邏輯
                 const speed = parseInt(document.getElementById('speed').innerText);
@@ -242,6 +295,16 @@
             window.addEventListener('orientationchange', resizeApp);
             window.addEventListener('load', resizeApp);
 
+            // 監聽來自 simulator 模擬器的跨來源呼叫
+            window.addEventListener('message', function (event) {
+                // 如果是字串嘗試轉換後丟給 updateDashboard
+                if (typeof event.data === 'string') {
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        updateDashboard(parsed);
+                    } catch (e) { }
+                }
+            });
 
         </script>
     </div>
