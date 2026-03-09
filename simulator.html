@@ -149,8 +149,8 @@
 
         <div class="form-group border-t border-slate-700 pt-3 mt-3">
             <label>冷卻水溫 (°C) <span class="val-display" id="val_temp">85</span></label>
-            <input type="range" id="temp" min="50" max="130" value="85" oninput="syncVal('temp')">
-            <small class="text-xs text-slate-400 block mt-1">* 超過 90 觸發紅色警告</small>
+            <input type="range" id="temp" min="30" max="130" value="85" oninput="syncVal('temp')">
+            <small class="text-xs text-slate-400 block mt-1">* > 110 紅色警告，< 60 淡藍警告</small>
         </div>
 
         <div class="form-group">
@@ -234,14 +234,14 @@
                 document.getElementById('speed').value = 0;
                 document.getElementById('limit').value = 50;
                 document.getElementById('rpm').value = 0;
-                document.getElementById('temp').value = 60;
+                document.getElementById('temp').value = 50; // <60 顯示藍色心跳
                 document.getElementById('battery').value = 98.5;
                 ['fl', 'fr', 'rl', 'rr'].forEach(pos => document.getElementById(`tpms_${pos}`).value = 35);
             } else if (mode === 'alert') {
                 document.getElementById('speed').value = 145; // 超速
                 document.getElementById('limit').value = 110;
                 document.getElementById('rpm').value = 4500;
-                document.getElementById('temp').value = 98; // 水溫過熱
+                document.getElementById('temp').value = 115; // >110 水溫過熱紅色心跳
                 document.getElementById('battery').value = 15.0;
                 // 左邊兩個輪胎沒氣破掉
                 document.getElementById('tpms_fl').value = 28;
