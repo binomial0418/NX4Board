@@ -63,6 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
   Timer? _obdSyncTimer;
+  Timer? _wsUploadTimer;
 
   // --- 電源管理 ---
   final Battery _battery = Battery();
@@ -103,6 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     await _initializeCamera();
     _connectWebSocket();
     _startObdToWebviewSync();
+    _startWsUploadSync();
     _initForegroundTask();
     _startBatteryMonitoring();
   }
@@ -203,6 +205,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
       _startObdToWebviewSync();
+      _startWsUploadSync();
 
       // 啟動全時影像辨識
       if (mounted) {
@@ -245,6 +248,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _isWsConnected = false);
 
     _obdSyncTimer?.cancel();
+    _wsUploadTimer?.cancel();
 
     // 暫停 GPS 定位以省電
     _positionSubscription?.pause();
@@ -384,6 +388,33 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  void _startWsUploadSync() {
+    _wsUploadTimer?.cancel();
+    _wsUploadTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
+      if (!mounted || !_isWsConnected || _channel == null) return;
+      final provider = context.read<AppProvider>();
+
+      final Map<String, dynamic> uploadData = {};
+      if (provider.tpmsFl != null) uploadData["tpmsFl"] = provider.tpmsFl;
+      if (provider.tpmsFr != null) uploadData["tpmsFr"] = provider.tpmsFr;
+      if (provider.tpmsRl != null) uploadData["tpmsRl"] = provider.tpmsRl;
+      if (provider.tpmsRr != null) uploadData["tpmsRr"] = provider.tpmsRr;
+      if (provider.obdOdometer != null)
+        uploadData["odo"] = provider.obdOdometer;
+      if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+
+      if (uploadData.isNotEmpty) {
+        final jsonString = jsonEncode(uploadData);
+        try {
+          _channel!.sink.add(jsonString);
+          debugPrint('[WS-TX] Uploaded to Relay: $jsonString');
+        } catch (e) {
+          debugPrint('[WS-TX] Send error: $e');
+        }
+      }
+    });
+  }
+
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
     // 如果不在充電狀態（睡眠或準備睡眠）就不主動重連
@@ -437,6 +468,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _obdSyncTimer?.cancel();
+    _wsUploadTimer?.cancel();
     _pulseController.dispose();
     _stopFrameProcessing();
     _cameraController?.dispose();
