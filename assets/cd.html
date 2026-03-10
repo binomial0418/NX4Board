@@ -272,6 +272,7 @@
                 if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
                 if (data.enableOcr !== undefined) {
+                    window._ocrEnabled = data.enableOcr;
                     const wrapper = document.getElementById('limit_wrapper');
                     if (wrapper) wrapper.style.display = data.enableOcr ? 'flex' : 'none';
                 }
@@ -304,7 +305,7 @@
                 const limit = parseInt(limitText);
                 const speedEl = document.getElementById('speed');
 
-                if (!isNaN(limit) && limit > 0 && speed > limit + 10) {
+                if (window._ocrEnabled !== false && !isNaN(limit) && limit > 0 && speed > limit + 10) {
                     speedEl.classList.add('speed-red-glow');
                 } else {
                     speedEl.classList.remove('speed-red-glow');
