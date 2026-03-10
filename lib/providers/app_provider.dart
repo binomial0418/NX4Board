@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/speed_sign.dart';
 import '../services/csv_parser.dart';
-import '../services/location_service.dart';
+import '../services/obd_ble_service.dart';
+import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
   List<SpeedSign> _allSpeedSigns = [];
@@ -16,6 +17,10 @@ class AppProvider extends ChangeNotifier {
   int _ocrFrameCount = 0;
   int? _lastDetectedValue;
 
+  // Obd State Properties
+  final ObdBleService _obdService = ObdBleService();
+  Timer? _obdStatusTimer;
+
   // Getters
   List<SpeedSign> get allSpeedSigns => _allSpeedSigns;
   Position? get currentPosition => _currentPosition;
@@ -26,6 +31,20 @@ class AppProvider extends ChangeNotifier {
   String get status => _status;
   bool get cameraActive => _cameraActive;
 
+  // Obd getters
+  ObdConnectionState get obdConnectionState => _obdService.connectionState;
+  int? get obdRpm => _obdService.rpm;
+  int? get obdSpeed => _obdService.speed;
+  int? get obdCoolant => _obdService.coolantTemp;
+  double? get obdVoltage => _obdService.voltage;
+  int? get obdHevSoc => _obdService.hevSoc;
+  double? get obdOdometer => _obdService.odometer;
+  int? get obdFuel => _obdService.fuelLevel;
+  double? get tpmsFl => _obdService.tpmsFl;
+  double? get tpmsFr => _obdService.tpmsFr;
+  double? get tpmsRl => _obdService.tpmsRl;
+  double? get tpmsRr => _obdService.tpmsRr;
+
   /// Initialize app - load CSV data
   Future<void> initialize() async {
     try {
@@ -35,12 +54,27 @@ class AppProvider extends ChangeNotifier {
       _allSpeedSigns = await CsvParser.loadSpeedSigns();
       _status = 'Data loaded: ${_allSpeedSigns.length} signs';
       _isLoading = false;
+
+      // Initialize BLE Service
+      await _obdService.init();
+
+      // Poll OBD state to update UI globally
+      _obdStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        notifyListeners();
+      });
+
       notifyListeners();
     } catch (e) {
       _status = 'Error: $e';
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _obdStatusTimer?.cancel();
+    super.dispose();
   }
 
   /// Update current position and find nearby speed signs

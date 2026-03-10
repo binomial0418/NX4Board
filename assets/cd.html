@@ -254,10 +254,10 @@
                     }
                 }
 
-                if (data.temp !== undefined) {
+                if (data.temperature !== undefined) {
                     const tempEl = document.getElementById('temp');
-                    tempEl.innerText = data.temp;
-                    const tempVal = parseInt(data.temp);
+                    tempEl.innerText = data.temperature;
+                    const tempVal = parseInt(data.temperature);
 
                     // 先清除所有警示樣式
                     tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
@@ -272,11 +272,19 @@
                 if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
 
-                ['tpms_fl', 'tpms_fr', 'tpms_rl', 'tpms_rr'].forEach(key => {
+                const tpmsMapping = {
+                    'fl_pressure': 'tpms_fl',
+                    'fr_pressure': 'tpms_fr',
+                    'rl_pressure': 'tpms_rl',
+                    'rr_pressure': 'tpms_rr'
+                };
+
+                Object.keys(tpmsMapping).forEach(key => {
                     if (data[key] !== undefined) {
-                        const el = document.getElementById(key);
+                        const targetId = tpmsMapping[key];
+                        const el = document.getElementById(targetId);
                         if (el) {
-                            el.innerText = data[key];
+                            el.innerText = data[key].toFixed(1); // Set to 1 decimal point for BLE
                             if (parseFloat(data[key]) < 32) {
                                 el.classList.add('alert-pulse');
                             } else {

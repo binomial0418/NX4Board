@@ -39,6 +39,8 @@ dependencies:
   battery_plus: ^7.0.0
   wakelock_plus: ^1.4.0
   flutter_foreground_task: ^9.2.1
+  flutter_blue_plus: ^2.2.1
+  shared_preferences: ^2.5.4
 
 dev_dependencies:
   flutter_test:

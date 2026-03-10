@@ -11,9 +11,13 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:convert';
 import '../providers/app_provider.dart';
 import '../services/ocr_service.dart';
 import '../services/location_service.dart';
+import '../services/settings_service.dart';
+import '../services/obd_ble_service.dart';
+import 'settings_screen.dart';
 
 // Foreground Task Handler（必須為 top-level function）
 @pragma('vm:entry-point')
@@ -58,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
+  Timer? _obdSyncTimer;
 
   // --- 電源管理 ---
   final Battery _battery = Battery();
@@ -97,6 +102,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _ocrService = OcrService();
     await _initializeCamera();
     _connectWebSocket();
+    _startObdToWebviewSync();
     _initForegroundTask();
     _startBatteryMonitoring();
   }
@@ -196,6 +202,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         _connectWebSocket();
       }
 
+      _startObdToWebviewSync();
+
       // 啟動全時影像辨識
       if (mounted) {
         _startFrameProcessing();
@@ -235,6 +243,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 切斷 WebSocket 以省電
     _channel?.sink.close();
     if (mounted) setState(() => _isWsConnected = false);
+
+    _obdSyncTimer?.cancel();
 
     // 暫停 GPS 定位以省電
     _positionSubscription?.pause();
@@ -343,7 +353,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   void _connectWebSocket() {
     try {
-      _channel = WebSocketChannel.connect(Uri.parse('ws://192.168.4.1:81'));
+      final ip = SettingsService().wsIp;
+      final port = SettingsService().wsPort;
+      _channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
       _channel!.stream.listen(
         (message) {
           // 收到訊息即確認連線成功
@@ -383,6 +395,39 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ──────────────────────────────────────────────
+  // 同步 BLE 資料至 WebView
+  // ──────────────────────────────────────────────
+  void _startObdToWebviewSync() {
+    _obdSyncTimer?.cancel();
+    _obdSyncTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (!mounted) return;
+      final provider = context.read<AppProvider>();
+
+      final Map<String, dynamic> jsonMap = {};
+
+      if (provider.obdSpeed != null) jsonMap["speed"] = provider.obdSpeed;
+      if (provider.obdRpm != null) jsonMap["rpm"] = provider.obdRpm;
+      if (provider.obdCoolant != null)
+        jsonMap["temperature"] = provider.obdCoolant;
+      if (provider.tpmsFl != null) jsonMap["fl_pressure"] = provider.tpmsFl;
+      if (provider.tpmsFr != null) jsonMap["fr_pressure"] = provider.tpmsFr;
+      if (provider.tpmsRl != null) jsonMap["rl_pressure"] = provider.tpmsRl;
+      if (provider.tpmsRr != null) jsonMap["rr_pressure"] = provider.tpmsRr;
+      if (provider.obdHevSoc != null) jsonMap["battery"] = provider.obdHevSoc;
+      // if (provider.obdVoltage != null) jsonMap["batteryVol"] = provider.obdVoltage;
+      // if (provider.obdOdometer != null) jsonMap["mileage"] = provider.obdOdometer;
+      // if (provider.obdFuel != null) jsonMap["fuelVolume"] = provider.obdFuel;
+
+      if (jsonMap.isNotEmpty) {
+        final jsonString = jsonEncode(jsonMap);
+        _webViewController?.evaluateJavascript(
+            source:
+                "if(window.updateDashboard) updateDashboard('$jsonString');");
+      }
+    });
+  }
+
+  // ──────────────────────────────────────────────
   // 清理
   // ──────────────────────────────────────────────
   @override
@@ -391,6 +436,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _batterySubscription?.cancel();
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
+    _obdSyncTimer?.cancel();
     _pulseController.dispose();
     _stopFrameProcessing();
     _cameraController?.dispose();
@@ -458,11 +504,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  // OBD BLE 連線狀態
+                  Consumer<AppProvider>(
+                    builder: (context, provider, child) {
+                      bool isObdConn = provider.obdConnectionState ==
+                          ObdConnectionState.connected;
+                      return _StatusBadge(
+                        isActive: isObdConn,
+                        activeLabel: 'OBD 連接',
+                        inactiveLabel: 'OBD 中斷',
+                        activeColor: Colors.deepPurpleAccent,
+                        inactiveColor: Colors.redAccent,
+                        pulseAnimation: _pulseAnimation,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
                   // WS 連線狀態
                   _StatusBadge(
                     isActive: _isWsConnected,
-                    activeLabel: '已連接',
-                    inactiveLabel: '未連接',
+                    activeLabel: 'WS 已連',
+                    inactiveLabel: 'WS 未連',
                     activeColor: Colors.lightBlueAccent,
                     inactiveColor: Colors.redAccent,
                     pulseAnimation: _pulseAnimation,
@@ -471,13 +533,40 @@ class _DashboardScreenState extends State<DashboardScreen>
                   // OCR 狀態
                   _StatusBadge(
                     isActive: _isOcrActive,
-                    activeLabel: '啟動鏡頭',
-                    inactiveLabel: '關閉鏡頭',
+                    activeLabel: '相機運作',
+                    inactiveLabel: '相機關閉',
                     activeColor: Colors.greenAccent,
                     inactiveColor: Colors.orange,
                     pulseAnimation: _pulseAnimation,
                   ),
                 ],
+              ),
+            ),
+
+            // 設定按鈕（右側浮動）
+            Positioned(
+              top: 16,
+              right: 64, // 在電源按鈕旁邊
+              child: Material(
+                color: Colors.transparent,
+                child: IconButton(
+                  icon: const Icon(Icons.settings),
+                  color: Colors.white70,
+                  iconSize: 32,
+                  splashRadius: 28,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const SettingsScreen()),
+                    ).then((_) {
+                      // Settings changed, reconnect WebSocket if needed
+                      _channel?.sink.close();
+                      if (mounted) setState(() => _isWsConnected = false);
+                      _connectWebSocket();
+                    });
+                  },
+                ),
               ),
             ),
 
