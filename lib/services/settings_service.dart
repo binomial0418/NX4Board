@@ -10,6 +10,7 @@ class SettingsService {
   String get wsIp => _prefs?.getString('ws_ip') ?? '192.168.4.1';
   String get wsPort => _prefs?.getString('ws_port') ?? '81';
   String get obdMac => _prefs?.getString('obd_mac') ?? '';
+  bool get enableOcr => _prefs?.getBool('enable_ocr') ?? true;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -25,5 +26,9 @@ class SettingsService {
 
   Future<void> setObdMac(String mac) async {
     await _prefs?.setString('obd_mac', mac);
+  }
+
+  Future<void> setEnableOcr(bool value) async {
+    await _prefs?.setBool('enable_ocr', value);
   }
 }

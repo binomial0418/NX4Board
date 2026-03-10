@@ -15,6 +15,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _ipController = TextEditingController();
   final _portController = TextEditingController();
 
+  bool _enableOcr = true;
+
   StreamSubscription? _logSub;
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
@@ -27,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _ipController.text = SettingsService().wsIp;
     _portController.text = SettingsService().wsPort;
+    _enableOcr = SettingsService().enableOcr;
 
     _logSub = ObdBleService().logStream.listen((log) {
       if (mounted) {
@@ -102,6 +105,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // OCR 設定
+            Card(
+              child: SwitchListTile(
+                title: const Text('啟用速限辨識',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('關閉時相機將不會運作，且儀表板隱藏速限指示。'),
+                value: _enableOcr,
+                onChanged: (val) async {
+                  setState(() => _enableOcr = val);
+                  await SettingsService().setEnableOcr(val);
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Wi-Fi Settings Card
             Card(
               child: Padding(

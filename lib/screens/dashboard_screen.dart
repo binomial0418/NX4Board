@@ -283,6 +283,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   // 影像辨識串流啟停
   // ──────────────────────────────────────────────
   void _startFrameProcessing() {
+    if (!SettingsService().enableOcr) {
+      if (_isCameraStreaming) _stopFrameProcessing();
+      return;
+    }
     if (_isCameraStreaming) return;
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
@@ -435,6 +439,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       final provider = context.read<AppProvider>();
 
       final Map<String, dynamic> jsonMap = {};
+      jsonMap["enableOcr"] = SettingsService().enableOcr;
 
       if (provider.obdSpeed != null) jsonMap["speed"] = provider.obdSpeed;
       if (provider.obdRpm != null) jsonMap["rpm"] = provider.obdRpm;
@@ -596,6 +601,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
+
+                      // Update OCR state
+                      if (!SettingsService().enableOcr) {
+                        _stopFrameProcessing();
+                      } else if (_isCharging) {
+                        _startFrameProcessing();
+                      }
                     });
                   },
                 ),
