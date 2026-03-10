@@ -19,6 +19,7 @@ class _CameraScreenState extends State<CameraScreen> {
   String _ocrStatus = 'Initializing camera...';
   int? _detectedSpeed;
   int _frameCount = 0;
+  DateTime? _lastOcrTime;
 
   @override
   void initState() {
@@ -67,6 +68,14 @@ class _CameraScreenState extends State<CameraScreen> {
       if (_isProcessing) {
         return;
       }
+
+      // --- 頻率控制：每秒 5 張 (200ms) ---
+      final now = DateTime.now();
+      if (_lastOcrTime != null &&
+          now.difference(_lastOcrTime!).inMilliseconds < 200) {
+        return;
+      }
+      _lastOcrTime = now;
 
       _isProcessing = true;
 

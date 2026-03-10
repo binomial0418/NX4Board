@@ -47,6 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _isProcessing = false;
   bool _isCameraStreaming = false;
   bool _isOcrActive = false; // OCR 狀態指示
+  DateTime? _lastOcrTime;
 
   // --- 動畫 ---
   late AnimationController _pulseController;
@@ -141,13 +142,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           final appProvider = context.read<AppProvider>();
           appProvider.updatePosition(position);
 
-          // 核心控制：如果正在充電，依照 GPS 範圍決定鏡頭開關
+          // 全時偵測：只要正在充電，就持續啟動鏡頭
           if (_isCharging) {
-            if (appProvider.cameraActive) {
-              _startFrameProcessing();
-            } else {
-              _stopFrameProcessing();
-            }
+            _startFrameProcessing();
           }
         }
       },
@@ -199,8 +196,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         _connectWebSocket();
       }
 
-      // 如果當前正好在速限牌範圍內，啟動鏡頭
-      if (mounted && context.read<AppProvider>().cameraActive) {
+      // 啟動全時影像辨識
+      if (mounted) {
         _startFrameProcessing();
       }
     } else if (!charging && _isCharging) {
@@ -281,17 +278,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       _cameraController!.startImageStream((CameraImage image) async {
         if (_isProcessing) return;
 
-        // --- 核心邏輯：不在 150m 範圍內，不執行 OCR ---
-        final appProvider = context.read<AppProvider>();
-        if (!appProvider.cameraActive) {
-          // 不在範圍內，將 OCR 綠燈關閉
-          if (_isOcrActive && mounted) {
-            setState(() => _isOcrActive = false);
-          }
+        // --- 頻率控制：每秒 5 張 (200ms) ---
+        final now = DateTime.now();
+        if (_lastOcrTime != null &&
+            now.difference(_lastOcrTime!).inMilliseconds < 200) {
           return;
         }
+        _lastOcrTime = now;
 
-        // 進入範圍內，開啟 OCR 綠燈閃爍
+        final appProvider = context.read<AppProvider>();
+
+        // 開啟 OCR 綠燈閃爍
         if (!_isOcrActive && mounted) {
           setState(() => _isOcrActive = true);
         }

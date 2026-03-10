@@ -12,9 +12,10 @@ class AppProvider extends ChangeNotifier {
   int? _detectedSpeedLimit;
   bool _isLoading = true;
   String _status = 'Initializing...';
-  bool _cameraActive = false;
+  bool _cameraActive = true;
   int _ocrFrameCount = 0;
-  
+  int? _lastDetectedValue;
+
   // Getters
   List<SpeedSign> get allSpeedSigns => _allSpeedSigns;
   Position? get currentPosition => _currentPosition;
@@ -30,7 +31,7 @@ class AppProvider extends ChangeNotifier {
     try {
       _status = 'Loading speed signs data...';
       notifyListeners();
-      
+
       _allSpeedSigns = await CsvParser.loadSpeedSigns();
       _status = 'Data loaded: ${_allSpeedSigns.length} signs';
       _isLoading = false;
@@ -45,7 +46,7 @@ class AppProvider extends ChangeNotifier {
   /// Update current position and find nearby speed signs
   void updatePosition(Position position) {
     _currentPosition = position;
-    
+
     // Find nearby signs within 500m
     _nearbySpeedSigns = CsvParser.findNearby(
       _allSpeedSigns,
@@ -53,63 +54,42 @@ class AppProvider extends ChangeNotifier {
       position.longitude,
       500,
     );
-    
+
     // Update current speed limit from nearest sign
     if (_nearbySpeedSigns.isNotEmpty) {
-      final nearest = _nearbySpeedSigns.first;
-      final distance = nearest.calculateDistance(
-        position.latitude,
-        position.longitude,
-      );
-      
-      // Trigger camera at 150m
-      if (distance <= 150 && !_cameraActive) {
-        _cameraActive = true;
-        _status = 'Speed sign detected! Activating camera...';
-      } else if (distance > 300 && _cameraActive) {
-        _cameraActive = false;
-        _currentSpeedLimit = null;
-        _detectedSpeedLimit = null;
-        _ocrFrameCount = 0;
-        _status = 'Waiting for speed sign...';
-      }
+      _status = 'Nearby signs detected, full-time scanning...';
     } else {
-      _cameraActive = false;
       _currentSpeedLimit = null;
-      _status = 'No speed signs nearby';
+      _status = 'No speed signs nearby (Scanning)';
     }
-    
+
     notifyListeners();
   }
 
   /// Update detected speed limit from OCR
-  /// Uses multi-frame verification (need 3 consecutive frames)
+  /// Uses multi-frame verification (need 3 consecutive frames of same value)
   void updateDetectedSpeed(int? detectedSpeed) {
     if (detectedSpeed == null) {
       _ocrFrameCount = 0;
+      _lastDetectedValue = null;
       return;
     }
 
-    // Check if detected speed matches expected speed
-    if (_nearbySpeedSigns.isNotEmpty) {
-      final expectedSpeed = _nearbySpeedSigns.first.speedLimit;
-      
-      if (detectedSpeed == expectedSpeed) {
-        _ocrFrameCount++;
-        
-        // Confirm after 3 consecutive frames
-        if (_ocrFrameCount >= 3) {
-          _currentSpeedLimit = detectedSpeed;
-          _detectedSpeedLimit = detectedSpeed;
-          _status = 'Speed limit: ${detectedSpeed}km/h';
-          _ocrFrameCount = 0; // Reset counter
-        }
-      } else {
-        _ocrFrameCount = 0;
-        _detectedSpeedLimit = null;
-      }
+    if (detectedSpeed == _lastDetectedValue) {
+      _ocrFrameCount++;
+    } else {
+      _lastDetectedValue = detectedSpeed;
+      _ocrFrameCount = 1;
     }
-    
+
+    // Confirm after 3 consecutive frames
+    if (_ocrFrameCount >= 3) {
+      _currentSpeedLimit = detectedSpeed;
+      _detectedSpeedLimit = detectedSpeed;
+      _status = 'Speed limit: ${detectedSpeed}km/h';
+      _ocrFrameCount = 0; // Reset counter
+    }
+
     notifyListeners();
   }
 
@@ -123,9 +103,9 @@ class AppProvider extends ChangeNotifier {
   /// Get ROI placement for current nearest sign
   String getNearestSignPlacement() {
     if (_nearbySpeedSigns.isEmpty) return '中央';
-    return _nearbySpeedSigns.first.placement.isEmpty 
-      ? '中央' 
-      : _nearbySpeedSigns.first.placement;
+    return _nearbySpeedSigns.first.placement.isEmpty
+        ? '中央'
+        : _nearbySpeedSigns.first.placement;
   }
 
   /// Check if speeding
