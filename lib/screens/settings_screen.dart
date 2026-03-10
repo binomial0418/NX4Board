@@ -98,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Settings'),
         backgroundColor: Colors.blueGrey,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
@@ -209,7 +209,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
 
             // Log Terminal
-            Expanded(
+            SizedBox(
+              height: 300,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
