@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/speed_sign.dart';
 import '../services/csv_parser.dart';
-import '../services/obd_ble_service.dart';
+import '../services/obd_spp_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -18,7 +18,7 @@ class AppProvider extends ChangeNotifier {
   int? _lastDetectedValue;
 
   // Obd State Properties
-  final ObdBleService _obdService = ObdBleService();
+  final ObdSppService _obdService = ObdSppService();
   Timer? _obdStatusTimer;
 
   // Getters

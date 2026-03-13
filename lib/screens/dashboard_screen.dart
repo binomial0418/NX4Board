@@ -16,7 +16,7 @@ import '../providers/app_provider.dart';
 import '../services/ocr_service.dart';
 import '../services/location_service.dart';
 import '../services/settings_service.dart';
-import '../services/obd_ble_service.dart';
+import '../services/obd_spp_service.dart';
 import 'settings_screen.dart';
 
 // Foreground Task Handler（必須為 top-level function）

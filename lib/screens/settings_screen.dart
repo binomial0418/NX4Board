@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../services/settings_service.dart';
-import '../services/obd_ble_service.dart';
+import '../services/obd_spp_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -21,8 +20,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
 
-  List<ScanResult> _scanResults = [];
-  StreamSubscription? _scanSub;
+  List<Map<String, String>> _bondedDevices = [];
+  bool _isScanning = false;
 
   @override
   void initState() {
@@ -31,11 +30,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _portController.text = SettingsService().wsPort;
     _enableOcr = SettingsService().enableOcr;
 
-    _logSub = ObdBleService().logStream.listen((log) {
+    _logSub = ObdSppService().logStream.listen((log) {
       if (mounted) {
         setState(() {
           _logs.add(log);
-          if (_logs.length > 200) _logs.removeAt(0); // keep last 200 logs
+          if (_logs.length > 200) _logs.removeAt(0);
         });
         Future.delayed(const Duration(milliseconds: 100), () {
           if (_scrollController.hasClients) {
@@ -48,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     });
+
+    _refreshBondedDevices();
   }
 
   @override
@@ -55,9 +56,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ipController.dispose();
     _portController.dispose();
     _logSub?.cancel();
-    _scanSub?.cancel();
-    FlutterBluePlus.stopScan();
     super.dispose();
+  }
+
+  Future<void> _refreshBondedDevices() async {
+    setState(() => _isScanning = true);
+    final devices = await ObdSppService().getBondedDevices();
+    if (mounted) {
+      setState(() {
+        _bondedDevices = devices;
+        _isScanning = false;
+      });
+    }
   }
 
   void _saveWifiSettings() {
@@ -68,30 +78,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _startScan() {
-    setState(() {
-      _scanResults.clear();
-    });
-    _scanSub?.cancel();
-    _scanSub = FlutterBluePlus.onScanResults.listen((results) {
-      if (mounted) {
-        setState(() {
-          _scanResults = results;
-        });
-      }
-    });
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
-  }
-
-  void _connectDevice(BluetoothDevice device) async {
-    FlutterBluePlus.stopScan();
-    await SettingsService().setObdMac(device.remoteId.str);
-
+  void _connectDevice(String address, String name) async {
+    await SettingsService().setObdMac(address);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Saved and Connecting to ${device.platformName}')),
+      SnackBar(content: Text('Connecting to $name...')),
     );
-    ObdBleService().connectToDevice(device);
+    ObdSppService().connectToDevice(address);
   }
 
   @override
@@ -105,7 +98,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // OCR 設定
             Card(
               child: SwitchListTile(
                 title: const Text('啟用速限辨識',
@@ -119,8 +111,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Wi-Fi Settings Card
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
@@ -166,8 +156,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Bluetooth Scan Card
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
@@ -177,18 +165,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Bluetooth OBD2 Scan',
+                        const Text('Bluetooth OBD2 (Bonded)',
                             style: TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold)),
                         ElevatedButton.icon(
-                          onPressed: _startScan,
-                          icon: const Icon(Icons.search),
-                          label: const Text('Scan'),
+                          onPressed: _isScanning ? null : _refreshBondedDevices,
+                          icon: _isScanning
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.refresh),
+                          label: const Text('Refresh'),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const Text('Target saved MAC will be auto-connected.'),
+                    const Text('Select a paired ELM327 device to connect.'),
                     const SizedBox(height: 8),
                     Container(
                       height: 150,
@@ -196,37 +190,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         border: Border.all(color: Colors.grey),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: ListView.builder(
-                        itemCount: _scanResults.length,
-                        itemBuilder: (context, index) {
-                          final r = _scanResults[index];
-                          final name = r.device.platformName.isNotEmpty
-                              ? r.device.platformName
-                              : 'Unknown Device';
-                          final mac = r.device.remoteId.str;
-                          final savedMac = SettingsService().obdMac;
+                      child: _bondedDevices.isEmpty
+                          ? const Center(child: Text('No paired devices found'))
+                          : ListView.builder(
+                              itemCount: _bondedDevices.length,
+                              itemBuilder: (context, index) {
+                                final device = _bondedDevices[index];
+                                final name = device['name'] ?? 'Unknown';
+                                final mac = device['address'] ?? '';
+                                final savedMac = SettingsService().obdMac;
 
-                          return ListTile(
-                            title: Text(name),
-                            subtitle: Text(mac),
-                            trailing: savedMac == mac
-                                ? const Icon(Icons.check_circle,
-                                    color: Colors.green)
-                                : ElevatedButton(
-                                    onPressed: () => _connectDevice(r.device),
-                                    child: const Text('Connect'),
-                                  ),
-                          );
-                        },
-                      ),
+                                return ListTile(
+                                  title: Text(name),
+                                  subtitle: Text(mac),
+                                  trailing: savedMac == mac
+                                      ? const Icon(Icons.check_circle,
+                                          color: Colors.green)
+                                      : ElevatedButton(
+                                          onPressed: () =>
+                                              _connectDevice(mac, name),
+                                          child: const Text('Connect'),
+                                        ),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-
-            // Log Terminal
             SizedBox(
               height: 300,
               child: Container(
