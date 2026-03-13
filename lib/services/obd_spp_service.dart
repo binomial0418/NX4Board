@@ -57,7 +57,7 @@ class ObdSppService {
   int? speed;
   int? coolantTemp;
   double? voltage;
-  double? hevSoc;   // 保留一位小數
+  double? hevSoc; // 保留一位小數
   double? odometer;
   int? fuelLevel;
 
@@ -90,12 +90,13 @@ class ObdSppService {
     _log('[OBD] pollAllNow() triggered');
     sendCommand('010C');
     sendCommand('010D');
-    sendCommand('0105');
-    sendCommand('015B');
+    sendCommand('0167');
+    sendCommand('ATSH7D4');
+    sendCommand('220101'); // BMS SOC
     sendCommand('ATSH7C6');
-    sendCommand('22B002');
+    sendCommand('22B002'); // Odo, Fuel
     sendCommand('ATSH7A0');
-    sendCommand('22C00B');
+    sendCommand('22C00B'); // TPMS
     sendCommand('ATSH7DF');
   }
 
@@ -223,8 +224,11 @@ class ObdSppService {
       }
 
       try {
-        // ── [Parser TX] 日誌 ────────────────────────────────────────────────
-        _log('[Parser TX] ${cmd.trim()}');
+        // ── [Parser TX] 日誌（只記錄水溫與 HEV）────────────────────────────
+        final String _trimCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
+        if (_trimCmd == '0167' || _trimCmd == '220101') {
+          _log('[Parser TX] ${cmd.trim()}');
+        }
         _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
         await _methodChannel.invokeMethod('write', {'data': bytes});
       } catch (e) {
@@ -274,15 +278,21 @@ class ObdSppService {
     _log('[OBD] --- Starting ELM327 Init ---');
 
     try {
-      _log('[OBD] ATZ  → ${await mustSend('ATZ', timeoutMs: 2000)}');
+      _log('[OBD] ATZ  → ${await mustSend('ATZ', timeoutMs: 3000)}');
       _log('[OBD] ATE0 → ${await mustSend('ATE0')}');
       _log('[OBD] ATL0 → ${await mustSend('ATL0')}');
-      _log('[OBD] ATSP0→ ${await mustSend('ATSP0')}');
+      _log('[OBD] ATH0 → ${await mustSend('ATH0')}');   // Headers Off
+      _log('[OBD] ATS0 → ${await mustSend('ATS0')}');   // Spaces Off
+      _log('[OBD] ATAL → ${await mustSend('ATAL')}');   // Allow Long messages（多幀合併輸出）
+      _log('[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms，等待 ECU 回應
+      _log('[OBD] ATAT1 → ${await mustSend('ATAT1')}'); // 自動調整時序
+      _log('[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K，跳過 SEARCHING
 
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
       _startPollingTasks();
-      // 連線成功後立即輪詢一次所有感測器（不等 Timer 排程）
+      // 初始化完成後額外等待 1 秒，讓 CAN Bus 穩定
+      await Future.delayed(const Duration(milliseconds: 1000));
       pollAllNow();
     } catch (e) {
       _log('[OBD] Init FAILED: $e → triggering disconnect');
@@ -315,25 +325,25 @@ class ObdSppService {
     final String buf = _rxBuffer.toString();
 
     if (buf.endsWith('>')) {
-      // ── [Parser RX Raw]：把 \r 替換為可見的 \r 字串，方便肉眼觀察 ────────
-      final String rawVisible = buf
-          .replaceAll('\r', '\\r')
-          .replaceAll('\n', '\\n');
-      _log('[Parser RX Raw] $rawVisible');
 
-      // ── 清理：去掉提示符號、統一空白，保留空格以供特徵碼搜尋 ─────────────
-      final String cleaned = buf
+      // 1. 絕對淨化字串 (String Sanitization)
+      // 剔除所有的空格、歸位字元 \r、換行 \n 以及提示字元 >
+      // 同時移除多幀序號（如 "0:", "1:" ... "F:"）以防 ATAL 未生效時的容錯
+      final String sanitized = buf
+          .replaceAll(' ', '')
+          .replaceAll('\r', '')
+          .replaceAll('\n', '')
           .replaceAll('>', '')
-          .replaceAll('\r', ' ')
-          .replaceAll('\n', ' ')
-          .trim()
-          .replaceAll(RegExp(r'\s+'), ' ');
+          .toUpperCase()
+          .replaceAll(RegExp(r'[0-9A-F]:'), ''); // 移除多幀序號
 
-      _log('[Parser RX Cleaned] $cleaned');
 
-      if (cleaned.isNotEmpty) {
-        // ── 整行送入 Parser，不切碎，讓特徵碼搜尋正常運作 ──────────────────
-        _parseObdResponse(cleaned, _lastSentCmd);
+      if (sanitized.isNotEmpty) {
+        // 只針對 0167 / 220101 印 RX raw
+        if (_lastSentCmd == '0167' || _lastSentCmd == '220101') {
+          _log('[Parser RX] cmd=$_lastSentCmd raw=$sanitized');
+        }
+        _parseObdResponse(sanitized, _lastSentCmd);
       }
 
       final completer = _pendingCompleter;
@@ -341,129 +351,127 @@ class ObdSppService {
       _rxBuffer.clear();
 
       if (completer != null && !completer.isCompleted) {
-        completer.complete(cleaned);
+        completer.complete(sanitized);
       }
     }
   }
 
   // =========================================================================
-  // OBD Response Parser — CAN Bus 容錯特徵碼搜尋
+  // OBD Response Parser — 特徵碼定位提取 (Signature Indexing)
   // =========================================================================
 
-  void _parseObdResponse(String response, String lastCmd) {
-    // 無空格大寫版本，用於特徵碼搜尋
-    final String compact = response.replaceAll(' ', '').toUpperCase();
-
-    if (compact.isEmpty) return;
-
-    // 過濾 AT 指令回應與錯誤訊息
-    if (_isAtResponse(compact)) return;
+  void _parseObdResponse(String sanitized, String lastCmd) {
+    if (sanitized.isEmpty) return;
+    if (_isAtResponse(sanitized)) {
+      if (lastCmd == '0105') {
+        _log('[Parser 0105] AT response (NODATA?): $sanitized');
+      }
+      return;
+    }
 
     try {
-      // ── Mode 01 (Standard OBD) ──────────────────────────────────────────
+      // ── 2. 特徵碼定位提取 (Signature Indexing) ───────────────────────────
+      // 根據最後發送的指令，動態尋找回應特徵碼
 
-      // RPM (PID 0C)：搜尋特徵碼 410C，取後 4 個 Hex char
-      final int i410C = compact.indexOf('410C');
-      if (i410C != -1 && compact.length >= i410C + 8) {
-        final String hex = compact.substring(i410C + 4, i410C + 8);
-        final int a = int.parse(hex.substring(0, 2), radix: 16);
-        final int b = int.parse(hex.substring(2, 4), radix: 16);
-        rpm = ((a * 256) + b) ~/ 4;
-        _log('[Parser Result] RPM=$rpm  (410C hex=$hex)');
-        return;
+      // 處理 Mode 01
+      if (lastCmd.startsWith('01')) {
+        final String pid = lastCmd.substring(2); // 例如 0C
+        final String signature = '41$pid'; // 例如 410C
+        final int index = sanitized.indexOf(signature);
+
+        if (index != -1) {
+          // 3. 安全擷取資料載荷 (Payload Extraction)
+          final int payloadStart = index + signature.length;
+
+          if (pid == '0C') {
+            // RPM: 擷取後面的 4 個字元
+            if (sanitized.length >= payloadStart + 4) {
+              final String hex = sanitized.substring(payloadStart, payloadStart + 4);
+              final int a = int.parse(hex.substring(0, 2), radix: 16);
+              final int b = int.parse(hex.substring(2, 4), radix: 16);
+              rpm = ((a * 256) + b) ~/ 4;
+            }
+          } else if (pid == '0D') {
+            // Speed: 擷取後面的 2 個字元
+            if (sanitized.length >= payloadStart + 2) {
+              final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+              speed = int.parse(hex, radix: 16);
+            }
+          } else if (pid == '67') {
+            // Coolant A/B: PID 0167 回應 4167 + Byte A(count) + Byte B(CoolantA) + Byte C(CoolantB)
+            // SAE_Coolant_A = Byte B - 40, SAE_Coolant_B = Byte C - 40
+            if (sanitized.length >= payloadStart + 6) {
+              // payloadStart+0~1 = Byte A（count byte，忽略）
+              final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
+              final String hexB = sanitized.substring(payloadStart + 4, payloadStart + 6);
+              coolantTemp = int.parse(hexA, radix: 16) - 40; // Coolant A
+              final int coolantB = int.parse(hexB, radix: 16) - 40;
+              _log('[Parser Result] CoolantA=$coolantTemp °C CoolantB=$coolantB °C');
+            }
+          } else if (pid == '5B') {
+            // HEV SOC: 擷取後面的 2 個字元
+            if (sanitized.length >= payloadStart + 2) {
+              final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+              final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
+              hevSoc = double.parse(rawSoc.toStringAsFixed(1));
+              _log('[Parser Result] HEV SOC=$hevSoc% (hex=$hex)');
+            }
+          }
+          return;
+        }
       }
 
-      // Speed (PID 0D)：搜尋特徵碼 410D，取後 2 個 Hex char
-      final int i410D = compact.indexOf('410D');
-      if (i410D != -1 && compact.length >= i410D + 6) {
-        final String hex = compact.substring(i410D + 4, i410D + 6);
-        speed = int.parse(hex, radix: 16);
-        _log('[Parser Result] Speed=$speed km/h  (410D hex=$hex)');
-        return;
-      }
+      // 處理 Mode 22
+      if (lastCmd.startsWith('22')) {
+        final String pid = lastCmd.substring(2); // 例如 0101, B002, C00B
+        final String signature = '62$pid'; // 例如 620101, 62B002
+        final int index = sanitized.indexOf(signature);
 
-      // Coolant Temp (PID 05)：搜尋特徵碼 4105，取後 2 個 Hex char
-      final int i4105 = compact.indexOf('4105');
-      if (i4105 != -1 && compact.length >= i4105 + 6) {
-        final String hex = compact.substring(i4105 + 4, i4105 + 6);
-        coolantTemp = int.parse(hex, radix: 16) - 40;
-        _log('[Parser Result] Coolant=$coolantTemp °C  (4105 hex=$hex)');
-        return;
-      }
+        if (index != -1) {
+          final int payloadStart = index + signature.length;
 
-      // HEV SOC (PID 5B)：搜尋特徵碼 415B，取後 2 個 Hex char
-      final int i415B = compact.indexOf('415B');
-      if (i415B != -1 && compact.length >= i415B + 6) {
-        final String hex = compact.substring(i415B + 4, i415B + 6);
-        final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
-        hevSoc = double.parse(rawSoc.toStringAsFixed(1));
-        _log('[Parser Result] HEV SOC=$hevSoc%  (415B hex=$hex)');
-        return;
+          if (pid == 'C00B') {
+            // TPMS: 62C00B 之後需要足夠長度
+            if (sanitized.length >= payloadStart + 42) {
+              final String data = sanitized.substring(payloadStart);
+              tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
+              tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
+              tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
+              tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+            }
+          } else if (pid == 'B002') {
+            // Odo/Fuel/Voltage: 62B002 之後
+            if (sanitized.length >= payloadStart + 18) {
+              final String data = sanitized.substring(payloadStart);
+              // Odometer: Byte G,H,I (Index 12, 14, 16)
+              final int g = int.parse(data.substring(12, 14), radix: 16);
+              final int h = int.parse(data.substring(14, 16), radix: 16);
+              final int i = int.parse(data.substring(16, 18), radix: 16);
+              final int odoRaw = (g << 16) | (h << 8) | i;
+              if (odoRaw > 0) {
+                odometer = odoRaw.toDouble();
+                }
+              // Fuel: Byte E (Index 8)
+              fuelLevel = int.parse(data.substring(8, 10), radix: 16);
+              // Voltage: Byte F (Index 10) * 0.078125
+              final int f = int.parse(data.substring(10, 12), radix: 16);
+              voltage = double.parse((f * 0.078125).toStringAsFixed(2));
+            }
+          } else if (pid == '0101') {
+            // BMS SOC: B0 × 100 / 255
+            if (sanitized.length >= payloadStart + 2) {
+              final String data = sanitized.substring(payloadStart);
+              final int b0 = int.parse(data.substring(0, 2), radix: 16);
+              hevSoc = double.parse((b0 * 100.0 / 255.0).toStringAsFixed(1));
+              _log('[Parser Result] BMS SOC=$hevSoc% (B0=0x${data.substring(0,2)})');
+            }
+          }
+          return;
+        }
       }
-
-      // Battery Voltage (PID 42)：搜尋特徵碼 4142，取後 4 個 Hex char
-      final int i4142 = compact.indexOf('4142');
-      if (i4142 != -1 && compact.length >= i4142 + 8) {
-        final String hex = compact.substring(i4142 + 4, i4142 + 8);
-        final int a = int.parse(hex.substring(0, 2), radix: 16);
-        final int b = int.parse(hex.substring(2, 4), radix: 16);
-        voltage = double.parse(((a * 256 + b) / 1000.0).toStringAsFixed(2));
-        _log('[Parser Result] Voltage=$voltage V  (4142 hex=$hex)');
-        return;
-      }
-
-      // ── Mode 22 (OEM / Hyundai 等廠牌) ─────────────────────────────────
-      // 62C00B (TPMS)
-      final int i62C00B = compact.indexOf('62C00B');
-      if (i62C00B != -1) {
-        _parseMode22Tpms(compact, i62C00B);
-        return;
-      }
-
-      // 62B002 (Odometer / Fuel)
-      final int i62B002 = compact.indexOf('62B002');
-      if (i62B002 != -1) {
-        _parseMode22OdoFuel(compact, i62B002);
-        return;
-      }
-
-      // 無法識別的回應（印出供除錯，不算錯誤）
-      _log('[Parser] Unrecognized: $compact');
 
     } catch (e) {
-      _log('[Parser Error] $e | raw=$response');
-    }
-  }
-
-  // ── Mode 22 解析輔助 ──────────────────────────────────────────────────────
-
-  void _parseMode22Tpms(String compact, int startIdx) {
-    // 62C00B 之後的資料（移除標頭）
-    final String data = compact.substring(startIdx + 6);
-    if (data.length >= 42) {
-      tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
-      tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
-      tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
-      tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
-      _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr bar');
-    }
-  }
-
-  void _parseMode22OdoFuel(String compact, int startIdx) {
-    final String data = compact.substring(startIdx + 6);
-    if (data.length >= 18) {
-      final int g = int.parse(data.substring(12, 14), radix: 16);
-      final int h = int.parse(data.substring(14, 16), radix: 16);
-      final int i = int.parse(data.substring(16, 18), radix: 16);
-      final int odoRaw = (g << 16) | (h << 8) | i;
-      if (odoRaw > 0) {
-        odometer = odoRaw.toDouble();
-        _log('[Parser Result] Odometer=$odometer km');
-      }
-    }
-    if (data.length >= 10) {
-      fuelLevel = int.parse(data.substring(8, 10), radix: 16);
-      _log('[Parser Result] Fuel=$fuelLevel%');
+      _log('[Parser Error] $e | sanitized=$sanitized');
     }
   }
 
@@ -493,14 +501,18 @@ class ObdSppService {
       sendCommand('010D');
     });
 
+    // SOC 每 10 秒：切 7D4 → 220101 → 切回 7DF
     _slowPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!_isConnected) return;
-      sendCommand('015B');
+      sendCommand('ATSH7D4');
+      sendCommand('220101');
+      sendCommand('ATSH7DF');
     });
 
+    // 水溫每 60 秒：使用 PID 0167（SAE Coolant A/B）
     _minutePollTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (!_isConnected) return;
-      sendCommand('0105');
+      sendCommand('0167');
       sendCommand('ATSH7C6');
       sendCommand('22B002');
       sendCommand('ATSH7A0');
