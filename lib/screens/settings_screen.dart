@@ -19,6 +19,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   StreamSubscription? _logSub;
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
+  bool _autoScroll = true;
 
   List<Map<String, String>> _bondedDevices = [];
   bool _isScanning = false;
@@ -34,17 +35,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _logs.add(log);
-          if (_logs.length > 200) _logs.removeAt(0);
+          if (_logs.length > 500) _logs.removeAt(0);
         });
-        Future.delayed(const Duration(milliseconds: 100), () {
-          if (_scrollController.hasClients) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
-        });
+        if (_autoScroll) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                _scrollController.position.maxScrollExtent,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          });
+        }
       }
     });
 
@@ -232,19 +235,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('OBD Terminal Logs',
-                        style: TextStyle(
-                            color: Colors.green, fontWeight: FontWeight.bold)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('OBD Terminal Logs',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold)),
+                        GestureDetector(
+                          onTap: () => setState(() => _autoScroll = !_autoScroll),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _autoScroll
+                                  ? Colors.green.withOpacity(0.2)
+                                  : Colors.grey.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: _autoScroll ? Colors.green : Colors.grey,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _autoScroll ? Icons.pause : Icons.play_arrow,
+                                  color:
+                                      _autoScroll ? Colors.green : Colors.grey,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _autoScroll ? '自動捲動 ON' : '自動捲動 OFF',
+                                  style: TextStyle(
+                                    color: _autoScroll
+                                        ? Colors.green
+                                        : Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const Divider(color: Colors.green),
                     Expanded(
                       child: ListView.builder(
                         controller: _scrollController,
                         itemCount: _logs.length,
                         itemBuilder: (context, index) {
+                          final log = _logs[index];
+                          Color textColor = Colors.greenAccent;
+                          if (log.contains('[Parser Error]')) {
+                            textColor = Colors.redAccent;
+                          } else if (log.contains('[Parser Result]')) {
+                            textColor = Colors.lightGreenAccent;
+                          } else if (log.contains('[Parser TX]')) {
+                            textColor = Colors.cyanAccent;
+                          } else if (log.contains('[Parser RX Raw]')) {
+                            textColor = Colors.yellowAccent;
+                          }
                           return Text(
-                            _logs[index],
-                            style: const TextStyle(
-                              color: Colors.greenAccent,
+                            log,
+                            style: TextStyle(
+                              color: textColor,
                               fontFamily: 'monospace',
                               fontSize: 12,
                             ),

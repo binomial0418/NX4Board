@@ -40,6 +40,9 @@ class ObdSppService {
   final StringBuffer _rxBuffer = StringBuffer();
   Completer<String>? _pendingCompleter;
 
+  // ── 記錄最後發送的指令，供 Parser 判斷特徵碼 ─────────────────────────────
+  String _lastSentCmd = '';
+
   // ── 連線 Mutex：防止 Dart 端併發發起連線 ─────────────────────────────────
   bool _isConnecting = false;
 
@@ -110,7 +113,7 @@ class ObdSppService {
           await _methodChannel.invokeMethod('connect', {'address': address});
       if (success) {
         _log('[OBD] Socket connected!');
-        _isConnected = true; // ← 成功連線後才設旗標
+        _isConnected = true;
         _setupDataListener();
         initializeELM327();
       } else {
@@ -140,13 +143,7 @@ class ObdSppService {
   // 統一斷線處理器 (Centralized Disconnect Handler)
   // =========================================================================
 
-  /// 所有斷線情境的唯一出口。呼叫後保證：
-  /// 1. _isConnected = false
-  /// 2. 所有 Timer 取消
-  /// 3. Buffer / Completer / CommandChain 清空
-  /// 4. 觸發 native disconnect
   void handleDisconnect(String reason) {
-    // 防止重入：已經是 disconnected 且旗標已清除，直接跳過
     if (!_isConnected &&
         connectionState == ObdConnectionState.disconnected) {
       return;
@@ -154,11 +151,9 @@ class ObdSppService {
 
     _log('[OBD] handleDisconnect ← $reason');
 
-    // 1. 設定旗標與狀態
     _isConnected = false;
     connectionState = ObdConnectionState.disconnected;
 
-    // 2. 取消所有輪詢 Timer
     _fastPollTimer?.cancel();
     _fastPollTimer = null;
     _slowPollTimer?.cancel();
@@ -166,35 +161,29 @@ class ObdSppService {
     _minutePollTimer?.cancel();
     _minutePollTimer = null;
 
-    // 3. 清空 Buffer & 解除等待中的 Completer
     _rxBuffer.clear();
     if (_pendingCompleter != null && !_pendingCompleter!.isCompleted) {
       _pendingCompleter!.complete('DISCONNECTED');
     }
     _pendingCompleter = null;
 
-    // 4. Epoch +1：使所有已排入 microtask queue 的舊 chain closure 失效
     _connectionEpoch++;
-    // 重置 command chain，防止新指令繼續接在舊 chain 後面
     _commandChain = Future.value();
 
-    // 5. 停止 Stream 監聽
     _dataSubscription?.cancel();
     _dataSubscription = null;
 
-    // 6. 呼叫 native disconnect（fire-and-forget）
     _methodChannel.invokeMethod('disconnect').catchError((_) {});
   }
 
   // =========================================================================
-  // 核心：發送指令並 await 回應（isConnected 守門員 + Mutex + Timeout）
+  // 核心：發送指令並 await 回應
   // =========================================================================
 
   Future<String> sendCommand(String cmd, {int timeoutMs = 3000}) {
     final Completer<String> resultCompleter = Completer<String>();
 
     _commandChain = _commandChain.then((_) async {
-      // ── 守門員 1：進入 chain 時 snapshot epoch ────────────────────────
       final int epoch = _connectionEpoch;
 
       if (!_isConnected) {
@@ -210,7 +199,6 @@ class ObdSppService {
       final String toSend = cmd.endsWith('\r') ? cmd : '$cmd\r';
       final Uint8List bytes = Uint8List.fromList(ascii.encode(toSend));
 
-      // ── 守門員 2：write 前再次比對 epoch（防 Race Condition）────────────
       if (!_isConnected || _connectionEpoch != epoch) {
         if (!resultCompleter.isCompleted) {
           resultCompleter.complete('DISCONNECTED');
@@ -220,7 +208,9 @@ class ObdSppService {
       }
 
       try {
-        _log('[TX] ${cmd.trim()}');
+        // ── [Parser TX] 日誌 ────────────────────────────────────────────────
+        _log('[Parser TX] ${cmd.trim()}');
+        _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
         await _methodChannel.invokeMethod('write', {'data': bytes});
       } catch (e) {
         _log('[OBD] Write error: $e');
@@ -228,7 +218,6 @@ class ObdSppService {
           resultCompleter.complete('WRITE_ERROR');
         }
         _pendingCompleter = null;
-        // Broken pipe / socket closed → 觸發統一斷線處理
         handleDisconnect('write_failed: $e');
         return;
       }
@@ -249,14 +238,13 @@ class ObdSppService {
   }
 
   // =========================================================================
-  // 快速失敗的初始化序列 (Fail-fast Initialization)
+  // 快速失敗的初始化序列
   // =========================================================================
 
   Future<void> initializeELM327() async {
     connectionState = ObdConnectionState.initializing;
     await Future.delayed(const Duration(milliseconds: 500));
 
-    // 快速失敗輔助：任何錯誤回應直接 throw
     Future<String> mustSend(String cmd, {int timeoutMs = 3000}) async {
       if (!_isConnected) {
         throw Exception('Connection lost before sending: $cmd');
@@ -299,7 +287,7 @@ class ObdSppService {
       },
       onError: (err) {
         _log('[OBD] Stream error: $err');
-        handleDisconnect('stream_error: $err'); // ← 改呼叫統一處理器
+        handleDisconnect('stream_error: $err');
       },
     );
   }
@@ -310,20 +298,25 @@ class ObdSppService {
     final String buf = _rxBuffer.toString();
 
     if (buf.endsWith('>')) {
-      final String response = buf
+      // ── [Parser RX Raw]：把 \r 替換為可見的 \r 字串，方便肉眼觀察 ────────
+      final String rawVisible = buf
+          .replaceAll('\r', '\\r')
+          .replaceAll('\n', '\\n');
+      _log('[Parser RX Raw] $rawVisible');
+
+      // ── 清理：去掉提示符號、統一空白，保留空格以供特徵碼搜尋 ─────────────
+      final String cleaned = buf
           .replaceAll('>', '')
           .replaceAll('\r', ' ')
           .replaceAll('\n', ' ')
           .trim()
           .replaceAll(RegExp(r'\s+'), ' ');
 
-      _log('[RX] $response');
+      _log('[Parser RX Cleaned] $cleaned');
 
-      if (response.isNotEmpty) {
-        for (final line in response.split(' ')) {
-          final trimmed = line.trim();
-          if (trimmed.isNotEmpty) _parseObdResponse(trimmed);
-        }
+      if (cleaned.isNotEmpty) {
+        // ── 整行送入 Parser，不切碎，讓特徵碼搜尋正常運作 ──────────────────
+        _parseObdResponse(cleaned, _lastSentCmd);
       }
 
       final completer = _pendingCompleter;
@@ -331,94 +324,129 @@ class ObdSppService {
       _rxBuffer.clear();
 
       if (completer != null && !completer.isCompleted) {
-        completer.complete(response);
+        completer.complete(cleaned);
       }
     }
   }
 
   // =========================================================================
-  // OBD Response Parser
+  // OBD Response Parser — CAN Bus 容錯特徵碼搜尋
   // =========================================================================
 
-  void _parseObdResponse(String hexStr) {
-    final String raw = hexStr.replaceAll(' ', '').toUpperCase();
-    if (raw.isEmpty) return;
-    if (raw == 'OK' || raw == '?' || raw.startsWith('ELM') ||
-        raw.startsWith('ATZ') || raw.startsWith('ATE') ||
-        raw.startsWith('ATL') || raw.startsWith('ATS') ||
-        raw.startsWith('ATH') || raw.startsWith('ATSP') ||
-        raw.contains('NODATA') || raw.contains('ERROR') ||
-        raw.contains('SEARCHING') || raw.contains('STOPPED')) {
-      return;
+  void _parseObdResponse(String response, String lastCmd) {
+    // 無空格大寫版本，用於特徵碼搜尋
+    final String compact = response.replaceAll(' ', '').toUpperCase();
+
+    if (compact.isEmpty) return;
+
+    // 過濾 AT 指令回應與錯誤訊息
+    if (_isAtResponse(compact)) return;
+
+    try {
+      // ── Mode 01 (Standard OBD) ──────────────────────────────────────────
+
+      // RPM (PID 0C)：搜尋特徵碼 410C，取後 4 個 Hex char
+      final int i410C = compact.indexOf('410C');
+      if (i410C != -1 && compact.length >= i410C + 8) {
+        final String hex = compact.substring(i410C + 4, i410C + 8);
+        final int a = int.parse(hex.substring(0, 2), radix: 16);
+        final int b = int.parse(hex.substring(2, 4), radix: 16);
+        rpm = ((a * 256) + b) ~/ 4;
+        _log('[Parser Result] RPM=$rpm  (410C hex=$hex)');
+        return;
+      }
+
+      // Speed (PID 0D)：搜尋特徵碼 410D，取後 2 個 Hex char
+      final int i410D = compact.indexOf('410D');
+      if (i410D != -1 && compact.length >= i410D + 6) {
+        final String hex = compact.substring(i410D + 4, i410D + 6);
+        speed = int.parse(hex, radix: 16);
+        _log('[Parser Result] Speed=$speed km/h  (410D hex=$hex)');
+        return;
+      }
+
+      // Coolant Temp (PID 05)：搜尋特徵碼 4105，取後 2 個 Hex char
+      final int i4105 = compact.indexOf('4105');
+      if (i4105 != -1 && compact.length >= i4105 + 6) {
+        final String hex = compact.substring(i4105 + 4, i4105 + 6);
+        coolantTemp = int.parse(hex, radix: 16) - 40;
+        _log('[Parser Result] Coolant=$coolantTemp °C  (4105 hex=$hex)');
+        return;
+      }
+
+      // HEV SOC (PID 5B)：搜尋特徵碼 415B，取後 2 個 Hex char
+      final int i415B = compact.indexOf('415B');
+      if (i415B != -1 && compact.length >= i415B + 6) {
+        final String hex = compact.substring(i415B + 4, i415B + 6);
+        hevSoc = (int.parse(hex, radix: 16) * 100) ~/ 255;
+        _log('[Parser Result] HEV SOC=$hevSoc%  (415B hex=$hex)');
+        return;
+      }
+
+      // ── Mode 22 (OEM / Hyundai 等廠牌) ─────────────────────────────────
+      // 62C00B (TPMS)
+      final int i62C00B = compact.indexOf('62C00B');
+      if (i62C00B != -1) {
+        _parseMode22Tpms(compact, i62C00B);
+        return;
+      }
+
+      // 62B002 (Odometer / Fuel)
+      final int i62B002 = compact.indexOf('62B002');
+      if (i62B002 != -1) {
+        _parseMode22OdoFuel(compact, i62B002);
+        return;
+      }
+
+      // 無法識別的回應（印出供除錯，不算錯誤）
+      _log('[Parser] Unrecognized: $compact');
+
+    } catch (e) {
+      _log('[Parser Error] $e | raw=$response');
     }
-    if (raw.startsWith('41')) return _parseMode01(raw);
-    if (raw.startsWith('62')) return _parseMode22(raw);
   }
 
-  void _parseMode01(String raw) {
-    if (raw.length < 6) return;
-    final String pid = raw.substring(2, 4);
-    try {
-      switch (pid) {
-        case '0C':
-          if (raw.length >= 8) {
-            final int a = int.parse(raw.substring(4, 6), radix: 16);
-            final int b = int.parse(raw.substring(6, 8), radix: 16);
-            rpm = ((a * 256) + b) ~/ 4;
-          }
-          break;
-        case '0D':
-          if (raw.length >= 6) {
-            speed = int.parse(raw.substring(4, 6), radix: 16);
-          }
-          break;
-        case '05':
-          if (raw.length >= 6) {
-            final int a = int.parse(raw.substring(4, 6), radix: 16);
-            coolantTemp = a - 40;
-          }
-          break;
-        case '5B':
-          if (raw.length >= 6) {
-            final int a = int.parse(raw.substring(4, 6), radix: 16);
-            hevSoc = (a * 100) ~/ 255;
-          }
-          break;
-      }
-    } catch (e) {
-      _log('[OBD] Parse Mode01 error ($pid): $e');
+  // ── Mode 22 解析輔助 ──────────────────────────────────────────────────────
+
+  void _parseMode22Tpms(String compact, int startIdx) {
+    // 62C00B 之後的資料（移除標頭）
+    final String data = compact.substring(startIdx + 6);
+    if (data.length >= 42) {
+      tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
+      tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
+      tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
+      tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+      _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr bar');
     }
   }
 
-  void _parseMode22(String raw) {
-    if (raw.length < 8) return;
-    final String pid = raw.substring(2, 6);
-    try {
-      switch (pid) {
-        case 'C00B':
-          if (raw.length >= 48) {
-            tpmsFl = int.parse(raw.substring(14, 16), radix: 16) / 5.0;
-            tpmsFr = int.parse(raw.substring(24, 26), radix: 16) / 5.0;
-            tpmsRl = int.parse(raw.substring(44, 46), radix: 16) / 5.0;
-            tpmsRr = int.parse(raw.substring(34, 36), radix: 16) / 5.0;
-          }
-          break;
-        case 'B002':
-          if (raw.length >= 24) {
-            final int g = int.parse(raw.substring(18, 20), radix: 16);
-            final int h = int.parse(raw.substring(20, 22), radix: 16);
-            final int i = int.parse(raw.substring(22, 24), radix: 16);
-            final int odoRaw = (g << 16) | (h << 8) | i;
-            if (odoRaw > 0) odometer = odoRaw.toDouble();
-          }
-          if (raw.length >= 16) {
-            fuelLevel = int.parse(raw.substring(14, 16), radix: 16);
-          }
-          break;
+  void _parseMode22OdoFuel(String compact, int startIdx) {
+    final String data = compact.substring(startIdx + 6);
+    if (data.length >= 18) {
+      final int g = int.parse(data.substring(12, 14), radix: 16);
+      final int h = int.parse(data.substring(14, 16), radix: 16);
+      final int i = int.parse(data.substring(16, 18), radix: 16);
+      final int odoRaw = (g << 16) | (h << 8) | i;
+      if (odoRaw > 0) {
+        odometer = odoRaw.toDouble();
+        _log('[Parser Result] Odometer=$odometer km');
       }
-    } catch (e) {
-      _log('[OBD] Parse Mode22 error ($pid): $e');
     }
+    if (data.length >= 10) {
+      fuelLevel = int.parse(data.substring(8, 10), radix: 16);
+      _log('[Parser Result] Fuel=$fuelLevel%');
+    }
+  }
+
+  // ── AT 指令回應過濾器 ─────────────────────────────────────────────────────
+
+  bool _isAtResponse(String compact) {
+    const List<String> atKeywords = [
+      'OK', 'ELM', 'ATZ', 'ATE', 'ATL', 'ATS', 'ATH', 'ATSP',
+      'NODATA', 'UNABLETOCONNECT', 'BUSERROR', 'CANERROR',
+      'DATAERROR', 'ERROR', 'SEARCHING', 'STOPPED', 'BUFFERFULL',
+    ];
+    return atKeywords.any((kw) => compact.contains(kw));
   }
 
   // =========================================================================
@@ -431,7 +459,7 @@ class ObdSppService {
     _minutePollTimer?.cancel();
 
     _fastPollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_isConnected) return; // ← 用旗標而非 connectionState 判斷
+      if (!_isConnected) return;
       sendCommand('010C');
       sendCommand('010D');
     });
