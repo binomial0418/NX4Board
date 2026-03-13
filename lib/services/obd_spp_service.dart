@@ -57,7 +57,7 @@ class ObdSppService {
   int? speed;
   int? coolantTemp;
   double? voltage;
-  int? hevSoc;
+  double? hevSoc;   // 保留一位小數
   double? odometer;
   int? fuelLevel;
 
@@ -82,6 +82,21 @@ class ObdSppService {
       _log('[OBD] Auto-connecting to: $savedMac');
       connectToDevice(savedMac);
     }
+  }
+
+  /// 立即輪詢一次全部感測器（不等 Timer 排程）
+  Future<void> pollAllNow() async {
+    if (!_isConnected) return;
+    _log('[OBD] pollAllNow() triggered');
+    sendCommand('010C');
+    sendCommand('010D');
+    sendCommand('0105');
+    sendCommand('015B');
+    sendCommand('ATSH7C6');
+    sendCommand('22B002');
+    sendCommand('ATSH7A0');
+    sendCommand('22C00B');
+    sendCommand('ATSH7DF');
   }
 
   Future<List<Map<String, String>>> getBondedDevices() async {
@@ -267,6 +282,8 @@ class ObdSppService {
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
       _startPollingTasks();
+      // 連線成功後立即輪詢一次所有感測器（不等 Timer 排程）
+      pollAllNow();
     } catch (e) {
       _log('[OBD] Init FAILED: $e → triggering disconnect');
       handleDisconnect('init_failed: $e');
@@ -378,8 +395,20 @@ class ObdSppService {
       final int i415B = compact.indexOf('415B');
       if (i415B != -1 && compact.length >= i415B + 6) {
         final String hex = compact.substring(i415B + 4, i415B + 6);
-        hevSoc = (int.parse(hex, radix: 16) * 100) ~/ 255;
+        final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
+        hevSoc = double.parse(rawSoc.toStringAsFixed(1));
         _log('[Parser Result] HEV SOC=$hevSoc%  (415B hex=$hex)');
+        return;
+      }
+
+      // Battery Voltage (PID 42)：搜尋特徵碼 4142，取後 4 個 Hex char
+      final int i4142 = compact.indexOf('4142');
+      if (i4142 != -1 && compact.length >= i4142 + 8) {
+        final String hex = compact.substring(i4142 + 4, i4142 + 8);
+        final int a = int.parse(hex.substring(0, 2), radix: 16);
+        final int b = int.parse(hex.substring(2, 4), radix: 16);
+        voltage = double.parse(((a * 256 + b) / 1000.0).toStringAsFixed(2));
+        _log('[Parser Result] Voltage=$voltage V  (4142 hex=$hex)');
         return;
       }
 

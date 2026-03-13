@@ -37,7 +37,7 @@ class AppProvider extends ChangeNotifier {
   int? get obdSpeed => _obdService.speed;
   int? get obdCoolant => _obdService.coolantTemp;
   double? get obdVoltage => _obdService.voltage;
-  int? get obdHevSoc => _obdService.hevSoc;
+  double? get obdHevSoc => _obdService.hevSoc;
   double? get obdOdometer => _obdService.odometer;
   int? get obdFuel => _obdService.fuelLevel;
   double? get tpmsFl => _obdService.tpmsFl;

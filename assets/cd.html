@@ -235,18 +235,19 @@
                         return;
                     }
                 }
-                if (data.speed !== undefined) document.getElementById('speed').innerText = data.speed;
+                if (data.speed !== undefined) document.getElementById('speed').innerText = Math.ceil(parseFloat(data.speed));
                 if (data.rpm !== undefined) {
                     const rpmEl = document.getElementById('rpm');
                     const rpmUnit = document.getElementById('rpm_unit');
-                    if (parseInt(data.rpm) === 0) {
+                    const rpmVal = Math.ceil(parseFloat(data.rpm));
+                    if (rpmVal === 0) {
                         rpmEl.innerText = "EV";
                         rpmEl.classList.remove('text-white');
                         rpmEl.classList.add('text-green-500', 'italic');
                         rpmEl.style.letterSpacing = '1rem';
                         if (rpmUnit) rpmUnit.style.display = 'none';
                     } else {
-                        rpmEl.innerText = data.rpm;
+                        rpmEl.innerText = rpmVal;
                         rpmEl.classList.remove('text-green-500', 'italic');
                         rpmEl.classList.add('text-white');
                         rpmEl.style.letterSpacing = '';
@@ -256,8 +257,8 @@
 
                 if (data.temperature !== undefined) {
                     const tempEl = document.getElementById('temp');
-                    tempEl.innerText = data.temperature;
-                    const tempVal = parseInt(data.temperature);
+                    const tempVal = Math.ceil(parseFloat(data.temperature));
+                    tempEl.innerText = tempVal;
 
                     // 先清除所有警示樣式
                     tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
@@ -269,7 +270,8 @@
                     }
                 }
 
-                if (data.battery !== undefined) document.getElementById('battery').innerText = data.battery;
+                // HEV 電池：保留一位小數
+                if (data.battery !== undefined) document.getElementById('battery').innerText = parseFloat(data.battery).toFixed(1);
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
                 if (data.enableOcr !== undefined) {
                     window._ocrEnabled = data.enableOcr;
@@ -289,7 +291,8 @@
                         const targetId = tpmsMapping[key];
                         const el = document.getElementById(targetId);
                         if (el) {
-                            el.innerText = data[key].toFixed(1); // Set to 1 decimal point for BLE
+                            // TPMS 顯示整數（無條件進位）
+                            el.innerText = Math.ceil(parseFloat(data[key]));
                             if (parseFloat(data[key]) < 32) {
                                 el.classList.add('alert-pulse');
                             } else {

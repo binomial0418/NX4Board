@@ -62,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
+  bool _isWsConnecting = false; // 防止重複連線
   Timer? _obdSyncTimer;
   Timer? _wsUploadTimer;
 
@@ -89,8 +90,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _initializeWidgets() async {
-    // 請求定位權限
-    await LocationService.requestLocationPermission();
+    // 保底先啟用 WakeLock，避免電源狀態讀取失敗時仍能維持常亮
+    await WakelockPlus.enable();
+
+    // 集中請求所有必要權限
+    await _requestAllPermissions();
+
     _startLocationTracking();
 
     // 強制橫向 + 隱藏 Status Bar
@@ -107,6 +112,44 @@ class _DashboardScreenState extends State<DashboardScreen>
     _startWsUploadSync();
     _initForegroundTask();
     _startBatteryMonitoring();
+  }
+
+  // ──────────────────────────────────────────────
+  // 集中式權限請求（啟動時全部一次詢問）
+  // ──────────────────────────────────────────────
+  Future<void> _requestAllPermissions() async {
+    final statuses = await [
+      Permission.camera,
+      Permission.location,
+      Permission.locationAlways,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.notification,
+    ].request();
+
+    // 任一權限被永久拒絕時，引導使用者至系統設定頁
+    final hasPermanentlyDenied =
+        statuses.values.any((s) => s.isPermanentlyDenied);
+    if (hasPermanentlyDenied && mounted) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('需要授予權限'),
+          content: const Text(
+              '部分必要權限已被永久拒絕（相機、定位、藍牙、通知）。\n請前往系統設定手動開啟。'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                openAppSettings();
+              },
+              child: const Text('前往設定'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -199,6 +242,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         _positionSubscription!.resume();
       }
 
+      // 重連 OBD（若已因睡眠斷線）
+      final obdService = ObdSppService();
+      if (obdService.connectionState == ObdConnectionState.disconnected) {
+        debugPrint('[電源] 重新連接 OBD 藍牙');
+        obdService.init();
+      }
+
       // 恢復 WebSocket 連線
       if (!_isWsConnected) {
         _connectWebSocket();
@@ -207,8 +257,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       _startObdToWebviewSync();
       _startWsUploadSync();
 
-      // 啟動全時影像辨識
-      if (mounted) {
+      // 重建相機（若已因睡眠釋放）
+      if (_cameraController == null && mounted) {
+        debugPrint('[電源] 重新初始化相機');
+        _ocrService = OcrService();
+        _initializeCamera().then((_) {
+          if (_isCharging && SettingsService().enableOcr && mounted) {
+            _startFrameProcessing();
+          }
+        });
+      } else if (mounted) {
+        // 相機已存在，直接啟動 frame 處理
         _startFrameProcessing();
       }
     } else if (!charging && _isCharging) {
@@ -233,7 +292,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     });
   }
 
-  void _enterSleepMode() {
+  Future<void> _enterSleepMode() async {
     debugPrint('[電源] 進入深度睡眠模式，關閉背景高耗電資源');
 
     // 關閉螢幕常亮與沉浸模式
@@ -252,6 +311,24 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // 暫停 GPS 定位以省電
     _positionSubscription?.pause();
+
+    // 斷開藍牙 OBD（關閉輪詢 + 釋放 SPP 連線）
+    ObdSppService().handleDisconnect('power_disconnected');
+    debugPrint('[電源] OBD 藍牙已斷線');
+
+    // 完整釋放相機硬體資源（停止串流 + dispose CameraController）
+    _stopFrameProcessing();
+    final ctrl = _cameraController;
+    _cameraController = null;
+    try {
+      await ctrl?.dispose();
+    } catch (e) {
+      debugPrint('[電源] Camera dispose error: $e');
+    }
+    _ocrService?.dispose();
+    _ocrService = null;
+    if (mounted) setState(() {}); // 讓 1×1 CameraPreview widget 從樹上移除
+    debugPrint('[電源] 相機硬體資源已完整釋放');
   }
 
   // ──────────────────────────────────────────────
@@ -360,34 +437,51 @@ class _DashboardScreenState extends State<DashboardScreen>
   // WebSocket 連線
   // ──────────────────────────────────────────────
   void _connectWebSocket() {
+    // 防衛鎖：避免重複發起連線
+    if (_isWsConnecting) return;
+    _isWsConnecting = true;
+
     try {
       final ip = SettingsService().wsIp;
       final port = SettingsService().wsPort;
+
+      // 先關閉舊 channel，防止 channel 洩漏
+      _channel?.sink.close();
+      _channel = null;
+
       _channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+
+      // 連線建立後立即標記為 connected（不等收到訊息）
+      // 因為本 app 是主動推送方，可能永遠不會收到回傳訊息
+      if (mounted) setState(() => _isWsConnected = true);
+      debugPrint('[WS] 已連接: ws://$ip:$port');
+
       _channel!.stream.listen(
         (message) {
-          // 收到訊息即確認連線成功
-          if (!_isWsConnected && mounted) {
-            setState(() => _isWsConnected = true);
-          }
+          // 收到伺服器下推的訊息，轉發到 WebView
           _webViewController?.evaluateJavascript(
               source:
                   "if(window.updateDashboard) updateDashboard('$message');");
         },
         onDone: () {
+          debugPrint('[WS] 連線中斷 (onDone)');
           if (mounted) setState(() => _isWsConnected = false);
+          _isWsConnecting = false;
           _scheduleReconnect();
         },
         onError: (error) {
-          debugPrint('WebSocket Error: $error');
+          debugPrint('[WS] 連線錯誤: $error');
           if (mounted) setState(() => _isWsConnected = false);
+          _isWsConnecting = false;
           _scheduleReconnect();
         },
         cancelOnError: true,
       );
+      _isWsConnecting = false;
     } catch (e) {
-      debugPrint('WebSocket connection failed: $e');
+      debugPrint('[WS] 連線失敗: $e');
       if (mounted) setState(() => _isWsConnected = false);
+      _isWsConnecting = false;
       _scheduleReconnect();
     }
   }
@@ -395,7 +489,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _startWsUploadSync() {
     _wsUploadTimer?.cancel();
     _wsUploadTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
-      if (!mounted || !_isWsConnected || _channel == null) return;
+      if (!mounted) return;
+
+      // 若未連線且正在充電，立即觸發重連（不等下次斷線事件）
+      if (!_isWsConnected || _channel == null) {
+        if (_isCharging) _scheduleReconnect();
+        return;
+      }
+
       final provider = context.read<AppProvider>();
 
       final Map<String, dynamic> uploadData = {};
@@ -414,6 +515,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           debugPrint('[WS-TX] Uploaded to Relay: $jsonString');
         } catch (e) {
           debugPrint('[WS-TX] Send error: $e');
+          // 發送失敗視為斷線，立即觸發重連
+          if (mounted) setState(() => _isWsConnected = false);
+          _scheduleReconnect();
         }
       }
     });
