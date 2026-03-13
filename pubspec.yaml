@@ -3,7 +3,7 @@ description: A Flutter app to detect and warn about speed limits using GPS and O
 
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -46,6 +46,7 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -55,3 +56,8 @@ flutter:
     - assets/cd.html
     - assets/tailwind.min.js
     - assets/fonts/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false
+  image_path: "assets/app_icon.png"
