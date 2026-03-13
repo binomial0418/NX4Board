@@ -112,6 +112,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _startWsUploadSync();
     _initForegroundTask();
     _startBatteryMonitoring();
+
+    // 啟動後 15 秒（等 OBD 連線+初始輪詢回應），立即傳送一次 WS 資料
+    Future.delayed(const Duration(seconds: 15), () {
+      _sendObdDataViaWsOnce();
+    });
   }
 
   // ──────────────────────────────────────────────
@@ -257,6 +262,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       _startObdToWebviewSync();
       _startWsUploadSync();
 
+      // 插電後 15 秒（等 OBD 重連+輪詢完成），立即傳送一次 WS 資料
+      Future.delayed(const Duration(seconds: 15), () {
+        _sendObdDataViaWsOnce();
+      });
+
       // 重建相機（若已因睡眠釋放）
       if (_cameraController == null && mounted) {
         debugPrint('[電源] 重新初始化相機');
@@ -335,6 +345,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   // 相機初始化
   // ──────────────────────────────────────────────
   Future<void> _initializeCamera() async {
+    // OCR 禁用時不初始化相機，避免佔用硬體資源
+    if (!SettingsService().enableOcr) return;
+
     try {
       final status = await Permission.camera.request();
       if (status.isDenied) return;
@@ -354,6 +367,24 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (e) {
       debugPrint('Camera error: $e');
     }
+  }
+
+  // ──────────────────────────────────────────────
+  // 完整釋放相機硬體資源（停止串流 + dispose）
+  // ──────────────────────────────────────────────
+  Future<void> _releaseCameraResources() async {
+    _stopFrameProcessing();
+    final ctrl = _cameraController;
+    _cameraController = null;
+    try {
+      await ctrl?.dispose();
+    } catch (e) {
+      debugPrint('[Camera] dispose error: $e');
+    }
+    _ocrService?.dispose();
+    _ocrService = null;
+    if (mounted) setState(() {}); // 讓 CameraPreview widget 從樹上移除
+    debugPrint('[Camera] 硬體資源已完整釋放');
   }
 
   // ──────────────────────────────────────────────
@@ -568,6 +599,38 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ──────────────────────────────────────────────
+  // 立即傳送一次 OBD 資料至 WS（輪詢回來後呼叫）
+  // ──────────────────────────────────────────────
+  void _sendObdDataViaWsOnce() {
+    if (!mounted || !_isWsConnected || _channel == null) return;
+    final provider = context.read<AppProvider>();
+
+    final Map<String, dynamic> uploadData = {};
+    if (provider.tpmsFl != null) uploadData["tpmsFl"] = provider.tpmsFl;
+    if (provider.tpmsFr != null) uploadData["tpmsFr"] = provider.tpmsFr;
+    if (provider.tpmsRl != null) uploadData["tpmsRl"] = provider.tpmsRl;
+    if (provider.tpmsRr != null) uploadData["tpmsRr"] = provider.tpmsRr;
+    if (provider.obdOdometer != null) uploadData["odo"] = provider.obdOdometer;
+    if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+    if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
+    if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
+    if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
+    if (provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+
+    if (uploadData.isNotEmpty) {
+      final jsonString = jsonEncode(uploadData);
+      try {
+        _channel!.sink.add(jsonString);
+        debugPrint('[WS-TX] 輪詢後立即傳送: $jsonString');
+      } catch (e) {
+        debugPrint('[WS-TX] 立即傳送錯誤: $e');
+        if (mounted) setState(() => _isWsConnected = false);
+        _scheduleReconnect();
+      }
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // 清理
   // ──────────────────────────────────────────────
   @override
@@ -583,6 +646,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     _cameraController?.dispose();
     _ocrService?.dispose();
     _channel?.sink.close();
+    // OBD 斷線（釋放藍牙連線與停止輪詢）
+    ObdSppService().handleDisconnect('dispose');
     FlutterForegroundTask.stopService();
     WakelockPlus.disable();
 
@@ -700,15 +765,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                       context,
                       MaterialPageRoute(
                           builder: (context) => const SettingsScreen()),
-                    ).then((_) {
+                    ).then((_) async {
                       // Settings changed, reconnect WebSocket if needed
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
 
-                      // Update OCR state
+                      // OCR 設定變更處理
                       if (!SettingsService().enableOcr) {
-                        _stopFrameProcessing();
+                        // 禁用 OCR：完整釋放相機硬體資源
+                        await _releaseCameraResources();
+                      } else if (_cameraController == null) {
+                        // 啟用 OCR 且相機未初始化：重新初始化
+                        _ocrService = OcrService();
+                        await _initializeCamera();
+                        if (_isCharging && mounted) _startFrameProcessing();
                       } else if (_isCharging) {
                         _startFrameProcessing();
                       }
@@ -729,9 +800,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                   color: Colors.redAccent.withOpacity(0.8),
                   iconSize: 32,
                   splashRadius: 28,
-                  onPressed: () {
-                    // 清理並強制關閉程式
-                    FlutterForegroundTask.stopService();
+                  onPressed: () async {
+                    // 1. 停止 Foreground Service
+                    await FlutterForegroundTask.stopService();
+                    // 2. 斷開 OBD 藍牙
+                    ObdSppService().handleDisconnect('user_shutdown');
+                    // 3. 完整釋放相機資源
+                    await _releaseCameraResources();
+                    // 4. 關閉 WebSocket
+                    _channel?.sink.close();
+                    // 5. 取消 WakeLock
+                    await WakelockPlus.disable();
+                    // 6. 退出 App
                     SystemNavigator.pop();
                   },
                 ),
