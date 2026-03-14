@@ -15,12 +15,6 @@ dependencies:
   # GPS & Location
   geolocator: ^10.1.0
   
-  # Camera
-  camera: ^0.10.5+5
-  
-  # ML Kit Text Recognition (OCR)
-  google_mlkit_text_recognition: ^0.8.0
-  
   # CSV Parsing
   csv: ^6.0.0
   

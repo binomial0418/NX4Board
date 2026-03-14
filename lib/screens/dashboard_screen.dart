@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -13,7 +12,6 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import '../providers/app_provider.dart';
-import '../services/ocr_service.dart';
 import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
@@ -45,14 +43,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
-  // --- Camera & OCR ---
-  CameraController? _cameraController;
-  OcrService? _ocrService;
-  bool _isProcessing = false;
-  bool _isCameraStreaming = false;
-  bool _isOcrActive = false; // OCR 狀態指示
-  DateTime? _lastOcrTime;
-
   // --- 動畫 ---
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -105,8 +95,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       DeviceOrientation.landscapeRight,
     ]);
 
-    _ocrService = OcrService();
-    await _initializeCamera();
     _connectWebSocket();
     _startObdToWebviewSync();
     _startWsUploadSync();
@@ -124,7 +112,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   Future<void> _requestAllPermissions() async {
     final statuses = await [
-      Permission.camera,
       Permission.location,
       Permission.locationAlways,
       Permission.bluetoothScan,
@@ -142,7 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         builder: (ctx) => AlertDialog(
           title: const Text('需要授予權限'),
           content: const Text(
-              '部分必要權限已被永久拒絕（相機、定位、藍牙、通知）。\n請前往系統設定手動開啟。'),
+              '部分必要權限已被永久拒絕（定位、藍牙、通知）。\n請前往系統設定手動開啟。'),
           actions: [
             TextButton(
               onPressed: () {
@@ -197,11 +184,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (mounted) {
           final appProvider = context.read<AppProvider>();
           appProvider.updatePosition(position);
-
-          // 全時偵測：只要正在充電，就持續啟動鏡頭
-          if (_isCharging) {
-            _startFrameProcessing();
-          }
         }
       },
       onError: (e) => debugPrint('Location stream error: $e'),
@@ -267,24 +249,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         _sendObdDataViaWsOnce();
       });
 
-      // 重建相機（若已因睡眠釋放）
-      if (_cameraController == null && mounted) {
-        debugPrint('[電源] 重新初始化相機');
-        _ocrService = OcrService();
-        _initializeCamera().then((_) {
-          if (_isCharging && SettingsService().enableOcr && mounted) {
-            _startFrameProcessing();
-          }
-        });
-      } else if (mounted) {
-        // 相機已存在，直接啟動 frame 處理
-        _startFrameProcessing();
-      }
     } else if (!charging && _isCharging) {
-      // 切換到未充電狀態：立即關閉高耗能鏡頭，啟動睡眠倒數
+      // 切換到未充電狀態：啟動睡眠倒數
       _isCharging = false;
-      debugPrint('[電源] 偵測到外部電源中斷，停止影像辨識，10 秒後進入深度睡眠');
-      _stopFrameProcessing();
+      debugPrint('[電源] 偵測到外部電源中斷，10 秒後進入深度睡眠');
       _startSleepCountdown();
     }
   }
@@ -326,142 +294,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     ObdSppService().handleDisconnect('power_disconnected');
     debugPrint('[電源] OBD 藍牙已斷線');
 
-    // 完整釋放相機硬體資源（停止串流 + dispose CameraController）
-    _stopFrameProcessing();
-    final ctrl = _cameraController;
-    _cameraController = null;
-    try {
-      await ctrl?.dispose();
-    } catch (e) {
-      debugPrint('[電源] Camera dispose error: $e');
-    }
-    _ocrService?.dispose();
-    _ocrService = null;
-    if (mounted) setState(() {}); // 讓 1×1 CameraPreview widget 從樹上移除
-    debugPrint('[電源] 相機硬體資源已完整釋放');
-  }
-
-  // ──────────────────────────────────────────────
-  // 相機初始化
-  // ──────────────────────────────────────────────
-  Future<void> _initializeCamera() async {
-    // OCR 禁用時不初始化相機，避免佔用硬體資源
-    if (!SettingsService().enableOcr) return;
-
-    try {
-      final status = await Permission.camera.request();
-      if (status.isDenied) return;
-
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) return;
-
-      _cameraController = CameraController(
-        cameras.first,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-
-      await _cameraController!.initialize();
-      if (!mounted) return;
-      setState(() {});
-    } catch (e) {
-      debugPrint('Camera error: $e');
-    }
-  }
-
-  // ──────────────────────────────────────────────
-  // 完整釋放相機硬體資源（停止串流 + dispose）
-  // ──────────────────────────────────────────────
-  Future<void> _releaseCameraResources() async {
-    _stopFrameProcessing();
-    final ctrl = _cameraController;
-    _cameraController = null;
-    try {
-      await ctrl?.dispose();
-    } catch (e) {
-      debugPrint('[Camera] dispose error: $e');
-    }
-    _ocrService?.dispose();
-    _ocrService = null;
-    if (mounted) setState(() {}); // 讓 CameraPreview widget 從樹上移除
-    debugPrint('[Camera] 硬體資源已完整釋放');
-  }
-
-  // ──────────────────────────────────────────────
-  // 影像辨識串流啟停
-  // ──────────────────────────────────────────────
-  void _startFrameProcessing() {
-    if (!SettingsService().enableOcr) {
-      if (_isCameraStreaming) _stopFrameProcessing();
-      return;
-    }
-    if (_isCameraStreaming) return;
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
-
-    try {
-      _cameraController!.startImageStream((CameraImage image) async {
-        if (_isProcessing) return;
-
-        // --- 頻率控制：每秒 5 張 (200ms) ---
-        final now = DateTime.now();
-        if (_lastOcrTime != null &&
-            now.difference(_lastOcrTime!).inMilliseconds < 200) {
-          return;
-        }
-        _lastOcrTime = now;
-
-        final appProvider = context.read<AppProvider>();
-
-        // 開啟 OCR 綠燈閃爍
-        if (!_isOcrActive && mounted) {
-          setState(() => _isOcrActive = true);
-        }
-
-        _isProcessing = true;
-        try {
-          final detectedSpeed = await _ocrService?.recognizeSpeedLimit(image);
-          if (mounted) {
-            // 這會檢查是否與圖資相符且連續 3 幀
-            appProvider.updateDetectedSpeed(detectedSpeed);
-
-            // 只有當 AppProvider 真正確認拿到正確數值時，才送去更新 JS
-            if (appProvider.detectedSpeedLimit != null) {
-              final finalSpeed = appProvider.detectedSpeedLimit;
-              final jsonString = '{"limit": $finalSpeed}';
-              _webViewController?.evaluateJavascript(
-                source:
-                    "if(window.updateDashboard) updateDashboard('$jsonString');",
-              );
-              // 傳送成功後，如果想清空避免一直送相同數值，可選呼叫 resetDetectedSpeed()
-              // appProvider.resetDetectedSpeed();
-            }
-          }
-        } catch (e) {
-          debugPrint('OCR error: $e');
-        } finally {
-          _isProcessing = false;
-        }
-      });
-      _isCameraStreaming = true;
-      debugPrint('[相機] 影像辨識串流已啟動（目前於圖資範圍內）');
-    } catch (e) {
-      debugPrint('Start image stream error: $e');
-    }
-  }
-
-  void _stopFrameProcessing() {
-    if (!_isCameraStreaming) return;
-    try {
-      _cameraController?.stopImageStream();
-      _isCameraStreaming = false;
-      _isProcessing = false;
-      if (mounted) setState(() => _isOcrActive = false);
-      debugPrint('[相機] 影像辨識串流已停止');
-    } catch (e) {
-      debugPrint('Stop image stream error: $e');
-    }
+    if (mounted) setState(() {}); 
+    debugPrint('[電源] 系統資源已釋放');
   }
 
   // ──────────────────────────────────────────────
@@ -585,9 +419,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.tpmsRl != null) jsonMap["rl_pressure"] = provider.tpmsRl;
       if (provider.tpmsRr != null) jsonMap["rr_pressure"] = provider.tpmsRr;
       if (provider.obdHevSoc != null) jsonMap["battery"] = provider.obdHevSoc;
-      // if (provider.obdVoltage != null) jsonMap["batteryVol"] = provider.obdVoltage;
-      // if (provider.obdOdometer != null) jsonMap["mileage"] = provider.obdOdometer;
-      // if (provider.obdFuel != null) jsonMap["fuelVolume"] = provider.obdFuel;
 
       if (jsonMap.isNotEmpty) {
         final jsonString = jsonEncode(jsonMap);
@@ -642,9 +473,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _obdSyncTimer?.cancel();
     _wsUploadTimer?.cancel();
     _pulseController.dispose();
-    _stopFrameProcessing();
-    _cameraController?.dispose();
-    _ocrService?.dispose();
     _channel?.sink.close();
     // OBD 斷線（釋放藍牙連線與停止輪詢）
     ObdSppService().handleDisconnect('dispose');
@@ -669,17 +497,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // 底層：1x1 隱藏相機 Preview（維持影像串流）
-            if (_cameraController != null &&
-                _cameraController!.value.isInitialized)
-              Positioned(
-                left: 0,
-                top: 0,
-                width: 1,
-                height: 1,
-                child: CameraPreview(_cameraController!),
-              ),
-
             // 上層：全螢幕 Dashboard HTML
             Positioned.fill(
               child: InAppWebView(
@@ -736,13 +553,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                     pulseAnimation: _pulseAnimation,
                   ),
                   const SizedBox(height: 10),
-                  // OCR 狀態
+                  // OCR 狀態 (移除相機後固定顯示為關閉)
                   _StatusBadge(
-                    isActive: _isOcrActive,
+                    isActive: false,
                     activeLabel: '相機運作',
                     inactiveLabel: '相機關閉',
                     activeColor: Colors.greenAccent,
-                    inactiveColor: Colors.orange,
+                    inactiveColor: Colors.grey,
                     pulseAnimation: _pulseAnimation,
                   ),
                 ],
@@ -770,19 +587,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
-
-                      // OCR 設定變更處理
-                      if (!SettingsService().enableOcr) {
-                        // 禁用 OCR：完整釋放相機硬體資源
-                        await _releaseCameraResources();
-                      } else if (_cameraController == null) {
-                        // 啟用 OCR 且相機未初始化：重新初始化
-                        _ocrService = OcrService();
-                        await _initializeCamera();
-                        if (_isCharging && mounted) _startFrameProcessing();
-                      } else if (_isCharging) {
-                        _startFrameProcessing();
-                      }
                     });
                   },
                 ),
@@ -800,18 +604,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   color: Colors.redAccent.withOpacity(0.8),
                   iconSize: 32,
                   splashRadius: 28,
-                  onPressed: () async {
-                    // 1. 停止 Foreground Service
-                    await FlutterForegroundTask.stopService();
-                    // 2. 斷開 OBD 藍牙
-                    ObdSppService().handleDisconnect('user_shutdown');
-                    // 3. 完整釋放相機資源
-                    await _releaseCameraResources();
-                    // 4. 關閉 WebSocket
-                    _channel?.sink.close();
-                    // 5. 取消 WakeLock
-                    await WakelockPlus.disable();
-                    // 6. 退出 App
+                  onPressed: () {
                     SystemNavigator.pop();
                   },
                 ),
@@ -824,9 +617,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 }
 
-// ──────────────────────────────────────────────
-// 通用狀態指示器 Widget
-// ──────────────────────────────────────────────
 class _StatusBadge extends StatelessWidget {
   final bool isActive;
   final String activeLabel;
@@ -846,55 +636,49 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? activeColor : inactiveColor;
-    return AnimatedBuilder(
-      animation: pulseAnimation,
-      builder: (context, child) {
-        return Opacity(
-          opacity: isActive ? pulseAnimation.value : 0.65,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.55),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: color.withOpacity(0.7),
-                width: 1.2,
+    return FadeTransition(
+      opacity: isActive ? pulseAnimation : const AlwaysStoppedAnimation(1.0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: (isActive ? activeColor : inactiveColor).withOpacity(0.2),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: (isActive ? activeColor : inactiveColor).withOpacity(0.5),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: isActive ? activeColor : inactiveColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: (isActive ? activeColor : inactiveColor)
+                        .withOpacity(0.5),
+                    blurRadius: 4,
+                    spreadRadius: 1,
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withOpacity(isActive ? 0.8 : 0.4),
-                        blurRadius: isActive ? 8 : 3,
-                        spreadRadius: isActive ? 2 : 1,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isActive ? activeLabel : inactiveLabel,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ],
+            const SizedBox(width: 8),
+            Text(
+              isActive ? activeLabel : inactiveLabel,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.9),
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,0 +1,16 @@
+Analyzing lib...                                                
+
+   info • Parameter 'key' could be a super parameter • lib/screens/dashboard_screen.dart:38:9 • use_super_parameters
+   info • Statements in an if should be enclosed in a block • lib/screens/dashboard_screen.dart:373:9 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block • lib/screens/dashboard_screen.dart:416:9 • curly_braces_in_flow_control_structures
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/dashboard_screen.dart:604:43 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/dashboard_screen.dart:644:59 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/dashboard_screen.dart:647:61 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/dashboard_screen.dart:663:26 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/dashboard_screen.dart:674:37 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/settings_screen.dart:252:50 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/screens/settings_screen.dart:253:49 • deprecated_member_use
+   info • Don't invoke 'print' in production code • lib/services/csv_parser.dart:56:7 • avoid_print
+   info • Don't invoke 'print' in production code • lib/services/location_service.dart:35:7 • avoid_print
+
+12 issues found. (ran in 2.0s)

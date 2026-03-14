@@ -10,12 +10,8 @@ class AppProvider extends ChangeNotifier {
   Position? _currentPosition;
   List<SpeedSign> _nearbySpeedSigns = [];
   int? _currentSpeedLimit;
-  int? _detectedSpeedLimit;
   bool _isLoading = true;
   String _status = 'Initializing...';
-  bool _cameraActive = true;
-  int _ocrFrameCount = 0;
-  int? _lastDetectedValue;
 
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
@@ -26,10 +22,8 @@ class AppProvider extends ChangeNotifier {
   Position? get currentPosition => _currentPosition;
   List<SpeedSign> get nearbySpeedSigns => _nearbySpeedSigns;
   int? get currentSpeedLimit => _currentSpeedLimit;
-  int? get detectedSpeedLimit => _detectedSpeedLimit;
   bool get isLoading => _isLoading;
   String get status => _status;
-  bool get cameraActive => _cameraActive;
 
   // Obd getters
   ObdConnectionState get obdConnectionState => _obdService.connectionState;
@@ -91,55 +85,13 @@ class AppProvider extends ChangeNotifier {
 
     // Update current speed limit from nearest sign
     if (_nearbySpeedSigns.isNotEmpty) {
-      _status = 'Nearby signs detected, full-time scanning...';
+      _status = 'Nearby signs detected...';
     } else {
       _currentSpeedLimit = null;
-      _status = 'No speed signs nearby (Scanning)';
+      _status = 'No speed signs nearby';
     }
 
     notifyListeners();
-  }
-
-  /// Update detected speed limit from OCR
-  /// Uses multi-frame verification (need 3 consecutive frames of same value)
-  void updateDetectedSpeed(int? detectedSpeed) {
-    if (detectedSpeed == null) {
-      _ocrFrameCount = 0;
-      _lastDetectedValue = null;
-      return;
-    }
-
-    if (detectedSpeed == _lastDetectedValue) {
-      _ocrFrameCount++;
-    } else {
-      _lastDetectedValue = detectedSpeed;
-      _ocrFrameCount = 1;
-    }
-
-    // Confirm after 3 consecutive frames
-    if (_ocrFrameCount >= 3) {
-      _currentSpeedLimit = detectedSpeed;
-      _detectedSpeedLimit = detectedSpeed;
-      _status = 'Speed limit: ${detectedSpeed}km/h';
-      _ocrFrameCount = 0; // Reset counter
-    }
-
-    notifyListeners();
-  }
-
-  /// Reset detected speed
-  void resetDetectedSpeed() {
-    _detectedSpeedLimit = null;
-    _ocrFrameCount = 0;
-    notifyListeners();
-  }
-
-  /// Get ROI placement for current nearest sign
-  String getNearestSignPlacement() {
-    if (_nearbySpeedSigns.isEmpty) return '中央';
-    return _nearbySpeedSigns.first.placement.isEmpty
-        ? '中央'
-        : _nearbySpeedSigns.first.placement;
   }
 
   /// Check if speeding
