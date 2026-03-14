@@ -458,12 +458,13 @@ class ObdSppService {
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
             }
           } else if (pid == '0101') {
-            // BMS SOC: B0 × 100 / 255
-            if (sanitized.length >= payloadStart + 2) {
+            // BMS SOC = Byte E / 2（cn7Pid.csv: "E/2"）
+            // 620101 後：A=offset0~1, B=2~3, C=4~5, D=6~7, E=8~9
+            if (sanitized.length >= payloadStart + 10) {
               final String data = sanitized.substring(payloadStart);
-              final int b0 = int.parse(data.substring(0, 2), radix: 16);
-              hevSoc = double.parse((b0 * 100.0 / 255.0).toStringAsFixed(1));
-              _log('[Parser Result] BMS SOC=$hevSoc% (B0=0x${data.substring(0,2)})');
+              final int byteE = int.parse(data.substring(8, 10), radix: 16);
+              hevSoc = double.parse((byteE / 2.0).toStringAsFixed(1));
+              _log('[Parser Result] BMS SOC=$hevSoc% (ByteE=0x${data.substring(8, 10)})');
             }
           }
           return;
