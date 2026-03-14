@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:battery_plus/battery_plus.dart';
 import 'settings_service.dart';
 
 enum ObdConnectionState {
@@ -73,10 +74,102 @@ class ObdSppService {
   Timer? _minutePollTimer;
 
   // =========================================================================
+  // 模組一：電源狀態感知 (Power State Listener)
+  // =========================================================================
+
+  final Battery _battery = Battery();
+  StreamSubscription<BatteryState>? _batterySubscription;
+
+  /// 電源連線總開關：true = 外部電源在線，false = 僅靠手機電池
+  bool _isPowerConnected = true;
+
+  /// 啟動電源監聽，應在 App 啟動時呼叫
+  void startPowerListener() {
+    _batterySubscription?.cancel();
+    _batterySubscription =
+        _battery.onBatteryStateChanged.listen((BatteryState state) {
+      if (state == BatteryState.charging || state == BatteryState.full) {
+        if (!_isPowerConnected) {
+          _log('[Power] 外部電源已接上，喚醒並嘗試連線...');
+          _isPowerConnected = true;
+          final String savedMac = SettingsService().obdMac;
+          if (savedMac.isNotEmpty) {
+            connectToDevice(savedMac);
+          }
+        }
+      } else {
+        // BatteryState.discharging：斷開外部電源（停車熄火）
+        if (_isPowerConnected) {
+          _log('[Power] 外部電源斷開，進入深度休眠...');
+          _isPowerConnected = false;
+          handleDisconnect('power_disconnected');
+        }
+      }
+    });
+    _log('[Power] 電源監聽已啟動');
+  }
+
+  // =========================================================================
+  // 模組二：看門狗連續超時偵測 (Watchdog Mechanism)
+  // =========================================================================
+
+  /// 連續逾時計數器，達到閾值時觸發強制斷線
+  int _consecutiveTimeouts = 0;
+
+  /// 連續逾時觸發閾值（預設 3 次 = 約 9 秒）
+  static const int _watchdogThreshold = 3;
+
+  // =========================================================================
+  // 模組三：背景自動重連迴圈 (Auto-Reconnect Loop)
+  // =========================================================================
+
+  bool _isAutoReconnecting = false;
+  Timer? _reconnectTimer;
+
+  void _startAutoReconnect() {
+    if (_isAutoReconnecting) return;
+    _isAutoReconnecting = true;
+
+    final String savedMac = SettingsService().obdMac;
+    if (savedMac.isEmpty) {
+      _log('[AutoReconnect] 無已儲存的 MAC，取消自動重連');
+      _isAutoReconnecting = false;
+      return;
+    }
+
+    _log('[AutoReconnect] 啟動自動重連迴圈（每 5 秒）...');
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!_isPowerConnected) {
+        _log('[AutoReconnect] 電源已斷開，停止重連迴圈');
+        _stopAutoReconnect();
+        return;
+      }
+      if (_isConnected ||
+          connectionState == ObdConnectionState.connecting ||
+          connectionState == ObdConnectionState.initializing) {
+        _log('[AutoReconnect] 已連線或連線中，停止迴圈');
+        _stopAutoReconnect();
+        return;
+      }
+      _log('[AutoReconnect] 嘗試重新連線...');
+      await connectToDevice(savedMac);
+    });
+  }
+
+  void _stopAutoReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _isAutoReconnecting = false;
+    _log('[AutoReconnect] 自動重連迴圈已停止');
+  }
+
+  // =========================================================================
   // Public API
   // =========================================================================
 
   Future<void> init() async {
+    startPowerListener();
     final String savedMac = SettingsService().obdMac;
     if (savedMac.isNotEmpty) {
       _log('[OBD] Auto-connecting to: $savedMac');
@@ -130,6 +223,11 @@ class ObdSppService {
       if (success) {
         _log('[OBD] Socket connected!');
         _isConnected = true;
+
+        // 連線成功：停止自動重連 + 看門狗計數歸零
+        _stopAutoReconnect();
+        _consecutiveTimeouts = 0;
+
         _setupDataListener();
         initializeELM327();
       } else {
@@ -151,12 +249,14 @@ class ObdSppService {
   }
 
   void dispose() {
+    _batterySubscription?.cancel();
+    _batterySubscription = null;
     handleDisconnect('dispose');
     _logController.close();
   }
 
   // =========================================================================
-  // 統一斷線處理器 (Centralized Disconnect Handler)
+  // 模組四：統一斷線處理器 (Centralized Disconnect Handler)
   // =========================================================================
 
   void handleDisconnect(String reason) {
@@ -170,6 +270,7 @@ class ObdSppService {
     _isConnected = false;
     connectionState = ObdConnectionState.disconnected;
 
+    // 清理 Polling Timers
     _fastPollTimer?.cancel();
     _fastPollTimer = null;
     _slowPollTimer?.cancel();
@@ -177,19 +278,42 @@ class ObdSppService {
     _minutePollTimer?.cancel();
     _minutePollTimer = null;
 
+    // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
     if (_pendingCompleter != null && !_pendingCompleter!.isCompleted) {
       _pendingCompleter!.complete('DISCONNECTED');
     }
     _pendingCompleter = null;
 
+    // 清空 Command Chain（打破舊 chain 的死鎖）
     _connectionEpoch++;
     _commandChain = Future.value();
 
+    // 取消資料流訂閱
     _dataSubscription?.cancel();
     _dataSubscription = null;
 
+    // 通知原生層斷線
     _methodChannel.invokeMethod('disconnect').catchError((_) {});
+
+    // ── 核心重連判定（嚴格邊界條件）────────────────────────────────────────
+    // 手動斷線、電源斷開、dispose、電源感知斷線 → 進入深度休眠，不重連
+    const Set<String> noReconnectReasons = {
+      'power_disconnected',
+      'dispose',
+      'manual_disconnect',
+    };
+
+    final bool shouldReconnect = _isPowerConnected &&
+        !noReconnectReasons.any((r) => reason.startsWith(r));
+
+    if (shouldReconnect) {
+      _log('[OBD] 將在 5 秒後嘗試自動重連...');
+      _startAutoReconnect();
+    } else {
+      _log('[OBD] 進入深度休眠，不重連（reason=$reason）');
+      _stopAutoReconnect();
+    }
   }
 
   // =========================================================================
@@ -201,6 +325,14 @@ class ObdSppService {
 
     _commandChain = _commandChain.then((_) async {
       final int epoch = _connectionEpoch;
+
+      // ── 電源感知防呆：斷電時阻止所有無效發送 ─────────────────────────────
+      if (!_isPowerConnected) {
+        if (!resultCompleter.isCompleted) {
+          resultCompleter.complete('POWER_OFF');
+        }
+        return;
+      }
 
       if (!_isConnected) {
         if (!resultCompleter.isCompleted) {
@@ -225,8 +357,8 @@ class ObdSppService {
 
       try {
         // ── [Parser TX] 日誌（只記錄水溫與 HEV）────────────────────────────
-        final String _trimCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
-        if (_trimCmd == '0167' || _trimCmd == '220105') {
+        final String trimCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
+        if (trimCmd == '0167' || trimCmd == '220105') {
           _log('[Parser TX] ${cmd.trim()}');
         }
         _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
@@ -244,12 +376,27 @@ class ObdSppService {
       try {
         await resultCompleter.future
             .timeout(Duration(milliseconds: timeoutMs));
+
+        // ── 成功收到回應：看門狗計數歸零 ────────────────────────────────────
+        _consecutiveTimeouts = 0;
       } on TimeoutException {
         _log('[OBD] Timeout waiting for: ${cmd.trim()}');
+
+        // ── 看門狗累加 ───────────────────────────────────────────────────────
+        _consecutiveTimeouts++;
+        _log('[Watchdog] 連續逾時次數：$_consecutiveTimeouts / $_watchdogThreshold');
+
         if (!resultCompleter.isCompleted) {
           resultCompleter.complete('TIMEOUT');
         }
         _pendingCompleter = null;
+
+        // ── 達到看門狗閾值：強制斷線打破死鎖 ───────────────────────────────
+        if (_consecutiveTimeouts >= _watchdogThreshold) {
+          _log('[Watchdog] 達到閾值，強制斷線！清空 command chain...');
+          _consecutiveTimeouts = 0;  // 重置後再斷線，防止下次重連後立即再觸發
+          handleDisconnect('watchdog_timeout');
+        }
       }
     });
 
@@ -284,14 +431,13 @@ class ObdSppService {
       _log('[OBD] ATH0 → ${await mustSend('ATH0')}');   // Headers Off
       _log('[OBD] ATS0 → ${await mustSend('ATS0')}');   // Spaces Off
       _log('[OBD] ATAL → ${await mustSend('ATAL')}');   // Allow Long messages（多幀合併輸出）
-      _log('[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms，等待 ECU 回應
+      _log('[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms
       _log('[OBD] ATAT1 → ${await mustSend('ATAT1')}'); // 自動調整時序
-      _log('[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K，跳過 SEARCHING
+      _log('[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K
 
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
       _startPollingTasks();
-      // 初始化完成後額外等待 1 秒，讓 CAN Bus 穩定
       await Future.delayed(const Duration(milliseconds: 1000));
       pollAllNow();
     } catch (e) {
@@ -325,21 +471,16 @@ class ObdSppService {
     final String buf = _rxBuffer.toString();
 
     if (buf.endsWith('>')) {
-
-      // 1. 絕對淨化字串 (String Sanitization)
-      // 剔除所有的空格、歸位字元 \r、換行 \n 以及提示字元 >
-      // 同時移除多幀序號（如 "0:", "1:" ... "F:"）以防 ATAL 未生效時的容錯
       final String sanitized = buf
           .replaceAll(' ', '')
           .replaceAll('\r', '')
           .replaceAll('\n', '')
           .replaceAll('>', '')
           .toUpperCase()
-          .replaceAll(RegExp(r'[0-9A-F]:'), ''); // 移除多幀序號
-
+          .replaceAll(RegExp(r'[0-9A-F]:'), '');
 
       if (sanitized.isNotEmpty) {
-        // 只針對 0167 / 220101 印 RX raw
+        // 只針對 0167 / 220105 印 RX raw
         if (_lastSentCmd == '0167' || _lastSentCmd == '220105') {
           _log('[Parser RX] cmd=$_lastSentCmd raw=$sanitized');
         }
@@ -371,20 +512,15 @@ class ObdSppService {
 
     try {
       // ── 2. 特徵碼定位提取 (Signature Indexing) ───────────────────────────
-      // 根據最後發送的指令，動態尋找回應特徵碼
-
-      // 處理 Mode 01
       if (lastCmd.startsWith('01')) {
-        final String pid = lastCmd.substring(2); // 例如 0C
-        final String signature = '41$pid'; // 例如 410C
+        final String pid = lastCmd.substring(2);
+        final String signature = '41$pid';
         final int index = sanitized.indexOf(signature);
 
         if (index != -1) {
-          // 3. 安全擷取資料載荷 (Payload Extraction)
           final int payloadStart = index + signature.length;
 
           if (pid == '0C') {
-            // RPM: 擷取後面的 4 個字元
             if (sanitized.length >= payloadStart + 4) {
               final String hex = sanitized.substring(payloadStart, payloadStart + 4);
               final int a = int.parse(hex.substring(0, 2), radix: 16);
@@ -392,24 +528,19 @@ class ObdSppService {
               rpm = ((a * 256) + b) ~/ 4;
             }
           } else if (pid == '0D') {
-            // Speed: 擷取後面的 2 個字元
             if (sanitized.length >= payloadStart + 2) {
               final String hex = sanitized.substring(payloadStart, payloadStart + 2);
               speed = int.parse(hex, radix: 16);
             }
           } else if (pid == '67') {
-            // Coolant A/B: PID 0167 回應 4167 + Byte A(count) + Byte B(CoolantA) + Byte C(CoolantB)
-            // SAE_Coolant_A = Byte B - 40, SAE_Coolant_B = Byte C - 40
             if (sanitized.length >= payloadStart + 6) {
-              // payloadStart+0~1 = Byte A（count byte，忽略）
               final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
               final String hexB = sanitized.substring(payloadStart + 4, payloadStart + 6);
-              coolantTemp = int.parse(hexA, radix: 16) - 40; // Coolant A
+              coolantTemp = int.parse(hexA, radix: 16) - 40;
               final int coolantB = int.parse(hexB, radix: 16) - 40;
               _log('[Parser Result] CoolantA=$coolantTemp °C CoolantB=$coolantB °C');
             }
           } else if (pid == '5B') {
-            // HEV SOC: 擷取後面的 2 個字元
             if (sanitized.length >= payloadStart + 2) {
               final String hex = sanitized.substring(payloadStart, payloadStart + 2);
               final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
@@ -421,17 +552,15 @@ class ObdSppService {
         }
       }
 
-      // 處理 Mode 22
       if (lastCmd.startsWith('22')) {
-        final String pid = lastCmd.substring(2); // 例如 0101, B002, C00B
-        final String signature = '62$pid'; // 例如 620101, 62B002
+        final String pid = lastCmd.substring(2);
+        final String signature = '62$pid';
         final int index = sanitized.indexOf(signature);
 
         if (index != -1) {
           final int payloadStart = index + signature.length;
 
           if (pid == 'C00B') {
-            // TPMS: 62C00B 之後需要足夠長度
             if (sanitized.length >= payloadStart + 42) {
               final String data = sanitized.substring(payloadStart);
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
@@ -440,26 +569,21 @@ class ObdSppService {
               tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
             }
           } else if (pid == 'B002') {
-            // Odo/Fuel/Voltage: 62B002 之後
             if (sanitized.length >= payloadStart + 18) {
               final String data = sanitized.substring(payloadStart);
-              // Odometer: Byte G,H,I (Index 12, 14, 16)
               final int g = int.parse(data.substring(12, 14), radix: 16);
               final int h = int.parse(data.substring(14, 16), radix: 16);
               final int i = int.parse(data.substring(16, 18), radix: 16);
               final int odoRaw = (g << 16) | (h << 8) | i;
               if (odoRaw > 0) {
                 odometer = odoRaw.toDouble();
-                }
-              // Fuel: Byte E (Index 8)
+              }
               fuelLevel = int.parse(data.substring(8, 10), radix: 16);
-              // Voltage: Byte F (Index 10) * 0.078125
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
             }
           } else if (pid == '0105') {
             // Display SOC = Byte E / 2
-            // 620105 後：A=offset0~1, B=2~3, C=4~5, D=6~7, E=8~9
             if (sanitized.length >= payloadStart + 10) {
               final String data = sanitized.substring(payloadStart);
               final int byteE = int.parse(data.substring(8, 10), radix: 16);
@@ -470,7 +594,6 @@ class ObdSppService {
           return;
         }
       }
-
     } catch (e) {
       _log('[Parser Error] $e | sanitized=$sanitized');
     }
