@@ -184,8 +184,7 @@ class ObdSppService {
     sendCommand('010C');
     sendCommand('010D');
     sendCommand('0167');
-    sendCommand('ATSH7E2');
-    sendCommand('220105'); // Display SOC
+    sendCommand('015B'); // HEV SOC：標準 OBD PID，公式 = 100/255*A
     sendCommand('ATSH7C6');
     sendCommand('22B002'); // Odo, Fuel
     sendCommand('ATSH7A0');
@@ -625,12 +624,10 @@ class ObdSppService {
       sendCommand('010D');
     });
 
-    // Display SOC 每 10 秒：切 7E2 → 220105 → 切回 7DF
+    // HEV SOC 每 10 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
     _slowPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!_isConnected) return;
-      sendCommand('ATSH7E2');
-      sendCommand('220105');
-      sendCommand('ATSH7DF');
+      sendCommand('015B');
     });
 
     // 水溫每 60 秒：使用 PID 0167（SAE Coolant A/B）
