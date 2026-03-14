@@ -91,8 +91,8 @@ class ObdSppService {
     sendCommand('010C');
     sendCommand('010D');
     sendCommand('0167');
-    sendCommand('ATSH7D4');
-    sendCommand('220101'); // BMS SOC
+    sendCommand('ATSH7E2');
+    sendCommand('220105'); // Display SOC
     sendCommand('ATSH7C6');
     sendCommand('22B002'); // Odo, Fuel
     sendCommand('ATSH7A0');
@@ -226,7 +226,7 @@ class ObdSppService {
       try {
         // ── [Parser TX] 日誌（只記錄水溫與 HEV）────────────────────────────
         final String _trimCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
-        if (_trimCmd == '0167' || _trimCmd == '220101') {
+        if (_trimCmd == '0167' || _trimCmd == '220105') {
           _log('[Parser TX] ${cmd.trim()}');
         }
         _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
@@ -340,7 +340,7 @@ class ObdSppService {
 
       if (sanitized.isNotEmpty) {
         // 只針對 0167 / 220101 印 RX raw
-        if (_lastSentCmd == '0167' || _lastSentCmd == '220101') {
+        if (_lastSentCmd == '0167' || _lastSentCmd == '220105') {
           _log('[Parser RX] cmd=$_lastSentCmd raw=$sanitized');
         }
         _parseObdResponse(sanitized, _lastSentCmd);
@@ -457,14 +457,14 @@ class ObdSppService {
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
             }
-          } else if (pid == '0101') {
-            // BMS SOC = Byte E / 2（cn7Pid.csv: "E/2"）
-            // 620101 後：A=offset0~1, B=2~3, C=4~5, D=6~7, E=8~9
+          } else if (pid == '0105') {
+            // Display SOC = Byte E / 2
+            // 620105 後：A=offset0~1, B=2~3, C=4~5, D=6~7, E=8~9
             if (sanitized.length >= payloadStart + 10) {
               final String data = sanitized.substring(payloadStart);
               final int byteE = int.parse(data.substring(8, 10), radix: 16);
               hevSoc = double.parse((byteE / 2.0).toStringAsFixed(1));
-              _log('[Parser Result] BMS SOC=$hevSoc% (ByteE=0x${data.substring(8, 10)})');
+              _log('[Parser Result] Display SOC=$hevSoc%');
             }
           }
           return;
@@ -502,11 +502,11 @@ class ObdSppService {
       sendCommand('010D');
     });
 
-    // SOC 每 10 秒：切 7D4 → 220101 → 切回 7DF
+    // Display SOC 每 10 秒：切 7E2 → 220105 → 切回 7DF
     _slowPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!_isConnected) return;
-      sendCommand('ATSH7D4');
-      sendCommand('220101');
+      sendCommand('ATSH7E2');
+      sendCommand('220105');
       sendCommand('ATSH7DF');
     });
 

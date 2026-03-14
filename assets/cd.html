@@ -129,7 +129,7 @@
                         <p class="text-blue-400 text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline mt-2">
                             <span id="rpm"
-                                class="text-[11rem] font-bold text-white leading-none tracking-tighter">1200</span>
+                                class="text-[14rem] font-bold text-white leading-none tracking-tighter">1200</span>
                             <span id="rpm_unit" class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
                         </div>
                     </div>
@@ -141,12 +141,12 @@
                         <!-- 前輪 (Front) -->
                         <div class="flex w-full items-center justify-between mb-1">
                             <!-- FL 強制靠向左邊中線，並在右側創造實體抗黏連空白 -->
-                            <div class="w-1/2 flex justify-end pr-14">
-                                <span id="tpms_fl" class="text-[5.5rem] font-bold text-white leading-none">35</span>
+                            <div class="w-1/2 flex justify-end pr-6">
+                                <span id="tpms_fl" class="text-[6rem] font-bold text-white leading-none">35</span>
                             </div>
                             <!-- FR 強制靠向右邊中線，並在左側創造實體抗黏連空白 -->
-                            <div class="w-1/2 flex justify-start pl-14">
-                                <span id="tpms_fr" class="text-[5.5rem] font-bold text-white leading-none">35</span>
+                            <div class="w-1/2 flex justify-start pl-9">
+                                <span id="tpms_fr" class="text-[6rem] font-bold text-white leading-none">35</span>
                             </div>
                         </div>
 
@@ -155,11 +155,11 @@
 
                         <!-- 後輪 (Rear) -->
                         <div class="flex w-full items-center justify-between mt-1">
-                            <div class="w-1/2 flex justify-end pr-14">
-                                <span id="tpms_rl" class="text-[5.5rem] font-bold text-white leading-none">35</span>
+                            <div class="w-1/2 flex justify-end pr-6">
+                                <span id="tpms_rl" class="text-[6rem] font-bold text-white leading-none">35</span>
                             </div>
-                            <div class="w-1/2 flex justify-start pl-14">
-                                <span id="tpms_rr" class="text-[5.5rem] font-bold text-white leading-none">35</span>
+                            <div class="w-1/2 flex justify-start pl-9">
+                                <span id="tpms_rr" class="text-[6rem] font-bold text-white leading-none">35</span>
                             </div>
                         </div>
                     </div>
@@ -169,7 +169,7 @@
                     <p class="text-cyan-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline mt-2">
                         <span id="temp"
-                            class="text-[13rem] font-bold text-white leading-none tracking-tighter">100</span>
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter">50</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">°C</span>
                     </div>
                 </div>
@@ -178,14 +178,14 @@
                     <p class="text-emerald-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">EV</p>
                     <div class="flex items-baseline mt-2">
                         <span id="battery"
-                            class="text-[13rem] font-bold text-white leading-none tracking-tighter">60.5</span>
+                            class="text-[14em] font-bold text-white leading-none tracking-tighter">60.5</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
                     </div>
                 </div>
             </div>
 
             <div class="w-[62%] flex flex-col justify-center items-center">
-                <div class="w-full flex flex-col items-center mt-4">
+                <div id="central_group" class="w-full flex flex-col items-center mt-4 transition-transform duration-500">
 
                     <div class="flex items-end mb-2">
                         <span id="speed"
@@ -206,9 +206,14 @@
                         <div class="absolute w-[90%] h-px bg-blue-400/30 top-1/2 -z-10 blur-[1px]"></div>
                     </div>
 
+                    <!-- OCR 關閉時顯示的分隔線 -->
+                    <div id="ocr_off_divider"
+                        class="w-1/3 h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent my-12 opacity-60 hidden">
+                    </div>
+
                     <div class="flex items-center mt-4">
                         <span id="time"
-                            class="text-[10rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block">11:07</span>
+                            class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block">11:07</span>
                     </div>
                 </div>
             </div>
@@ -265,7 +270,7 @@
 
                     if (tempVal > 110) {
                         tempEl.classList.add('alert-pulse');
-                    } else if (tempVal < 60) {
+                    } else if (tempVal < 40) {
                         tempEl.classList.add('alert-pulse-blue');
                     }
                 }
@@ -277,6 +282,18 @@
                     window._ocrEnabled = data.enableOcr;
                     const wrapper = document.getElementById('limit_wrapper');
                     if (wrapper) wrapper.style.display = data.enableOcr ? 'flex' : 'none';
+                    
+                    const divider = document.getElementById('ocr_off_divider');
+                    if (divider) divider.style.display = data.enableOcr ? 'none' : 'block';
+
+                    const centralGroup = document.getElementById('central_group');
+                    if (centralGroup) {
+                        if (data.enableOcr) {
+                            centralGroup.classList.remove('-translate-y-20');
+                        } else {
+                            centralGroup.classList.add('-translate-y-20');
+                        }
+                    }
                 }
 
                 const tpmsMapping = {
