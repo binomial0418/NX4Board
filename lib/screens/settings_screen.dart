@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
@@ -32,6 +36,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ipController.text = SettingsService().wsIp;
     _portController.text = SettingsService().wsPort;
     _enableOcr = SettingsService().enableOcr;
+
+    // Load initial logs from service history
+    _logs.addAll(ObdSppService().logHistory);
 
     _logSub = ObdSppService().logStream.listen((log) {
       if (mounted) {
@@ -121,6 +128,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('發送失敗: $e')),
         );
+    }
+  }
+
+  Future<void> _exportLogs() async {
+    try {
+      if (_logs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('無日誌可供匯出')),
+        );
+        return;
+      }
+
+      final String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final String fileName = 'NX4Board_log_$timestamp.txt';
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/$fileName');
+
+      final String content = _logs.join('\n');
+      await file.writeAsString(content);
+
+      final result = await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'NX4Board Log Export',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        debugPrint('Log shared successfully');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('匯出失敗: $e')),
+      );
     }
   }
 
@@ -295,9 +334,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: TextStyle(
                                 color: Colors.green,
                                 fontWeight: FontWeight.bold)),
-                        GestureDetector(
-                          onTap: () => setState(() => _autoScroll = !_autoScroll),
-                          child: Container(
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.download, color: Colors.green),
+                              tooltip: '匯出日誌',
+                              onPressed: _exportLogs,
+                            ),
+                            GestureDetector(
+                              onTap: () => setState(() => _autoScroll = !_autoScroll),
+                              child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
@@ -330,7 +376,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ],
                             ),
-                          ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

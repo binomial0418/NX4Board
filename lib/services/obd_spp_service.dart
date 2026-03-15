@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:intl/intl.dart';
 import 'settings_service.dart';
 
 enum ObdConnectionState {
@@ -31,10 +32,20 @@ class ObdSppService {
   // ── Log Stream ────────────────────────────────────────────────────────────
   final _logController = StreamController<String>.broadcast();
   Stream<String> get logStream => _logController.stream;
+  final List<String> _logHistory = [];
+  List<String> get logHistory => List.unmodifiable(_logHistory);
 
   void _log(String msg) {
-    debugPrint(msg);
-    _logController.add(msg);
+    final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
+    final String fullMsg = '[$timestamp] $msg';
+    debugPrint(fullMsg);
+    _logHistory.add(fullMsg);
+    if (_logHistory.length > 1000) _logHistory.removeAt(0);
+    _logController.add(fullMsg);
+  }
+
+  void logWsSend(String json) {
+    _log('[WS-TX] $json');
   }
 
   // ── RX Buffer + Completer (半雙工核心) ────────────────────────────────────
@@ -355,11 +366,7 @@ class ObdSppService {
       }
 
       try {
-        // ── [Parser TX] 日誌（只記錄水溫與 HEV）────────────────────────────
-        final String trimCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
-        if (trimCmd == '0167' || trimCmd == '220105') {
-          _log('[Parser TX] ${cmd.trim()}');
-        }
+        _log('[Parser TX] ${cmd.trim()}');
         _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
         await _methodChannel.invokeMethod('write', {'data': bytes});
       } catch (e) {
@@ -479,10 +486,7 @@ class ObdSppService {
           .replaceAll(RegExp(r'[0-9A-F]:'), '');
 
       if (sanitized.isNotEmpty) {
-        // 只針對 0167 / 220105 印 RX raw
-        if (_lastSentCmd == '0167' || _lastSentCmd == '220105') {
-          _log('[Parser RX] cmd=$_lastSentCmd raw=$sanitized');
-        }
+        _log('[Parser RX] cmd=$_lastSentCmd raw=$sanitized');
         _parseObdResponse(sanitized, _lastSentCmd);
       }
 
@@ -525,11 +529,13 @@ class ObdSppService {
               final int a = int.parse(hex.substring(0, 2), radix: 16);
               final int b = int.parse(hex.substring(2, 4), radix: 16);
               rpm = ((a * 256) + b) ~/ 4;
+              _log('[Parser Result] RPM=$rpm');
             }
           } else if (pid == '0D') {
             if (sanitized.length >= payloadStart + 2) {
               final String hex = sanitized.substring(payloadStart, payloadStart + 2);
               speed = int.parse(hex, radix: 16);
+              _log('[Parser Result] Speed=$speed');
             }
           } else if (pid == '67') {
             if (sanitized.length >= payloadStart + 6) {
@@ -566,6 +572,7 @@ class ObdSppService {
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
               tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+              _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
             }
           } else if (pid == 'B002') {
             if (sanitized.length >= payloadStart + 18) {
@@ -580,6 +587,7 @@ class ObdSppService {
               fuelLevel = int.parse(data.substring(8, 10), radix: 16);
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
+              _log('[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage');
             }
           } else if (pid == '0105') {
             // Display SOC = Byte E / 2

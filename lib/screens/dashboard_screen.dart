@@ -378,6 +378,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         try {
           _channel!.sink.add(jsonString);
           debugPrint('[WS-TX] Uploaded to Relay: $jsonString');
+          ObdSppService().logWsSend(jsonString);
         } catch (e) {
           debugPrint('[WS-TX] Send error: $e');
           // 發送失敗視為斷線，立即觸發重連
@@ -453,6 +454,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       try {
         _channel!.sink.add(jsonString);
         debugPrint('[WS-TX] 輪詢後立即傳送: $jsonString');
+        ObdSppService().logWsSend(jsonString);
       } catch (e) {
         debugPrint('[WS-TX] 立即傳送錯誤: $e');
         if (mounted) setState(() => _isWsConnected = false);
