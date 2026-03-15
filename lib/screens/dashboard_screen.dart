@@ -385,6 +385,12 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final provider = context.read<AppProvider>();
 
+      // 檢查 OBD 是否連線
+      if (provider.obdConnectionState != ObdConnectionState.connected) {
+        debugPrint('[WS-TX] OBD 未連線，跳過定期同步');
+        return;
+      }
+
       final Map<String, dynamic> uploadData = {
         "_type": "location",
         "tid": "obd",
@@ -471,6 +477,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _sendObdDataViaWsOnce() {
     if (!mounted || !_isWsConnected || _channel == null) return;
     final provider = context.read<AppProvider>();
+
+    // 檢查 OBD 是否連線
+    if (provider.obdConnectionState != ObdConnectionState.connected) {
+      debugPrint('[WS-TX] OBD 未連線，跳過立即傳送');
+      return;
+    }
 
     final Map<String, dynamic> uploadData = {
       "_type": "location",
