@@ -105,12 +105,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
         
         final testData = {
-            "odo": 23456,
+            "_type": "location",
+            "tid": "obd",
             "fuel": 66,
-            "tpmsFl": 33,
-            "tpmsFr": 34,
-            "tpmsRl": 35,
-            "tpmsRr": 36
+            "mileage": 23456,
+            "tires": {
+                "fl": 33,
+                "fr": 34,
+                "rl": 35,
+                "rr": 36
+            },
+            "speed": 80,
+            "rpm": 1200,
+            "temperature": 85,
+            "battery": 60.5
         };
         
         final jsonString = jsonEncode(testData);

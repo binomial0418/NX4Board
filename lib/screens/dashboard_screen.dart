@@ -364,16 +364,28 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final provider = context.read<AppProvider>();
 
-      final Map<String, dynamic> uploadData = {};
-      if (provider.tpmsFl != null) uploadData["fl_pressure"] = provider.tpmsFl;
-      if (provider.tpmsFr != null) uploadData["fr_pressure"] = provider.tpmsFr;
-      if (provider.tpmsRl != null) uploadData["rl_pressure"] = provider.tpmsRl;
-      if (provider.tpmsRr != null) uploadData["rr_pressure"] = provider.tpmsRr;
-      if (provider.obdOdometer != null)
-        uploadData["odometer"] = provider.obdOdometer;
-      if (provider.obdFuel != null) uploadData["fuelLevel"] = provider.obdFuel;
+      final Map<String, dynamic> uploadData = {
+        "_type": "location",
+        "tid": "obd",
+      };
+      
+      final Map<String, dynamic> tires = {};
+      if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
+      if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
+      if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
+      if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+      if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-      if (uploadData.isNotEmpty) {
+      if (provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
+      if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+
+      // 同時保留儀表板需要的原始屬性（若有需要，也可以單純發送一套，此處先以 user 指定結構為主）
+      if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
+      if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
+      if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
+      if (provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+
+      if (uploadData.length > 2) { // 除了 _type, tid 之外還有其他資料
         final jsonString = jsonEncode(uploadData);
         try {
           _channel!.sink.add(jsonString);
@@ -439,19 +451,26 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted || !_isWsConnected || _channel == null) return;
     final provider = context.read<AppProvider>();
 
-    final Map<String, dynamic> uploadData = {};
-    if (provider.tpmsFl != null) uploadData["fl_pressure"] = provider.tpmsFl;
-    if (provider.tpmsFr != null) uploadData["fr_pressure"] = provider.tpmsFr;
-    if (provider.tpmsRl != null) uploadData["rl_pressure"] = provider.tpmsRl;
-    if (provider.tpmsRr != null) uploadData["rr_pressure"] = provider.tpmsRr;
-    if (provider.obdOdometer != null) uploadData["odometer"] = provider.obdOdometer;
-    if (provider.obdFuel != null) uploadData["fuelLevel"] = provider.obdFuel;
+    final Map<String, dynamic> uploadData = {
+      "_type": "location",
+      "tid": "obd",
+    };
+
+    final Map<String, dynamic> tires = {};
+    if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
+    if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
+    if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
+    if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+    if (tires.isNotEmpty) uploadData["tires"] = tires;
+
+    if (provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
+    if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
     if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
     if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
     if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
     if (provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
 
-    if (uploadData.isNotEmpty) {
+    if (uploadData.length > 2) {
       final jsonString = jsonEncode(uploadData);
       try {
         _channel!.sink.add(jsonString);

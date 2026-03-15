@@ -302,16 +302,23 @@
 
                 // HEV 電池：保留一位小數
                 if (data.battery !== undefined) document.getElementById('battery').innerText = parseFloat(data.battery).toFixed(1);
-                if (data.odometer !== undefined) document.getElementById('odo').innerText = Math.round(data.odometer);
-                if (data.fuelLevel !== undefined) {
+                // 里程與油箱
+                if (data.mileage !== undefined) document.getElementById('odo').innerText = Math.round(data.mileage);
+                if (data.odometer !== undefined) document.getElementById('odo').innerText = Math.round(data.odometer); // 相容模擬器
+                
+                if (data.fuel !== undefined) {
+                    const fuelEl = document.getElementById('fuel');
+                    const fuelVal = Math.round(data.fuel);
+                    fuelEl.innerText = fuelVal;
+                    if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
+                    else fuelEl.classList.remove('alert-pulse');
+                }
+                if (data.fuelLevel !== undefined) { // 相容模擬器
                     const fuelEl = document.getElementById('fuel');
                     const fuelVal = Math.round(data.fuelLevel);
                     fuelEl.innerText = fuelVal;
-                    if (fuelVal < 15) {
-                        fuelEl.classList.add('alert-pulse');
-                    } else {
-                        fuelEl.classList.remove('alert-pulse');
-                    }
+                    if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
+                    else fuelEl.classList.remove('alert-pulse');
                 }
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
                 if (data.enableOcr !== undefined) {
@@ -332,6 +339,7 @@
                     }
                 }
 
+                // 胎壓對照表
                 const tpmsMapping = {
                     'fl_pressure': 'tpms_fl',
                     'fr_pressure': 'tpms_fr',
@@ -339,29 +347,59 @@
                     'rr_pressure': 'tpms_rr'
                 };
 
+                // 處理 nested tires 結構
+                if (data.tires) {
+                    const tires = data.tires;
+                    const nestedMap = { 'fl': 'tpms_fl', 'fr': 'tpms_fr', 'rl': 'tpms_rl', 'rr': 'tpms_rr' };
+                    Object.keys(nestedMap).forEach(key => {
+                        if (tires[key] !== undefined) {
+                            const el = document.getElementById(nestedMap[key]);
+                            if (el) {
+                                const val = parseFloat(tires[key]);
+                                if (val === 0 || isNaN(val)) {
+                                    el.innerText = '--';
+                                    el.classList.remove('alert-pulse');
+                                } else {
+                                    el.innerText = Math.ceil(val);
+                                    if (val < 32) el.classList.add('alert-pulse');
+                                    else el.classList.remove('alert-pulse');
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // 處理扁平化 tpms 結構 (相容舊模擬器與現有邏輯)
                 Object.keys(tpmsMapping).forEach(key => {
                     if (data[key] !== undefined) {
                         const targetId = tpmsMapping[key];
                         const el = document.getElementById(targetId);
                         if (el) {
-                            const rawVal = data[key];
-                            const val = parseFloat(rawVal);
-
-                            // 當胎壓數值為零、null 或非數字時，顯示為 -- 且不警示
-                            if (rawVal === null || isNaN(val) || val === 0) {
+                            const val = parseFloat(data[key]);
+                            if (isNaN(val) || val === 0) {
                                 el.innerText = '--';
                                 el.classList.remove('alert-pulse');
                             } else {
-                                // 正常數值顯示整數（無條件進位）
                                 el.innerText = Math.ceil(val);
-                                if (val < 32) {
-                                    el.classList.add('alert-pulse');
-                                } else {
-                                    el.classList.remove('alert-pulse');
-                                }
+                                if (val < 32) el.classList.add('alert-pulse');
+                                else el.classList.remove('alert-pulse');
                             }
                         }
                     }
+                });
+                
+                // 相容 obdSppService.dart 原生屬性 (如果有傳過來的話)
+                ['tpmsFl', 'tpmsFr', 'tpmsRl', 'tpmsRr'].forEach(key => {
+                  if (data[key] !== undefined) {
+                      const idMap = { 'tpmsFl': 'tpms_fl', 'tpmsFr': 'tpms_fr', 'tpmsRl': 'tpms_rl', 'tpmsRr': 'tpms_rr' };
+                      const el = document.getElementById(idMap[key]);
+                      const val = parseFloat(data[key]);
+                      if (el && !isNaN(val) && val > 0) {
+                          el.innerText = Math.ceil(val);
+                          if (val < 32) el.classList.add('alert-pulse');
+                          else el.classList.remove('alert-pulse');
+                      }
+                  }
                 });
 
                 // 超速邏輯 (大於速限+10時亮紅暈)
