@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
 
@@ -81,6 +83,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _sendTestWsData() async {
+    final ip = _ipController.text.trim();
+    final port = _portController.text.trim();
+    
+    if (ip.isEmpty || port.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('請先輸入 IP 與 Port')),
+        );
+        return;
+    }
+
+    try {
+        final channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+        
+        final testData = {
+            "odo": 23456,
+            "fuel": 66,
+            "tpmsFl": 33,
+            "tpmsFr": 34,
+            "tpmsRl": 35,
+            "tpmsRr": 36
+        };
+        
+        final jsonString = jsonEncode(testData);
+        channel.sink.add(jsonString);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('測試資料已發送: $jsonString')),
+        );
+        
+        // 發送後短暫延遲後關閉，避免 server 端來不及處理
+        await Future.delayed(const Duration(seconds: 1));
+        await channel.sink.close();
+        
+    } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('發送失敗: $e')),
+        );
+    }
+  }
+
   void _connectDevice(String address, String name) async {
     await SettingsService().setObdMac(address);
     if (!mounted) return;
@@ -148,9 +191,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _saveWifiSettings,
-                          child: const Text('Save'),
+                        Column(
+                            children: [
+                                ElevatedButton(
+                                    onPressed: _saveWifiSettings,
+                                    child: const Text('Save'),
+                                ),
+                                const SizedBox(height: 4),
+                                ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[100]),
+                                    onPressed: _sendTestWsData,
+                                    child: const Text('WS Test'),
+                                ),
+                            ],
                         ),
                       ],
                     ),
