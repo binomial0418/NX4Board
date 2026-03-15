@@ -171,12 +171,30 @@
                     </div>
                 </div>
 
-                <div class="data-card p-10 flex-1 flex flex-col justify-center border-l-emerald-500 h-[28%]">
-                    <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">大電池</p>
-                    <div class="flex items-baseline -mt-6">
-                        <span id="battery"
-                            class="text-[14em] font-bold text-white leading-none tracking-tighter val-rounded">60.5</span>
-                        <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
+                <div class="flex-1 flex gap-6 h-[28%]">
+                    <div class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
+                        <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
+                        <div class="flex items-baseline -mt-6">
+                            <span id="battery"
+                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">60.5</span>
+                            <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
+                        </div>
+                    </div>
+                    <div
+                        class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-indigo-500 ml-[5em]">
+                        <div class="flex flex-col gap-2">
+                            <div class="flex items-baseline">
+                                <span class="text-white text-[2.8rem] font-bold mr-4">ODO</span>
+                                <span id="odo" class="text-[4rem] font-bold text-white val-rounded">26000</span>
+                                <span class="text-3xl ml-2 text-gray-500 font-black">KM</span>
+                            </div>
+                            <div class="w-full h-[2px] bg-gray-800 my-1"></div>
+                            <div class="flex items-baseline">
+                                <span class="text-white text-[2.8rem] font-bold mr-4">油箱</span>
+                                <span id="fuel" class="text-[4rem] font-bold text-white val-rounded">4</span>
+                                <span class="text-3xl ml-2 text-gray-500 font-black">%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -284,6 +302,17 @@
 
                 // HEV 電池：保留一位小數
                 if (data.battery !== undefined) document.getElementById('battery').innerText = parseFloat(data.battery).toFixed(1);
+                if (data.odometer !== undefined) document.getElementById('odo').innerText = Math.round(data.odometer);
+                if (data.fuelLevel !== undefined) {
+                    const fuelEl = document.getElementById('fuel');
+                    const fuelVal = Math.round(data.fuelLevel);
+                    fuelEl.innerText = fuelVal;
+                    if (fuelVal < 15) {
+                        fuelEl.classList.add('alert-pulse');
+                    } else {
+                        fuelEl.classList.remove('alert-pulse');
+                    }
+                }
                 if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
                 if (data.enableOcr !== undefined) {
                     window._ocrEnabled = data.enableOcr;

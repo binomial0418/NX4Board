@@ -365,13 +365,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       final provider = context.read<AppProvider>();
 
       final Map<String, dynamic> uploadData = {};
-      if (provider.tpmsFl != null) uploadData["tpmsFl"] = provider.tpmsFl;
-      if (provider.tpmsFr != null) uploadData["tpmsFr"] = provider.tpmsFr;
-      if (provider.tpmsRl != null) uploadData["tpmsRl"] = provider.tpmsRl;
-      if (provider.tpmsRr != null) uploadData["tpmsRr"] = provider.tpmsRr;
+      if (provider.tpmsFl != null) uploadData["fl_pressure"] = provider.tpmsFl;
+      if (provider.tpmsFr != null) uploadData["fr_pressure"] = provider.tpmsFr;
+      if (provider.tpmsRl != null) uploadData["rl_pressure"] = provider.tpmsRl;
+      if (provider.tpmsRr != null) uploadData["rr_pressure"] = provider.tpmsRr;
       if (provider.obdOdometer != null)
-        uploadData["odo"] = provider.obdOdometer;
-      if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+        uploadData["odometer"] = provider.obdOdometer;
+      if (provider.obdFuel != null) uploadData["fuelLevel"] = provider.obdFuel;
 
       if (uploadData.isNotEmpty) {
         final jsonString = jsonEncode(uploadData);
@@ -420,6 +420,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.tpmsRl != null) jsonMap["rl_pressure"] = provider.tpmsRl;
       if (provider.tpmsRr != null) jsonMap["rr_pressure"] = provider.tpmsRr;
       if (provider.obdHevSoc != null) jsonMap["battery"] = provider.obdHevSoc;
+      if (provider.obdOdometer != null) jsonMap["odometer"] = provider.obdOdometer;
+      if (provider.obdFuel != null) jsonMap["fuelLevel"] = provider.obdFuel;
 
       if (jsonMap.isNotEmpty) {
         final jsonString = jsonEncode(jsonMap);
@@ -438,12 +440,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     final provider = context.read<AppProvider>();
 
     final Map<String, dynamic> uploadData = {};
-    if (provider.tpmsFl != null) uploadData["tpmsFl"] = provider.tpmsFl;
-    if (provider.tpmsFr != null) uploadData["tpmsFr"] = provider.tpmsFr;
-    if (provider.tpmsRl != null) uploadData["tpmsRl"] = provider.tpmsRl;
-    if (provider.tpmsRr != null) uploadData["tpmsRr"] = provider.tpmsRr;
-    if (provider.obdOdometer != null) uploadData["odo"] = provider.obdOdometer;
-    if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+    if (provider.tpmsFl != null) uploadData["fl_pressure"] = provider.tpmsFl;
+    if (provider.tpmsFr != null) uploadData["fr_pressure"] = provider.tpmsFr;
+    if (provider.tpmsRl != null) uploadData["rl_pressure"] = provider.tpmsRl;
+    if (provider.tpmsRr != null) uploadData["rr_pressure"] = provider.tpmsRr;
+    if (provider.obdOdometer != null) uploadData["odometer"] = provider.obdOdometer;
+    if (provider.obdFuel != null) uploadData["fuelLevel"] = provider.obdFuel;
     if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
     if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
     if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
