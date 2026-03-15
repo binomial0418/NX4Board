@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.net.wifi.WifiManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -20,6 +21,8 @@ class MainActivity : FlutterActivity() {
 
     private val METHOD_CHANNEL = "classic_bt"
     private val EVENT_CHANNEL  = "classic_bt/data"
+    private val WIFI_CHANNEL   = "wifi"
+    private val TARGET_SSID    = "nx4_obd_relay"
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     // ── Socket & Stream refs ──────────────────────────────────────────────────
@@ -87,6 +90,17 @@ class MainActivity : FlutterActivity() {
                 eventSink = null
             }
         })
+
+        // ── WiFi MethodChannel ────────────────────────────────────────────────
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, WIFI_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getSSID"      -> handleGetSSID(result)
+                "connectSaved" -> handleConnectSaved(result)
+                else           -> result.notImplemented()
+            }
+        }
     }
 
     // =========================================================================
@@ -269,6 +283,58 @@ class MainActivity : FlutterActivity() {
         inputStream     = null
         outputStream    = null
         bluetoothSocket = null
+    }
+
+    // =========================================================================
+    // WiFi：讀取目前 SSID
+    // =========================================================================
+
+    @Suppress("DEPRECATION")
+    private fun handleGetSSID(result: MethodChannel.Result) {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val info = wifiManager.connectionInfo
+            result.success(info.ssid ?: "")
+        } catch (e: Exception) {
+            result.error("WIFI_ERROR", e.message, null)
+        }
+    }
+
+    // =========================================================================
+    // WiFi：靜默切換到已儲存的 TARGET_SSID（無彈窗）
+    // =========================================================================
+
+    @Suppress("DEPRECATION")
+    private fun handleConnectSaved(result: MethodChannel.Result) {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+            // 確保 WiFi 已開啟
+            if (!wifiManager.isWifiEnabled) {
+                result.success(false)
+                return
+            }
+
+            val targetSsidQuoted = "\"$TARGET_SSID\""
+            val configs = wifiManager.configuredNetworks
+            if (configs == null) {
+                result.success(false)
+                return
+            }
+
+            val target = configs.find { it.SSID == targetSsidQuoted }
+            if (target == null) {
+                result.success(false)
+                return
+            }
+
+            // 靜默切換：禁用所有其他網路，啟用目標網路
+            val enabled = wifiManager.enableNetwork(target.networkId, true)
+            if (enabled) wifiManager.reconnect()
+            result.success(enabled)
+        } catch (e: Exception) {
+            result.error("WIFI_CONNECT_ERROR", e.message, null)
+        }
     }
 
     // =========================================================================

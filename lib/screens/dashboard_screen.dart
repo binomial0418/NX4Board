@@ -15,6 +15,7 @@ import '../providers/app_provider.dart';
 import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
+import '../services/wifi_service.dart';
 import 'settings_screen.dart';
 
 // Foreground Task Handler（必須為 top-level function）
@@ -306,6 +307,26 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_isWsConnecting) return;
     _isWsConnecting = true;
 
+    if (!_isCharging) {
+      // 未接外部電源：跳過 WiFi 切換，直接嘗試建立連線
+      debugPrint('[WS] 未充電，跳過 WiFi 切換');
+      _doConnectWebSocket();
+      return;
+    }
+
+    // 充電中：先靜默確保 WiFi 已連上 nx4_obd_relay，再建立 WebSocket
+    WifiService.ensureConnected().then((wifiOk) {
+      if (!wifiOk) {
+        debugPrint('[WS] WiFi 未連上 nx4_obd_relay，取消本次連線');
+        _isWsConnecting = false;
+        _scheduleReconnect();
+        return;
+      }
+      _doConnectWebSocket();
+    });
+  }
+
+  void _doConnectWebSocket() {
     try {
       final ip = SettingsService().wsIp;
       final port = SettingsService().wsPort;
