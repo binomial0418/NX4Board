@@ -6,3 +6,4 @@ build/
 pubspec.lock
 .DS_Store
 .DS_Store
+esp32_relay_gateway/config.h
