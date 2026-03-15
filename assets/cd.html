@@ -15,19 +15,21 @@
             src: url('fonts/ChakraPetch-Bold.woff2') format('woff2');
         }
 
-        @font-face {
-            font-family: 'Chakra Petch';
-            font-style: italic;
-            font-weight: 700;
-            font-display: swap;
-            src: url('fonts/ChakraPetch-BoldItalic.woff2') format('woff2');
-        }
+        /* 引入圓潤且具備高級幾何感的 Outfit 字體 */
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@700;800;900&display=swap');
 
         body {
             background-color: #000;
             color: #fff;
             overflow: hidden;
             font-family: 'Chakra Petch', sans-serif;
+        }
+
+        /* 圓潤數值專用樣式 */
+        .val-rounded {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            letter-spacing: 0.04em;
         }
 
         .data-card {
@@ -125,15 +127,15 @@
 
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
-                    <div class="data-card p-8 flex-1 flex flex-col justify-center border-l-blue-400">
+                    <div class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-blue-400">
                         <p class="text-blue-400 text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline mt-2">
                             <span id="rpm"
-                                class="text-[14rem] font-bold text-white leading-none tracking-tighter">1200</span>
+                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">4000</span>
                             <span id="rpm_unit" class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
                         </div>
                     </div>
-                    <div class="data-card p-8 w-[45%] flex flex-col justify-center border-l-orange-500">
+                    <div class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-orange-500">
                         <p
                             class="text-orange-500 text-[3.2rem] whitespace-nowrap font-bold tracking-wider uppercase mb-2">
                             胎壓(PSI)</p>
@@ -142,11 +144,13 @@
                         <div class="flex w-full items-center justify-between mb-1">
                             <!-- FL 強制靠向左邊中線，並在右側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-end pr-6">
-                                <span id="tpms_fl" class="text-[6rem] font-bold text-white leading-none">35</span>
+                                <span id="tpms_fl"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
                             </div>
                             <!-- FR 強制靠向右邊中線，並在左側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-start pl-9">
-                                <span id="tpms_fr" class="text-[6rem] font-bold text-white leading-none">35</span>
+                                <span id="tpms_fr"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
                             </div>
                         </div>
 
@@ -156,10 +160,12 @@
                         <!-- 後輪 (Rear) -->
                         <div class="flex w-full items-center justify-between mt-1">
                             <div class="w-1/2 flex justify-end pr-6">
-                                <span id="tpms_rl" class="text-[6rem] font-bold text-white leading-none">35</span>
+                                <span id="tpms_rl"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
                             </div>
                             <div class="w-1/2 flex justify-start pl-9">
-                                <span id="tpms_rr" class="text-[6rem] font-bold text-white leading-none">35</span>
+                                <span id="tpms_rr"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
                             </div>
                         </div>
                     </div>
@@ -169,7 +175,7 @@
                     <p class="text-cyan-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline mt-2">
                         <span id="temp"
-                            class="text-[14rem] font-bold text-white leading-none tracking-tighter">50</span>
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">50</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">°C</span>
                     </div>
                 </div>
@@ -178,18 +184,19 @@
                     <p class="text-emerald-500 text-[4rem] font-bold mb-4 tracking-widest uppercase">EV</p>
                     <div class="flex items-baseline mt-2">
                         <span id="battery"
-                            class="text-[14em] font-bold text-white leading-none tracking-tighter">60.5</span>
+                            class="text-[14em] font-bold text-white leading-none tracking-tighter val-rounded">60.5</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
                     </div>
                 </div>
             </div>
 
             <div class="w-[62%] flex flex-col justify-center items-center">
-                <div id="central_group" class="w-full flex flex-col items-center mt-4 transition-transform duration-500">
+                <div id="central_group"
+                    class="w-full flex flex-col items-center mt-4 transition-transform duration-500">
 
                     <div class="flex items-end mb-2">
                         <span id="speed"
-                            class="text-[34rem] font-black leading-[0.85] pt-6 pb-2 italic text-white tracking-tighter inline-block">120</span>
+                            class="text-[34rem] font-black leading-[0.85] pt-6 pb-2 text-white tracking-tighter inline-block val-rounded">120</span>
                         <span
                             class="text-6xl text-gray-400 font-black tracking-widest uppercase mb-12 ml-6 italic">KM/H</span>
                     </div>
@@ -199,7 +206,7 @@
                         <div id="limit_container"
                             class="mx-12 speed-limit-sign relative bg-white border-[2.5rem] border-red-500 shadow-[0_0_50px_rgba(255,0,0,0.6)] z-10">
                             <span id="limit_value"
-                                class="text-black text-[9.5rem] font-black leading-none mt-2 tracking-tighter">60</span>
+                                class="text-black text-[9.5rem] font-black leading-none mt-2 tracking-tighter val-rounded">60</span>
                         </div>
                         <div class="w-1/3 h-[2px] bg-gradient-to-l from-transparent via-gray-600 to-gray-400"></div>
                         <!-- Extended blueish line behind the sign seen in design -->
@@ -213,7 +220,7 @@
 
                     <div class="flex items-center mt-4">
                         <span id="time"
-                            class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block">11:07</span>
+                            class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block val-rounded">11:07</span>
                     </div>
                 </div>
             </div>
@@ -282,7 +289,7 @@
                     window._ocrEnabled = data.enableOcr;
                     const wrapper = document.getElementById('limit_wrapper');
                     if (wrapper) wrapper.style.display = data.enableOcr ? 'flex' : 'none';
-                    
+
                     const divider = document.getElementById('ocr_off_divider');
                     if (divider) divider.style.display = data.enableOcr ? 'none' : 'block';
 
@@ -308,12 +315,21 @@
                         const targetId = tpmsMapping[key];
                         const el = document.getElementById(targetId);
                         if (el) {
-                            // TPMS 顯示整數（無條件進位）
-                            el.innerText = Math.ceil(parseFloat(data[key]));
-                            if (parseFloat(data[key]) < 32) {
-                                el.classList.add('alert-pulse');
-                            } else {
+                            const rawVal = data[key];
+                            const val = parseFloat(rawVal);
+
+                            // 當胎壓數值為零、null 或非數字時，顯示為 -- 且不警示
+                            if (rawVal === null || isNaN(val) || val === 0) {
+                                el.innerText = '--';
                                 el.classList.remove('alert-pulse');
+                            } else {
+                                // 正常數值顯示整數（無條件進位）
+                                el.innerText = Math.ceil(val);
+                                if (val < 32) {
+                                    el.classList.add('alert-pulse');
+                                } else {
+                                    el.classList.remove('alert-pulse');
+                                }
                             }
                         }
                     }
