@@ -48,7 +48,7 @@
             bottom: 0;
             width: 6px;
             border-radius: 999px;
-            background: linear-gradient(180deg, rgba(0,0,0,0.0), transparent 150%);
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.0), transparent 150%);
             opacity: 0;
             transition: background 0.35s ease, opacity 0.35s ease, box-shadow 0.35s ease;
         }
@@ -134,6 +134,25 @@
                 opacity: 0.5;
             }
         }
+
+        .camera-alert-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(185, 28, 28, 0.9) 100%);
+            border: 4px solid #fff;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+            animation: slide-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes slide-up {
+            from {
+                transform: translateY(100px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 
@@ -148,7 +167,8 @@
 
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
-                    <div id="card-rpm" class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-blue-400">
+                    <div id="card-rpm"
+                        class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-blue-400">
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="rpm"
@@ -156,8 +176,7 @@
                             <span id="rpm_unit" class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
                         </div>
                     </div>
-                    <div
-                        id="card-tpms"
+                    <div id="card-tpms"
                         class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-orange-500 ml-[5em]">
                         <p class="text-white text-[3.2rem] whitespace-nowrap font-bold tracking-wider uppercase mb-2">
                             胎壓(PSI)</p>
@@ -194,7 +213,8 @@
                 </div>
 
                 <div class="flex-1 flex gap-6 h-[28%]">
-                    <div id="card-battery" class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
+                    <div id="card-battery"
+                        class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="battery"
@@ -202,8 +222,7 @@
                             <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
                         </div>
                     </div>
-                    <div
-                        id="card-odo-fuel"
+                    <div id="card-odo-fuel"
                         class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-indigo-500 ml-[5em]">
                         <div class="flex flex-col gap-2">
                             <div class="flex items-baseline">
@@ -221,7 +240,8 @@
                     </div>
                 </div>
 
-                <div id="card-temp" class="data-card p-10 flex-1 flex flex-col justify-center border-l-cyan-500 h-[28%]">
+                <div id="card-temp"
+                    class="data-card p-10 flex-1 flex flex-col justify-center border-l-cyan-500 h-[28%]">
                     <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline -mt-6">
                         <span id="temp"
@@ -259,9 +279,26 @@
                         class="w-1/3 h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent my-12 opacity-60 hidden">
                     </div>
 
-                    <div class="flex items-center mt-4 ml-[10em]">
+                    <div class="flex items-center mt-4 ml-[2em]">
                         <span id="time"
                             class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block val-rounded">11:07</span>
+                    </div>
+
+                    <!-- 測速點警示區 -->
+                    <div id="camera_alert" class="mt-12 hidden">
+                        <div class="camera-alert-card rounded-3xl p-8 flex items-center gap-8 min-w-[600px]">
+                            <div class="w-32 h-32 bg-white rounded-full flex items-center justify-center shrink-0">
+                                <svg class="w-20 h-20 text-red-600" fill="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+                                </svg>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-white text-4xl font-black uppercase tracking-widest mb-1">測速點提醒</span>
+                                <span id="camera_msg" class="text-white text-[3.2rem] font-bold leading-tight">前方 300
+                                    公尺速限 60</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -379,7 +416,7 @@
                     document.getElementById('odo').innerText = odometerText;
                     markCardValueChange('odo', odometerText, 'card-odo-fuel');
                 }
-                
+
                 if (data.fuel !== undefined) {
                     const fuelEl = document.getElementById('fuel');
                     const fuelVal = Math.round(data.fuel);
@@ -468,21 +505,21 @@
                         }
                     }
                 });
-                
+
                 // 相容 obdSppService.dart 原生屬性 (如果有傳過來的話)
                 ['tpmsFl', 'tpmsFr', 'tpmsRl', 'tpmsRr'].forEach(key => {
-                  if (data[key] !== undefined) {
-                      const idMap = { 'tpmsFl': 'tpms_fl', 'tpmsFr': 'tpms_fr', 'tpmsRl': 'tpms_rl', 'tpmsRr': 'tpms_rr' };
-                      const targetId = idMap[key];
-                      const el = document.getElementById(targetId);
-                      const val = parseFloat(data[key]);
-                      if (el && !isNaN(val) && val > 0) {
-                          el.innerText = Math.ceil(val);
-                          if (val < 32) el.classList.add('alert-pulse');
-                          else el.classList.remove('alert-pulse');
-                          markCardValueChange(targetId, el.innerText, 'card-tpms');
-                      }
-                  }
+                    if (data[key] !== undefined) {
+                        const idMap = { 'tpmsFl': 'tpms_fl', 'tpmsFr': 'tpms_fr', 'tpmsRl': 'tpms_rl', 'tpmsRr': 'tpms_rr' };
+                        const targetId = idMap[key];
+                        const el = document.getElementById(targetId);
+                        const val = parseFloat(data[key]);
+                        if (el && !isNaN(val) && val > 0) {
+                            el.innerText = Math.ceil(val);
+                            if (val < 32) el.classList.add('alert-pulse');
+                            else el.classList.remove('alert-pulse');
+                            markCardValueChange(targetId, el.innerText, 'card-tpms');
+                        }
+                    }
                 });
 
                 // 超速邏輯 (大於速限+10時亮紅暈)
@@ -495,6 +532,29 @@
                     speedEl.classList.add('speed-red-glow');
                 } else {
                     speedEl.classList.remove('speed-red-glow');
+                }
+
+                // 處理測速照相提示
+                const camAlert = document.getElementById('camera_alert');
+                const camMsg = document.getElementById('camera_msg');
+                if (data.cameraInfo) {
+                    camAlert.classList.remove('hidden');
+                    camMsg.innerText = data.cameraInfo.message;
+
+                    // 如果相機速限已知，暫時覆蓋主速限顯示 (視覺引導)
+                    if (data.cameraInfo.limit) {
+                        document.getElementById('limit_value').innerText = data.cameraInfo.limit;
+                        // 且因為有相機，強制顯示速限牌 (無視 OCR 關閉設定)
+                        document.getElementById('limit_wrapper').style.display = 'flex';
+                        document.getElementById('ocr_off_divider').style.display = 'none';
+                    }
+                } else {
+                    camAlert.classList.add('hidden');
+                    // 恢復原有的速限顯示邏輯 (由後續 OCR 狀態決定)
+                    if (data.enableOcr === false) {
+                        document.getElementById('limit_wrapper').style.display = 'none';
+                        document.getElementById('ocr_off_divider').style.display = 'block';
+                    }
                 }
             }
 

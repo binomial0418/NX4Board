@@ -4,6 +4,8 @@ import '../models/speed_sign.dart';
 import '../services/csv_parser.dart';
 import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
+import '../services/camera_service.dart';
+import '../services/settings_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -13,6 +15,7 @@ class AppProvider extends ChangeNotifier {
   int? _currentSpeedLimit;
   bool _isLoading = true;
   String _status = 'Initializing...';
+  Map<String, dynamic>? _nearestCameraInfo;
 
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
@@ -26,6 +29,7 @@ class AppProvider extends ChangeNotifier {
   int? get currentSpeedLimit => _currentSpeedLimit;
   bool get isLoading => _isLoading;
   String get status => _status;
+  Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
 
   // Obd getters
   ObdConnectionState get obdConnectionState => _obdService.connectionState;
@@ -51,6 +55,9 @@ class AppProvider extends ChangeNotifier {
       _allSpeedSigns = await CsvParser.loadSpeedSigns();
       _status = 'Data loaded: ${_allSpeedSigns.length} signs';
       _isLoading = false;
+
+      // Initialize Camera Service
+      await CameraService().init();
 
       // Initialize BLE Service
       await _obdService.init();
@@ -93,9 +100,34 @@ class AppProvider extends ChangeNotifier {
     // Update current speed limit from nearest sign
     if (_nearbySpeedSigns.isNotEmpty) {
       _status = 'Nearby signs detected...';
+      _currentSpeedLimit = _nearbySpeedSigns.first.speedLimit;
     } else {
       _currentSpeedLimit = null;
       _status = 'No speed signs nearby';
+    }
+
+    notifyListeners();
+
+    // ── 測速點偵測開關 ──
+    if (!SettingsService().enableOcr) {
+      _currentSpeedLimit = null;
+      _nearestCameraInfo = null;
+      notifyListeners();
+      return;
+    }
+
+    // ── 測速照相偵測 ──
+    final camService = CameraService();
+    camService.addPosition(position);
+    final camInfo = camService.checkNearbyCamera();
+    
+    if (camInfo != null) {
+      _nearestCameraInfo = camInfo;
+      if (camInfo['limit'] != null) {
+        _currentSpeedLimit = camInfo['limit'];
+      }
+    } else {
+      _nearestCameraInfo = null;
     }
 
     notifyListeners();

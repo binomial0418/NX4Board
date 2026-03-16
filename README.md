@@ -1,4 +1,4 @@
-# 省道速限警告系統 - Flutter App
+# NX4Board - 行車儀表板與測速偵測系統
 
 一個為 OPPO Reno 4Z 開發的 Flutter 應用，結合 GPS 定位和 Google ML Kit OCR 文字辨識，提供即時的省道速限警告功能。
 
@@ -32,7 +32,7 @@
 ## 安裝依賴
 
 ```bash
-cd /Users/duckegg/code/web/速限查詢2
+cd /Users/duckegg/code/web/NX4Board
 flutter pub get
 ```
 

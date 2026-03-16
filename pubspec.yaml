@@ -1,4 +1,4 @@
-name: speed_limit_app
+name: nx4board
 description: A Flutter app to detect and warn about speed limits using GPS and OCR.
 
 publish_to: 'none'
@@ -50,6 +50,7 @@ flutter:
   
   assets:
     - 省道速限圖資.csv
+    - assets/camera_data.csv
     - assets/cd.html
     - assets/tailwind.min.js
     - assets/fonts/
