@@ -61,7 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final Battery _battery = Battery();
   StreamSubscription<BatteryState>? _batterySubscription;
   Timer? _sleepCountdownTimer;
-  bool _isCharging = false;
+  bool? _isCharging; // null 代表尚未偵測到初始狀態
 
   // --- GPS 定位管理 ---
   StreamSubscription<Position>? _positionSubscription;
@@ -81,13 +81,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _initializeWidgets() async {
-    // 保底先啟用 WakeLock，避免電源狀態讀取失敗時仍能維持常亮
-    await WakelockPlus.enable();
-
-    // 集中請求所有必要權限
+    // 集中請求所有必要權限 (啟動時必須)
     await _requestAllPermissions();
-
-    _startLocationTracking();
 
     // 強制橫向 + 隱藏 Status Bar
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -96,16 +91,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       DeviceOrientation.landscapeRight,
     ]);
 
-    _connectWebSocket();
-    _startObdToWebviewSync();
-    _startWsUploadSync();
+    // 初始化背景服務配置
     _initForegroundTask();
+    
+    // 啟動電源監控 (這會觸發首次 _handleBatteryStateChange 並決定是否進入睡眠)
     _startBatteryMonitoring();
-
-    // 啟動後 15 秒（等 OBD 連線+初始輪詢回應），立即傳送一次 WS 資料
-    Future.delayed(const Duration(seconds: 15), () {
-      _sendObdDataViaWsOnce();
-    });
   }
 
   // ──────────────────────────────────────────────
@@ -259,7 +249,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           appProvider.updatePosition(position);
         }
       },
-      onError: (e) => debugPrint('Location stream error: $e'),
+      onError: (e) => print('Location stream error: $e'),
     );
   }
 
@@ -272,7 +262,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       final initialState = await _battery.batteryState;
       _handleBatteryStateChange(initialState);
     } catch (e) {
-      debugPrint('Battery initial state error: $e');
+      print('Battery initial state error: $e');
     }
 
     // 監聽後續狀態變化
@@ -280,54 +270,72 @@ class _DashboardScreenState extends State<DashboardScreen>
       (BatteryState state) {
         _handleBatteryStateChange(state);
       },
-      onError: (e) => debugPrint('Battery stream error: $e'),
+      onError: (e) => print('Battery stream error: $e'),
     );
   }
 
   void _handleBatteryStateChange(BatteryState state) {
-    final charging =
+    final bool charging =
         state == BatteryState.charging || state == BatteryState.full;
 
-    if (charging && !_isCharging) {
-      // 切換到充電狀態：喚醒所有資源
+    // ── 初始狀態處理 ──
+    if (_isCharging == null) {
+      _isCharging = charging;
+      if (charging) {
+        print('[電源] 初始狀態：已連接外部電源');
+        _wakeUp();
+      } else {
+        print('[電源] 初始狀態：無外部電源，立即進入睡眠');
+        _enterSleepMode();
+      }
+      return;
+    }
+
+    // ── 狀態切換處理 ──
+    if (charging && !_isCharging!) {
       _isCharging = true;
-      debugPrint('[電源] 偵測到外部電源連接，喚醒系統資源');
+      print('[電源] 偵測到外部電源連接，喚醒系統資源');
       _sleepCountdownTimer?.cancel();
       _sleepCountdownTimer = null;
-      WakelockPlus.enable();
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      _wakeUp();
 
-      // 恢復 GPS
-      if (_positionSubscription != null && _positionSubscription!.isPaused) {
-        _positionSubscription!.resume();
-      }
-
-      // 重連 OBD（若已因睡眠斷線）
-      final obdService = ObdSppService();
-      if (obdService.connectionState == ObdConnectionState.disconnected) {
-        debugPrint('[電源] 重新連接 OBD 藍牙');
-        obdService.init();
-      }
-
-      // 恢復 WebSocket 連線
-      if (!_isWsConnected) {
-        _connectWebSocket();
-      }
-
-      _startObdToWebviewSync();
-      _startWsUploadSync();
-
-      // 插電後 15 秒（等 OBD 重連+輪詢完成），立即傳送一次 WS 資料
-      Future.delayed(const Duration(seconds: 15), () {
-        _sendObdDataViaWsOnce();
-      });
-
-    } else if (!charging && _isCharging) {
-      // 切換到未充電狀態：啟動睡眠倒數
+    } else if (!charging && _isCharging!) {
       _isCharging = false;
-      debugPrint('[電源] 偵測到外部電源中斷，10 秒後進入深度睡眠');
+      print('[電源] 偵測到外部電源中斷，10 秒後進入深度睡眠');
       _startSleepCountdown();
     }
+  }
+
+  void _wakeUp() {
+    WakelockPlus.enable();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    // 啟動/恢復 GPS
+    if (_positionSubscription == null) {
+      _startLocationTracking();
+    } else if (_positionSubscription!.isPaused) {
+      _positionSubscription!.resume();
+    }
+
+    // 重連 OBD
+    final obdService = ObdSppService();
+    if (obdService.connectionState == ObdConnectionState.disconnected) {
+      print('[電源] 重新連接 OBD 藍牙');
+      obdService.init();
+    }
+
+    // 恢復 WebSocket 連線
+    if (!_isWsConnected) {
+      _connectWebSocket();
+    }
+
+    _startObdToWebviewSync();
+    _startWsUploadSync();
+
+    // 喚醒後短暫延遲傳送一次資料
+    Future.delayed(const Duration(seconds: 15), () {
+      if (_isCharging == true) _sendObdDataViaWsOnce();
+    });
   }
 
   void _startSleepCountdown() {
@@ -335,7 +343,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     int countdown = 10;
     _sleepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       countdown--;
-      debugPrint('[電源] 進入睡眠倒數：$countdown 秒');
+      print('[電源] 進入睡眠倒數：$countdown 秒');
       if (countdown <= 0) {
         timer.cancel();
         _enterSleepMode();
@@ -344,7 +352,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _enterSleepMode() async {
-    debugPrint('[電源] 進入深度睡眠模式，關閉背景高耗電資源');
+    print('[電源] 進入深度睡眠模式，關閉背景高耗電資源');
 
     // 關閉螢幕常亮與沉浸模式
     WakelockPlus.disable();
@@ -362,14 +370,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // 暫停 GPS 定位以省電 (不再進行任何測速偵測)
     _positionSubscription?.pause();
-    debugPrint('[電源] GPS 定位已暫停，停止一切測速偵測');
+    print('[電源] GPS 定位已暫停，停止一切測速偵測');
 
     // 斷開藍牙 OBD（關閉輪詢 + 釋放 SPP 連線）
     ObdSppService().handleDisconnect('power_disconnected');
-    debugPrint('[電源] OBD 藍牙已斷線');
+    print('[電源] OBD 藍牙已斷線');
 
     if (mounted) setState(() {}); 
-    debugPrint('[電源] 系統資源已釋放，進入深度睡眠');
+    print('[電源] 系統資源已釋放，進入深度睡眠');
   }
 
   // ──────────────────────────────────────────────
@@ -380,9 +388,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_isWsConnecting) return;
     _isWsConnecting = true;
 
-    if (!_isCharging) {
+    if (_isCharging != true) {
       // 未接外部電源：跳過 WiFi 切換，直接嘗試建立連線
-      debugPrint('[WS] 未充電，跳過 WiFi 切換');
+      print('[WS] 未充電，跳過 WiFi 切換');
       _doConnectWebSocket();
       return;
     }
@@ -390,7 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 充電中：先靜默確保 WiFi 已連上 nx4_obd_relay，再建立 WebSocket
     WifiService.ensureConnected().then((wifiOk) {
       if (!wifiOk) {
-        debugPrint('[WS] WiFi 未連上 nx4_obd_relay，取消本次連線');
+        print('[WS] WiFi 未連上 nx4_obd_relay，取消本次連線');
         _isWsConnecting = false;
         _scheduleReconnect();
         return;
@@ -413,7 +421,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       // 連線建立後立即標記為 connected（不等收到訊息）
       // 因為本 app 是主動推送方，可能永遠不會收到回傳訊息
       if (mounted) setState(() => _isWsConnected = true);
-      debugPrint('[WS] 已連接: ws://$ip:$port');
+      print('[WS] 已連接: ws://$ip:$port');
 
       _channel!.stream.listen(
         (message) {
@@ -423,13 +431,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                   "if(window.updateDashboard) updateDashboard('$message');");
         },
         onDone: () {
-          debugPrint('[WS] 連線中斷 (onDone)');
+          print('[WS] 連線中斷 (onDone)');
           if (mounted) setState(() => _isWsConnected = false);
           _isWsConnecting = false;
           _scheduleReconnect();
         },
         onError: (error) {
-          debugPrint('[WS] 連線錯誤: $error');
+          print('[WS] 連線錯誤: $error');
           if (mounted) setState(() => _isWsConnected = false);
           _isWsConnecting = false;
           _scheduleReconnect();
@@ -438,7 +446,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
       _isWsConnecting = false;
     } catch (e) {
-      debugPrint('[WS] 連線失敗: $e');
+      print('[WS] 連線失敗: $e');
       if (mounted) setState(() => _isWsConnected = false);
       _isWsConnecting = false;
       _scheduleReconnect();
@@ -452,7 +460,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       // 若未連線且正在充電，立即觸發重連（不等下次斷線事件）
       if (!_isWsConnected || _channel == null) {
-        if (_isCharging) _scheduleReconnect();
+        if (_isCharging == true) _scheduleReconnect();
         return;
       }
 
@@ -460,7 +468,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       // 檢查 OBD 是否連線
       if (provider.obdConnectionState != ObdConnectionState.connected) {
-        debugPrint('[WS-TX] OBD 未連線，跳過定期同步');
+        print('[WS-TX] OBD 未連線，跳過定期同步');
         return;
       }
 
@@ -492,10 +500,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         final jsonString = jsonEncode(uploadData);
         try {
           _channel!.sink.add(jsonString);
-          debugPrint('[WS-TX] Uploaded to Relay: $jsonString');
+          print('[WS-TX] Uploaded to Relay: $jsonString');
           ObdSppService().logWsSend(jsonString);
         } catch (e) {
-          debugPrint('[WS-TX] Send error: $e');
+          print('[WS-TX] Send error: $e');
           // 發送失敗視為斷線，立即觸發重連
           if (mounted) setState(() => _isWsConnected = false);
           _scheduleReconnect();
@@ -507,10 +515,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
     // 如果不在充電狀態（睡眠或準備睡眠）就不主動重連
-    if (!_isCharging) return;
+    if (_isCharging != true) return;
 
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _isCharging) _connectWebSocket();
+      if (mounted && _isCharging == true) _connectWebSocket();
     });
   }
 
@@ -561,11 +569,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   void _sendObdDataViaWsOnce() {
     if (!mounted || !_isWsConnected || _channel == null) return;
+    if (_isCharging != true) return; // 沒供電時不主動發送
+    
     final provider = context.read<AppProvider>();
 
     // 檢查 OBD 是否連線
     if (provider.obdConnectionState != ObdConnectionState.connected) {
-      debugPrint('[WS-TX] OBD 未連線，跳過立即傳送');
+      print('[WS-TX] OBD 未連線，跳過立即傳送');
       return;
     }
 
@@ -595,10 +605,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       final jsonString = jsonEncode(uploadData);
       try {
         _channel!.sink.add(jsonString);
-        debugPrint('[WS-TX] 輪詢後立即傳送: $jsonString');
+        print('[WS-TX] 輪詢後立即傳送: $jsonString');
         ObdSppService().logWsSend(jsonString);
       } catch (e) {
-        debugPrint('[WS-TX] 立即傳送錯誤: $e');
+        print('[WS-TX] 立即傳送錯誤: $e');
         if (mounted) setState(() => _isWsConnected = false);
         _scheduleReconnect();
       }
@@ -657,7 +667,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   _webViewController = controller;
                 },
                 onConsoleMessage: (controller, consoleMessage) {
-                  debugPrint(
+                  print(
                       "WebView [${consoleMessage.messageLevel}]: ${consoleMessage.message}");
                 },
               ),
