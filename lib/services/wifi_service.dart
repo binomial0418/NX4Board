@@ -9,13 +9,25 @@ class WifiService {
   /// - 若已連線 → 直接回傳 true
   /// - 若未連線 → 呼叫原生層靜默切換已儲存的設定，無系統彈窗
   /// - 切換失敗（例如尚未儲存或 Android 限制）→ 回傳 false，不中斷 App
-  static Future<bool> ensureConnected() async {
+  /// 檢查目前是否連線到 [_targetSsid]
+  static Future<bool> isConnected() async {
     try {
       final raw = await _channel.invokeMethod<String>('getSSID');
       final current = raw?.replaceAll('"', '') ?? '';
-      debugPrint('[WiFi] 目前 SSID: $current');
+      return current == _targetSsid;
+    } catch (e) {
+      debugPrint('[WiFi] isConnected error: $e');
+      return false;
+    }
+  }
 
-      if (current == _targetSsid) {
+  /// 確保手機目前連線到 [_targetSsid]。
+  /// - 若已連線 → 直接回傳 true
+  /// - 若未連線 → 呼叫原生層靜默切換已儲存的設定，無系統彈窗
+  /// - 切換失敗（例如尚未儲存或 Android 限制）→ 回傳 false，不中斷 App
+  static Future<bool> ensureConnected() async {
+    try {
+      if (await isConnected()) {
         debugPrint('[WiFi] 已連線至 $_targetSsid，無需切換');
         return true;
       }

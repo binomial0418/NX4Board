@@ -33,9 +33,30 @@
         }
 
         .data-card {
-            border-left: 6px solid #3b82f6;
+            position: relative;
+            border-left: 6px solid;
+            border-left-color: var(--stripe-color, transparent);
             background: linear-gradient(90deg, rgba(31, 41, 55, 0.6) 0%, rgba(31, 41, 55, 0) 100%);
-            transition: all 0.3s ease;
+            transition: border-color 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .data-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 6px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.0), transparent 150%);
+            opacity: 0;
+            transition: background 0.35s ease, opacity 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .data-card.card-update::before {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+            opacity: 1;
+            box-shadow: 0 0 24px rgba(255, 255, 255, 0.45);
         }
 
         .font-mono-custom {
@@ -127,7 +148,7 @@
 
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
-                    <div class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-blue-400">
+                    <div id="card-rpm" class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-blue-400">
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="rpm"
@@ -136,6 +157,7 @@
                         </div>
                     </div>
                     <div
+                        id="card-tpms"
                         class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-orange-500 ml-[5em]">
                         <p class="text-white text-[3.2rem] whitespace-nowrap font-bold tracking-wider uppercase mb-2">
                             胎壓(PSI)</p>
@@ -172,7 +194,7 @@
                 </div>
 
                 <div class="flex-1 flex gap-6 h-[28%]">
-                    <div class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
+                    <div id="card-battery" class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="battery"
@@ -181,6 +203,7 @@
                         </div>
                     </div>
                     <div
+                        id="card-odo-fuel"
                         class="data-card p-8 w-[45%] shrink-0 flex flex-col justify-center border-l-indigo-500 ml-[5em]">
                         <div class="flex flex-col gap-2">
                             <div class="flex items-baseline">
@@ -198,7 +221,7 @@
                     </div>
                 </div>
 
-                <div class="data-card p-10 flex-1 flex flex-col justify-center border-l-cyan-500 h-[28%]">
+                <div id="card-temp" class="data-card p-10 flex-1 flex flex-col justify-center border-l-cyan-500 h-[28%]">
                     <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline -mt-6">
                         <span id="temp"
@@ -255,6 +278,42 @@
             setInterval(updateClock, 1000);
             updateClock();
 
+            const CARD_HIGHLIGHT_DURATION = 420;
+            const highlightTimers = {};
+            const prevValues = {
+                rpm: document.getElementById('rpm')?.innerText ?? '',
+                tpms_fl: document.getElementById('tpms_fl')?.innerText ?? '',
+                tpms_fr: document.getElementById('tpms_fr')?.innerText ?? '',
+                tpms_rl: document.getElementById('tpms_rl')?.innerText ?? '',
+                tpms_rr: document.getElementById('tpms_rr')?.innerText ?? '',
+                battery: document.getElementById('battery')?.innerText ?? '',
+                odo: document.getElementById('odo')?.innerText ?? '',
+                fuel: document.getElementById('fuel')?.innerText ?? '',
+                temp: document.getElementById('temp')?.innerText ?? '',
+            };
+
+            function triggerCardHighlight(cardId) {
+                const card = document.getElementById(cardId);
+                if (!card) return;
+                card.classList.add('card-update');
+                if (highlightTimers[cardId]) {
+                    clearTimeout(highlightTimers[cardId]);
+                }
+                highlightTimers[cardId] = setTimeout(() => {
+                    card.classList.remove('card-update');
+                    highlightTimers[cardId] = null;
+                }, CARD_HIGHLIGHT_DURATION);
+            }
+
+            function markCardValueChange(key, value, cardId) {
+                if (value === undefined || value === null) return false;
+                const normalized = String(value);
+                if (prevValues[key] === normalized) return false;
+                prevValues[key] = normalized;
+                triggerCardHighlight(cardId);
+                return true;
+            }
+
             // 由 Flutter 呼叫來更新數值
             function updateDashboard(data) {
                 if (typeof data === 'string') {
@@ -270,6 +329,7 @@
                     const rpmEl = document.getElementById('rpm');
                     const rpmUnit = document.getElementById('rpm_unit');
                     const rpmVal = Math.ceil(parseFloat(data.rpm));
+                    const rpmDisplay = rpmVal === 0 ? 'EV' : rpmVal;
                     if (rpmVal === 0) {
                         rpmEl.innerText = "EV";
                         rpmEl.classList.remove('text-white');
@@ -283,12 +343,14 @@
                         rpmEl.style.letterSpacing = '';
                         if (rpmUnit) rpmUnit.style.display = 'inline';
                     }
+                    markCardValueChange('rpm', rpmDisplay, 'card-rpm');
                 }
 
                 if (data.temperature !== undefined) {
                     const tempEl = document.getElementById('temp');
                     const tempVal = Math.ceil(parseFloat(data.temperature));
                     tempEl.innerText = tempVal;
+                    markCardValueChange('temp', tempVal, 'card-temp');
 
                     // 先清除所有警示樣式
                     tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
@@ -301,15 +363,28 @@
                 }
 
                 // HEV 電池：保留一位小數
-                if (data.battery !== undefined) document.getElementById('battery').innerText = parseFloat(data.battery).toFixed(1);
+                if (data.battery !== undefined) {
+                    const batteryText = parseFloat(data.battery).toFixed(1);
+                    document.getElementById('battery').innerText = batteryText;
+                    markCardValueChange('battery', batteryText, 'card-battery');
+                }
                 // 里程與油箱
-                if (data.mileage !== undefined) document.getElementById('odo').innerText = Math.round(data.mileage);
-                if (data.odometer !== undefined) document.getElementById('odo').innerText = Math.round(data.odometer); // 相容模擬器
+                if (data.mileage !== undefined) {
+                    const mileageText = Math.round(data.mileage);
+                    document.getElementById('odo').innerText = mileageText;
+                    markCardValueChange('odo', mileageText, 'card-odo-fuel');
+                }
+                if (data.odometer !== undefined) {
+                    const odometerText = Math.round(data.odometer);
+                    document.getElementById('odo').innerText = odometerText;
+                    markCardValueChange('odo', odometerText, 'card-odo-fuel');
+                }
                 
                 if (data.fuel !== undefined) {
                     const fuelEl = document.getElementById('fuel');
                     const fuelVal = Math.round(data.fuel);
                     fuelEl.innerText = fuelVal;
+                    markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
                     if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
                     else fuelEl.classList.remove('alert-pulse');
                 }
@@ -317,6 +392,7 @@
                     const fuelEl = document.getElementById('fuel');
                     const fuelVal = Math.round(data.fuelLevel);
                     fuelEl.innerText = fuelVal;
+                    markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
                     if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
                     else fuelEl.classList.remove('alert-pulse');
                 }
@@ -353,16 +429,19 @@
                     const nestedMap = { 'fl': 'tpms_fl', 'fr': 'tpms_fr', 'rl': 'tpms_rl', 'rr': 'tpms_rr' };
                     Object.keys(nestedMap).forEach(key => {
                         if (tires[key] !== undefined) {
-                            const el = document.getElementById(nestedMap[key]);
+                            const targetId = nestedMap[key];
+                            const el = document.getElementById(targetId);
                             if (el) {
                                 const val = parseFloat(tires[key]);
                                 if (val === 0 || isNaN(val)) {
                                     el.innerText = '--';
                                     el.classList.remove('alert-pulse');
+                                    markCardValueChange(targetId, el.innerText, 'card-tpms');
                                 } else {
                                     el.innerText = Math.ceil(val);
                                     if (val < 32) el.classList.add('alert-pulse');
                                     else el.classList.remove('alert-pulse');
+                                    markCardValueChange(targetId, el.innerText, 'card-tpms');
                                 }
                             }
                         }
@@ -379,10 +458,12 @@
                             if (isNaN(val) || val === 0) {
                                 el.innerText = '--';
                                 el.classList.remove('alert-pulse');
+                                markCardValueChange(targetId, el.innerText, 'card-tpms');
                             } else {
                                 el.innerText = Math.ceil(val);
                                 if (val < 32) el.classList.add('alert-pulse');
                                 else el.classList.remove('alert-pulse');
+                                markCardValueChange(targetId, el.innerText, 'card-tpms');
                             }
                         }
                     }
@@ -392,12 +473,14 @@
                 ['tpmsFl', 'tpmsFr', 'tpmsRl', 'tpmsRr'].forEach(key => {
                   if (data[key] !== undefined) {
                       const idMap = { 'tpmsFl': 'tpms_fl', 'tpmsFr': 'tpms_fr', 'tpmsRl': 'tpms_rl', 'tpmsRr': 'tpms_rr' };
-                      const el = document.getElementById(idMap[key]);
+                      const targetId = idMap[key];
+                      const el = document.getElementById(targetId);
                       const val = parseFloat(data[key]);
                       if (el && !isNaN(val) && val > 0) {
                           el.innerText = Math.ceil(val);
                           if (val < 32) el.classList.add('alert-pulse');
                           else el.classList.remove('alert-pulse');
+                          markCardValueChange(targetId, el.innerText, 'card-tpms');
                       }
                   }
                 });

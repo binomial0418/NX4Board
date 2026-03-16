@@ -397,20 +397,23 @@ class _DashboardScreenState extends State<DashboardScreen>
       };
       
       final Map<String, dynamic> tires = {};
-      if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
-      if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
-      if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
-      if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+      final obd = ObdSppService();
+      if (obd.hasTpms) {
+        if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
+        if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
+        if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
+        if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+      }
       if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-      if (provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
-      if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+      if (obd.hasOdometer && provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
+      if (obd.hasFuel && provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
 
-      // 同時保留儀表板需要的原始屬性（若有需要，也可以單純發送一套，此處先以 user 指定結構為主）
-      if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
-      if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
-      if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
-      if (provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+      // 同時保留儀表板需要的原始屬性
+      if (obd.hasSpeed && provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
+      if (obd.hasRpm && provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
+      if (obd.hasCoolant && provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
+      if (obd.hasHevSoc && provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
 
       if (uploadData.length > 2) { // 除了 _type, tid 之外還有其他資料
         final jsonString = jsonEncode(uploadData);
@@ -490,18 +493,21 @@ class _DashboardScreenState extends State<DashboardScreen>
     };
 
     final Map<String, dynamic> tires = {};
-    if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
-    if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
-    if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
-    if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+    final obd = ObdSppService();
+    if (obd.hasTpms) {
+      if (provider.tpmsFl != null) tires["fl"] = provider.tpmsFl;
+      if (provider.tpmsFr != null) tires["fr"] = provider.tpmsFr;
+      if (provider.tpmsRl != null) tires["rl"] = provider.tpmsRl;
+      if (provider.tpmsRr != null) tires["rr"] = provider.tpmsRr;
+    }
     if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-    if (provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
-    if (provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
-    if (provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
-    if (provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
-    if (provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
-    if (provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+    if (obd.hasOdometer && provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
+    if (obd.hasFuel && provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+    if (obd.hasSpeed && provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
+    if (obd.hasRpm && provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
+    if (obd.hasCoolant && provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
+    if (obd.hasHevSoc && provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
 
     if (uploadData.length > 2) {
       final jsonString = jsonEncode(uploadData);
@@ -599,14 +605,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // WS 連線狀態
-                  _StatusBadge(
-                    isActive: _isWsConnected,
-                    activeLabel: 'WS 已連',
-                    inactiveLabel: 'WS 未連',
-                    activeColor: Colors.lightBlueAccent,
-                    inactiveColor: Colors.redAccent,
-                    pulseAnimation: _pulseAnimation,
+                  // WiFi 連線狀態 (原 WS 狀態)
+                  Consumer<AppProvider>(
+                    builder: (context, provider, child) {
+                      return _StatusBadge(
+                        isActive: provider.isWifiConnected,
+                        activeLabel: 'WiFi 已連',
+                        inactiveLabel: 'WiFi 未連',
+                        activeColor: Colors.lightBlueAccent,
+                        inactiveColor: Colors.redAccent,
+                        pulseAnimation: _pulseAnimation,
+                      );
+                    },
                   ),
                   const SizedBox(height: 10),
                   // OCR 狀態 (移除相機後固定顯示為關閉)

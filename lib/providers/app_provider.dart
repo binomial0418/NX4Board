@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import '../models/speed_sign.dart';
 import '../services/csv_parser.dart';
 import '../services/obd_spp_service.dart';
+import '../services/wifi_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -16,6 +17,7 @@ class AppProvider extends ChangeNotifier {
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
   Timer? _obdStatusTimer;
+  bool _isWifiConnected = false;
 
   // Getters
   List<SpeedSign> get allSpeedSigns => _allSpeedSigns;
@@ -38,6 +40,7 @@ class AppProvider extends ChangeNotifier {
   double? get tpmsFr => _obdService.tpmsFr;
   double? get tpmsRl => _obdService.tpmsRl;
   double? get tpmsRr => _obdService.tpmsRr;
+  bool get isWifiConnected => _isWifiConnected;
 
   /// Initialize app - load CSV data
   Future<void> initialize() async {
@@ -53,7 +56,11 @@ class AppProvider extends ChangeNotifier {
       await _obdService.init();
 
       // Poll OBD state to update UI globally
-      _obdStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      _obdStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+        final wifiOk = await WifiService.isConnected();
+        if (wifiOk != _isWifiConnected) {
+          _isWifiConnected = wifiOk;
+        }
         notifyListeners();
       });
 

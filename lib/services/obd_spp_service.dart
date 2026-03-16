@@ -79,6 +79,16 @@ class ObdSppService {
   double? tpmsRl;
   double? tpmsRr;
 
+  // ── Data Validity Flags (本次連線是否已成功解析過) ─────────────────────
+  bool hasRpm = false;
+  bool hasSpeed = false;
+  bool hasCoolant = false;
+  bool hasVoltage = false;
+  bool hasHevSoc = false;
+  bool hasOdometer = false;
+  bool hasFuel = false;
+  bool hasTpms = false;
+
   // ── Polling Timers ────────────────────────────────────────────────────────
   Timer? _fastPollTimer;
   Timer? _slowPollTimer;
@@ -270,12 +280,13 @@ class ObdSppService {
   // =========================================================================
 
   void handleDisconnect(String reason) {
-    if (!_isConnected &&
-        connectionState == ObdConnectionState.disconnected) {
+    if (!_isConnected && connectionState == ObdConnectionState.disconnected) {
       return;
     }
 
-    _log('[OBD] handleDisconnect ← $reason');
+    // 清空數據與旗標
+    _resetDataFlags();
+    _log('[OBD] --- Disconnected: $reason ---');
 
     _isConnected = false;
     connectionState = ObdConnectionState.disconnected;
@@ -380,8 +391,7 @@ class ObdSppService {
       }
 
       try {
-        await resultCompleter.future
-            .timeout(Duration(milliseconds: timeoutMs));
+        await resultCompleter.future.timeout(Duration(milliseconds: timeoutMs));
 
         // ── 成功收到回應：看門狗計數歸零 ────────────────────────────────────
         _consecutiveTimeouts = 0;
@@ -400,7 +410,7 @@ class ObdSppService {
         // ── 達到看門狗閾值：強制斷線打破死鎖 ───────────────────────────────
         if (_consecutiveTimeouts >= _watchdogThreshold) {
           _log('[Watchdog] 達到閾值，強制斷線！清空 command chain...');
-          _consecutiveTimeouts = 0;  // 重置後再斷線，防止下次重連後立即再觸發
+          _consecutiveTimeouts = 0; // 重置後再斷線，防止下次重連後立即再觸發
           handleDisconnect('watchdog_timeout');
         }
       }
@@ -434,12 +444,15 @@ class ObdSppService {
       _log('[OBD] ATZ  → ${await mustSend('ATZ', timeoutMs: 3000)}');
       _log('[OBD] ATE0 → ${await mustSend('ATE0')}');
       _log('[OBD] ATL0 → ${await mustSend('ATL0')}');
-      _log('[OBD] ATH0 → ${await mustSend('ATH0')}');   // Headers Off
-      _log('[OBD] ATS0 → ${await mustSend('ATS0')}');   // Spaces Off
-      _log('[OBD] ATAL → ${await mustSend('ATAL')}');   // Allow Long messages（多幀合併輸出）
-      _log('[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms
+      _log('[OBD] ATH0 → ${await mustSend('ATH0')}'); // Headers Off
+      _log('[OBD] ATS0 → ${await mustSend('ATS0')}'); // Spaces Off
+      _log(
+          '[OBD] ATAL → ${await mustSend('ATAL')}'); // Allow Long messages（多幀合併輸出）
+      _log(
+          '[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms
       _log('[OBD] ATAT1 → ${await mustSend('ATAT1')}'); // 自動調整時序
-      _log('[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K
+      _log(
+          '[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K
 
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
@@ -455,6 +468,40 @@ class ObdSppService {
   // =========================================================================
   // RX: 資料到達處理
   // =========================================================================
+
+  void _resetDataFlags() {
+    rpm = null;
+    speed = null;
+    coolantTemp = null;
+    voltage = null;
+    hevSoc = null;
+    odometer = null;
+    fuelLevel = null;
+    tpmsFl = null;
+    tpmsFr = null;
+    tpmsRl = null;
+    tpmsRr = null;
+
+    hasRpm = false;
+    hasSpeed = false;
+    hasCoolant = false;
+    hasVoltage = false;
+    hasHevSoc = false;
+    hasOdometer = false;
+    hasFuel = false;
+    hasTpms = false;
+  }
+
+  bool isDataReady() {
+    return hasRpm &&
+        hasSpeed &&
+        hasCoolant &&
+        hasVoltage &&
+        hasHevSoc &&
+        hasOdometer &&
+        hasFuel &&
+        hasTpms;
+  }
 
   void _setupDataListener() {
     _dataSubscription?.cancel();
@@ -525,31 +572,41 @@ class ObdSppService {
 
           if (pid == '0C') {
             if (sanitized.length >= payloadStart + 4) {
-              final String hex = sanitized.substring(payloadStart, payloadStart + 4);
+              final String hex =
+                  sanitized.substring(payloadStart, payloadStart + 4);
               final int a = int.parse(hex.substring(0, 2), radix: 16);
               final int b = int.parse(hex.substring(2, 4), radix: 16);
               rpm = ((a * 256) + b) ~/ 4;
+              hasRpm = true;
               _log('[Parser Result] RPM=$rpm');
             }
           } else if (pid == '0D') {
             if (sanitized.length >= payloadStart + 2) {
-              final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+              final String hex =
+                  sanitized.substring(payloadStart, payloadStart + 2);
               speed = int.parse(hex, radix: 16);
+              hasSpeed = true;
               _log('[Parser Result] Speed=$speed');
             }
           } else if (pid == '67') {
             if (sanitized.length >= payloadStart + 6) {
-              final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
-              final String hexB = sanitized.substring(payloadStart + 4, payloadStart + 6);
+              final String hexA =
+                  sanitized.substring(payloadStart + 2, payloadStart + 4);
+              final String hexB =
+                  sanitized.substring(payloadStart + 4, payloadStart + 6);
               coolantTemp = int.parse(hexA, radix: 16) - 40;
+              hasCoolant = true;
               final int coolantB = int.parse(hexB, radix: 16) - 40;
-              _log('[Parser Result] CoolantA=$coolantTemp °C CoolantB=$coolantB °C');
+              _log(
+                  '[Parser Result] CoolantA=$coolantTemp °C CoolantB=$coolantB °C');
             }
           } else if (pid == '5B') {
             if (sanitized.length >= payloadStart + 2) {
-              final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+              final String hex =
+                  sanitized.substring(payloadStart, payloadStart + 2);
               final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
               hevSoc = double.parse(rawSoc.toStringAsFixed(1));
+              hasHevSoc = true;
               _log('[Parser Result] HEV SOC=$hevSoc% (hex=$hex)');
             }
           }
@@ -564,15 +621,17 @@ class ObdSppService {
 
         if (index != -1) {
           final int payloadStart = index + signature.length;
+          final String data = sanitized.substring(payloadStart); // Extract data once
 
           if (pid == 'C00B') {
-            if (sanitized.length >= payloadStart + 42) {
-              final String data = sanitized.substring(payloadStart);
+            if (data.length >= 42) { // Check length of 'data'
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
               tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
-              _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
+              hasTpms = true;
+              _log(
+                  '[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
             }
           } else if (pid == 'B002') {
             if (sanitized.length >= payloadStart + 18) {
@@ -585,9 +644,12 @@ class ObdSppService {
                 odometer = odoRaw.toDouble();
               }
               fuelLevel = int.parse(data.substring(8, 10), radix: 16);
+              hasFuel = true;
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
-              _log('[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage');
+              hasVoltage = true;
+              _log(
+                  '[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage');
             }
           } else if (pid == '0105') {
             // Display SOC = Byte E / 2
@@ -610,9 +672,23 @@ class ObdSppService {
 
   bool _isAtResponse(String compact) {
     const List<String> atKeywords = [
-      'OK', 'ELM', 'ATZ', 'ATE', 'ATL', 'ATS', 'ATH', 'ATSP',
-      'NODATA', 'UNABLETOCONNECT', 'BUSERROR', 'CANERROR',
-      'DATAERROR', 'ERROR', 'SEARCHING', 'STOPPED', 'BUFFERFULL',
+      'OK',
+      'ELM',
+      'ATZ',
+      'ATE',
+      'ATL',
+      'ATS',
+      'ATH',
+      'ATSP',
+      'NODATA',
+      'UNABLETOCONNECT',
+      'BUSERROR',
+      'CANERROR',
+      'DATAERROR',
+      'ERROR',
+      'SEARCHING',
+      'STOPPED',
+      'BUFFERFULL',
     ];
     return atKeywords.any((kw) => compact.contains(kw));
   }
@@ -626,20 +702,20 @@ class ObdSppService {
     _slowPollTimer?.cancel();
     _minutePollTimer?.cancel();
 
-    _fastPollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!_isConnected) return;
       sendCommand('010C');
       sendCommand('010D');
     });
 
-    // HEV SOC 每 10 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
-    _slowPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    // HEV SOC 每 5 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
+    _slowPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!_isConnected) return;
       sendCommand('015B');
     });
 
-    // 水溫每 60 秒：使用 PID 0167（SAE Coolant A/B）
-    _minutePollTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    // 水溫每 30 秒：使用 PID 0167（SAE Coolant A/B）
+    _minutePollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!_isConnected) return;
       sendCommand('0167');
       sendCommand('ATSH7C6');
