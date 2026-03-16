@@ -465,6 +465,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.obdOdometer != null) jsonMap["odometer"] = provider.obdOdometer;
       if (provider.obdFuel != null) jsonMap["fuelLevel"] = provider.obdFuel;
 
+      // 測速照相
+      if (provider.nearestCameraInfo != null) {
+        jsonMap["cameraInfo"] = provider.nearestCameraInfo;
+      }
+
       if (jsonMap.isNotEmpty) {
         final jsonString = jsonEncode(jsonMap);
         _webViewController?.evaluateJavascript(
