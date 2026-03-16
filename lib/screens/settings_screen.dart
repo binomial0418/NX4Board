@@ -195,7 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: SwitchListTile(
                 title: const Text('啟用速限辨識',
                     style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('關閉時相機將不會運作，且儀表板隱藏速限指示。'),
+                subtitle: const Text('關閉時測速點偵測功能將停止運作，且儀表板隱藏速限指示。'),
                 value: _enableOcr,
                 onChanged: (val) async {
                   setState(() => _enableOcr = val);

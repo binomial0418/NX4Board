@@ -5,6 +5,7 @@ import '../services/csv_parser.dart';
 import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
 import '../services/camera_service.dart';
+import '../services/settings_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -106,6 +107,14 @@ class AppProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+
+    // ── 測速點偵測開關 ──
+    if (!SettingsService().enableOcr) {
+      _currentSpeedLimit = null;
+      _nearestCameraInfo = null;
+      notifyListeners();
+      return;
+    }
 
     // ── 測速照相偵測 ──
     final camService = CameraService();

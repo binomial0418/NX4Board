@@ -112,37 +112,109 @@ class _DashboardScreenState extends State<DashboardScreen>
   // 集中式權限請求（啟動時全部一次詢問）
   // ──────────────────────────────────────────────
   Future<void> _requestAllPermissions() async {
-    final statuses = await [
+    // 1. 第一階段：請求基礎必要權限
+    final basePermissions = [
+      Permission.location,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.notification,
+    ];
+
+    Map<Permission, PermissionStatus> statuses = await basePermissions.request();
+
+    // 檢查是否有權限被拒絕（非永久）
+    bool hasDenied = statuses.values.any((s) => s.isDenied);
+    if (hasDenied && mounted) {
+      await _showPermissionExplanationDialog(
+        '需要基本權限',
+        '此 App 需要定位（偵測測速）、藍牙（連接 OBD）及通知功能才能正常運作。請授予權限以繼續。',
+        () async {
+          statuses = await basePermissions.request();
+        },
+      );
+    }
+
+    // 2. 第二階段：若基礎定位已過，請求「始終允許」定位權限 (Android 10+ 背景定位)
+    if (await Permission.location.isGranted) {
+      final statusAlways = await Permission.locationAlways.request();
+      if (statusAlways.isDenied && mounted) {
+        await _showPermissionExplanationDialog(
+          '需要背景定位',
+          '為了在螢幕關閉或切換後台時持續偵測測速照相，建議將定位權限設為「始終允許」。',
+          () async => await Permission.locationAlways.request(),
+        );
+      }
+    }
+
+    // 3. 檢查是否有永久拒絕的情況
+    final allStatuses = await [
       Permission.location,
       Permission.locationAlways,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.notification,
-    ].request();
+    ].map((p) async => MapEntry(p, await p.status)).toList();
 
-    // 任一權限被永久拒絕時，引導使用者至系統設定頁
-    final hasPermanentlyDenied =
-        statuses.values.any((s) => s.isPermanentlyDenied);
-    if (hasPermanentlyDenied && mounted) {
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text('需要授予權限'),
-          content: const Text(
-              '部分必要權限已被永久拒絕（定位、藍牙、通知）。\n請前往系統設定手動開啟。'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                openAppSettings();
-              },
-              child: const Text('前往設定'),
-            ),
-          ],
-        ),
-      );
+    bool hasPermanentlyDenied = false;
+    for (var entry in allStatuses) {
+      if ((await entry).value.isPermanentlyDenied) {
+        hasPermanentlyDenied = true;
+        break;
+      }
     }
+
+    if (hasPermanentlyDenied && mounted) {
+      await _showPermanentDeniedDialog();
+    }
+  }
+
+  Future<void> _showPermissionExplanationDialog(
+      String title, String content, VoidCallback onRetry) async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('稍後'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              onRetry();
+            },
+            child: const Text('再次嘗試'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPermanentDeniedDialog() async {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('權限已被永久拒絕'),
+        content: const Text('部分必要權限（定位、藍牙、通知）被設定為「不再詢問」。\n請前往系統設定手動開啟，否則部分功能將無法運作。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              openAppSettings();
+            },
+            child: const Text('前往設定'),
+          ),
+        ],
+      ),
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -288,15 +360,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     _obdSyncTimer?.cancel();
     _wsUploadTimer?.cancel();
 
-    // 暫停 GPS 定位以省電
+    // 暫停 GPS 定位以省電 (不再進行任何測速偵測)
     _positionSubscription?.pause();
+    debugPrint('[電源] GPS 定位已暫停，停止一切測速偵測');
 
     // 斷開藍牙 OBD（關閉輪詢 + 釋放 SPP 連線）
     ObdSppService().handleDisconnect('power_disconnected');
     debugPrint('[電源] OBD 藍牙已斷線');
 
     if (mounted) setState(() {}); 
-    debugPrint('[電源] 系統資源已釋放');
+    debugPrint('[電源] 系統資源已釋放，進入深度睡眠');
   }
 
   // ──────────────────────────────────────────────
@@ -628,11 +701,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // OCR 狀態 (移除相機後固定顯示為關閉)
+                  // 測速點偵測狀態
                   _StatusBadge(
-                    isActive: false,
-                    activeLabel: '相機運作',
-                    inactiveLabel: '相機關閉',
+                    isActive: SettingsService().enableOcr,
+                    activeLabel: '偵測運作',
+                    inactiveLabel: '偵測關閉',
                     activeColor: Colors.greenAccent,
                     inactiveColor: Colors.grey,
                     pulseAnimation: _pulseAnimation,
