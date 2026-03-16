@@ -1,4 +1,4 @@
-# OCR 相機測試 - 故障排除報告
+# NX4Board - OCR 故障排除與優化建議
 
 ## 已修復的問題
 
@@ -6,7 +6,7 @@
 - **症狀**: `Build failed due to use of deleted Android v1 embedding`
 - **原因**: 舊的 Android 配置使用已棄用的 embedding
 - **修復**: 
-  - 生成新的 Kotlin MainActivity: `android/app/src/main/java/com/example/speed_limit_app/MainActivity.kt`
+  - 生成新的 Kotlin MainActivity: `android/app/src/main/kotlin/com/duckegg/nx4board/MainActivity.kt`
   - 重新生成 Android 配置文件 (build.gradle.kts)
   - 更新 AndroidManifest.xml
 
@@ -65,7 +65,7 @@ InputImage.fromBytes(
 
 ## 文件修改清單
 
-✅ `android/app/src/main/java/com/example/speed_limit_app/MainActivity.kt` - 新增
+✅ `android/app/src/main/kotlin/com/duckegg/nx4board/MainActivity.kt` - 新增
 ✅ `lib/services/ocr_service.dart` - 修正圖像轉換邏輯
 ✅ `lib/screens/camera_screen.dart` - 降低相機分辨率
 ✅ `android/app/src/main/AndroidManifest.xml` - 添加 tools namespace

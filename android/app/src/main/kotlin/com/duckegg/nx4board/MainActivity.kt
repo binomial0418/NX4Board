@@ -1,4 +1,4 @@
-package com.example.speed_limit_app
+package com.duckegg.nx4board
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice

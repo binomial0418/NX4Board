@@ -19,7 +19,7 @@ class MyApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => AppProvider()..initialize(),
       child: MaterialApp(
-        title: 'Speed Limit Warning System',
+        title: 'NX4Board',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
         home: const DashboardScreen(),

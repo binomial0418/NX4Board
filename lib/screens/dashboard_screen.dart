@@ -242,7 +242,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
 
     FlutterForegroundTask.startService(
-      notificationTitle: '速限查詢',
+      notificationTitle: 'NX4Board',
       notificationText: '行車儀表板持續運行中',
       callback: startCallback,
     );
