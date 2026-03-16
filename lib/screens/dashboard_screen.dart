@@ -469,6 +469,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.nearestCameraInfo != null) {
         jsonMap["cameraInfo"] = provider.nearestCameraInfo;
       }
+      
+      if (provider.currentSpeedLimit != null) {
+        jsonMap["limit"] = provider.currentSpeedLimit;
+      }
 
       if (jsonMap.isNotEmpty) {
         final jsonString = jsonEncode(jsonMap);

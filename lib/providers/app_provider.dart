@@ -99,6 +99,7 @@ class AppProvider extends ChangeNotifier {
     // Update current speed limit from nearest sign
     if (_nearbySpeedSigns.isNotEmpty) {
       _status = 'Nearby signs detected...';
+      _currentSpeedLimit = _nearbySpeedSigns.first.speedLimit;
     } else {
       _currentSpeedLimit = null;
       _status = 'No speed signs nearby';
@@ -113,6 +114,9 @@ class AppProvider extends ChangeNotifier {
     
     if (camInfo != null) {
       _nearestCameraInfo = camInfo;
+      if (camInfo['limit'] != null) {
+        _currentSpeedLimit = camInfo['limit'];
+      }
     } else {
       _nearestCameraInfo = null;
     }
