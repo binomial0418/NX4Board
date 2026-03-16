@@ -433,22 +433,30 @@
                     if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
                     else fuelEl.classList.remove('alert-pulse');
                 }
-                if (data.limit !== undefined) document.getElementById('limit_value').innerText = data.limit;
+                if (data.limit !== undefined) {
+                    document.getElementById('limit_value').innerText = data.limit;
+                    window._currentLimit = data.limit;
+                }
+
                 if (data.enableOcr !== undefined) {
                     window._ocrEnabled = data.enableOcr;
-                    const wrapper = document.getElementById('limit_wrapper');
-                    if (wrapper) wrapper.style.display = data.enableOcr ? 'flex' : 'none';
+                }
 
-                    const divider = document.getElementById('ocr_off_divider');
-                    if (divider) divider.style.display = data.enableOcr ? 'none' : 'block';
+                // 核心顯隱邏輯：(功能開啟 && 有速限) OR (有測速點警示)
+                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || (data.cameraInfo);
+                
+                const wrapper = document.getElementById('limit_wrapper');
+                if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
 
-                    const centralGroup = document.getElementById('central_group');
-                    if (centralGroup) {
-                        if (data.enableOcr) {
-                            centralGroup.classList.remove('-translate-y-20');
-                        } else {
-                            centralGroup.classList.add('-translate-y-20');
-                        }
+                const divider = document.getElementById('ocr_off_divider');
+                if (divider) divider.style.display = shouldShowLimit ? 'none' : 'block';
+
+                const centralGroup = document.getElementById('central_group');
+                if (centralGroup) {
+                    if (shouldShowLimit) {
+                        centralGroup.classList.remove('-translate-y-20');
+                    } else {
+                        centralGroup.classList.add('-translate-y-20');
                     }
                 }
 
@@ -544,16 +552,12 @@
                     // 如果相機速限已知，暫時覆蓋主速限顯示 (視覺引導)
                     if (data.cameraInfo.limit) {
                         document.getElementById('limit_value').innerText = data.cameraInfo.limit;
-                        // 且因為有相機，強制顯示速限牌 (無視 OCR 關閉設定)
-                        document.getElementById('limit_wrapper').style.display = 'flex';
-                        document.getElementById('ocr_off_divider').style.display = 'none';
                     }
                 } else {
                     camAlert.classList.add('hidden');
-                    // 恢復原有的速限顯示邏輯 (由後續 OCR 狀態決定)
-                    if (data.enableOcr === false) {
-                        document.getElementById('limit_wrapper').style.display = 'none';
-                        document.getElementById('ocr_off_divider').style.display = 'block';
+                    // 當沒有測速照相提示時，檢查是否需恢復原本偵測到的速限
+                    if (window._currentLimit) {
+                        document.getElementById('limit_value').innerText = window._currentLimit;
                     }
                 }
             }

@@ -333,8 +333,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _startWsUploadSync();
 
     // 喚醒後短暫延遲傳送一次資料
-    Future.delayed(const Duration(seconds: 15), () {
-      if (_isCharging == true) _sendObdDataViaWsOnce();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (_isCharging == true) {
+        _sendObdDataViaWsOnce();
+        _startObdToWebviewSync(); // 強制刷一次 UI
+      }
     });
   }
 
@@ -534,7 +537,15 @@ class _DashboardScreenState extends State<DashboardScreen>
       final Map<String, dynamic> jsonMap = {};
       jsonMap["enableOcr"] = SettingsService().enableOcr;
 
-      if (provider.obdSpeed != null) jsonMap["speed"] = provider.obdSpeed;
+      // --- 速度來源處理 (OBD 優先，GPS 備援) ---
+      double displaySpeed = 0.0;
+      if (provider.obdSpeed != null && provider.obdSpeed! > 0) {
+        displaySpeed = provider.obdSpeed!.toDouble();
+      } else if (provider.currentPosition != null) {
+        // Geolocator 回傳的速度為 m/s，轉換為 km/h
+        displaySpeed = provider.currentPosition!.speed * 3.6;
+      }
+      jsonMap["speed"] = displaySpeed.ceil();
       if (provider.obdRpm != null) jsonMap["rpm"] = provider.obdRpm;
       if (provider.obdCoolant != null)
         jsonMap["temperature"] = provider.obdCoolant;
@@ -551,9 +562,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         jsonMap["cameraInfo"] = provider.nearestCameraInfo;
       }
       
-      if (provider.currentSpeedLimit != null) {
-        jsonMap["limit"] = provider.currentSpeedLimit;
-      }
+      // 無論是否為空皆傳送，供 HTML 判斷顯隱
+      jsonMap["limit"] = provider.currentSpeedLimit;
 
       if (jsonMap.isNotEmpty) {
         final jsonString = jsonEncode(jsonMap);
@@ -745,6 +755,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
+                      // 設定變更後立即觸發一次 UI 同步，確保「速限辨識」開關生效
+                      _startObdToWebviewSync();
                     });
                   },
                 ),
