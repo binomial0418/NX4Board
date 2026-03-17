@@ -263,7 +263,8 @@
                             class="text-6xl text-gray-400 font-black tracking-widest uppercase mb-12 ml-6 italic">KM/H</span>
                     </div>
 
-                    <div id="limit_wrapper" class="flex items-center justify-center w-[85%] my-2 relative" style="display: none;">
+                    <div id="limit_wrapper" class="flex items-center justify-center w-[85%] my-2 relative"
+                        style="display: none;">
                         <div class="w-1/3 h-[2px] bg-gradient-to-r from-transparent via-gray-600 to-gray-400"></div>
                         <div id="limit_container"
                             class="mx-12 speed-limit-sign relative bg-white border-[2.5rem] border-red-500 shadow-[0_0_50px_rgba(255,0,0,0.6)] z-10">
@@ -305,7 +306,7 @@
             let alertStartTime = null;
             let minDisplayUntil = 0; // 強迫顯示直到此時
             let lastCameraLimit = null; // 暫存最後一次偵測到的相機速限
-            const ALERT_TIMEOUT_MS = 120000; // 120秒自動消失
+            const ALERT_TIMEOUT_MS = 60000; // 60秒自動消失
 
             const prevValues = {
                 rpm: document.getElementById('rpm')?.innerText ?? '',
@@ -454,7 +455,7 @@
                 // --- 測速與警示整合邏輯 ---
                 const now = Date.now();
                 const hasCameraData = (data.cameraInfo && data.cameraInfo !== null);
-                
+
                 // 啟動 3 秒強迫顯示計時 (僅針對測速照相點)
                 if (hasCameraData && !alertStartTime) {
                     alertStartTime = now;
@@ -462,7 +463,7 @@
                 }
 
                 const isTimedOut = alertStartTime ? (now - alertStartTime > ALERT_TIMEOUT_MS) : false;
-                
+
                 // 顯示紅圈限速牌的條件：
                 // (OCR開啟且有偵測速限) OR (正在觸發測速點且未超時) OR (3秒強迫顯示中)
                 const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
@@ -474,7 +475,7 @@
                 // 更新限速數值：優先顯示測速照相點的速限，並防止顯示為 --
                 if (shouldShowLimit) {
                     let displayLimit = window._currentLimit;
-                    
+
                     if (isCameraAlertActive) {
                         // 如果有新資料，更新暫存值
                         if (data.cameraInfo && data.cameraInfo.limit) {
@@ -485,7 +486,7 @@
                             displayLimit = lastCameraLimit;
                         }
                     }
-                    
+
                     document.getElementById('limit_value').innerText = displayLimit || "--";
                 }
 

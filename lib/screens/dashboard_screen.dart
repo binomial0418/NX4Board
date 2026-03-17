@@ -713,8 +713,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ObdConnectionState.connected;
                       return _StatusBadge(
                         isActive: isObdConn,
-                        activeLabel: 'OBD',
-                        inactiveLabel: 'OBD',
+                        activeLabel: 'ECU',
+                        inactiveLabel: 'ECU',
                         activeColor: Colors.deepPurpleAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -727,8 +727,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
-                        activeLabel: 'WiFi',
-                        inactiveLabel: 'WiFi',
+                        activeLabel: 'Uplink',
+                        inactiveLabel: 'Uplink',
                         activeColor: Colors.lightBlueAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
