@@ -188,6 +188,13 @@ class ObdSppService {
   // =========================================================================
   // Public API
   // =========================================================================
+  // 模組四：初始化與連線控管
+  // =========================================================================
+
+  /// 強制重置所有緩存數據（供外部喚醒時使用）
+  void resetData() {
+    _resetDataFlags();
+  }
 
   Future<void> init() async {
     startPowerListener();
@@ -627,8 +634,8 @@ class ObdSppService {
             if (data.length >= 42) { // Check length of 'data'
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
-              tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
-              tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+              tpmsRl = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+              tpmsRr = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               hasTpms = true;
               _log(
                   '[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
@@ -642,6 +649,7 @@ class ObdSppService {
               final int odoRaw = (g << 16) | (h << 8) | i;
               if (odoRaw > 0) {
                 odometer = odoRaw.toDouble();
+                hasOdometer = true;
               }
               fuelLevel = int.parse(data.substring(8, 10), radix: 16);
               hasFuel = true;
@@ -657,6 +665,7 @@ class ObdSppService {
               final String data = sanitized.substring(payloadStart);
               final int byteE = int.parse(data.substring(8, 10), radix: 16);
               hevSoc = double.parse((byteE / 2.0).toStringAsFixed(1));
+              hasHevSoc = true;
               _log('[Parser Result] Display SOC=$hevSoc%');
             }
           }
