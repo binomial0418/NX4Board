@@ -634,8 +634,8 @@ class ObdSppService {
             if (data.length >= 42) { // Check length of 'data'
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
-              tpmsRl = int.parse(data.substring(38, 40), radix: 16) / 5.0;
-              tpmsRr = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+              tpmsRl = int.parse(data.substring(28, 30), radix: 16) / 5.0;
+              tpmsRr = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               hasTpms = true;
               _log(
                   '[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');

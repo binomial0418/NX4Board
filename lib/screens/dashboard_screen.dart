@@ -756,7 +756,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
-                      // 設定變更後立即觸發一次 UI 同步，確保「速限辨識」開關生效
+                      
+                      // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
+                      if (mounted) {
+                        final provider = context.read<AppProvider>();
+                        if (provider.currentPosition != null) {
+                          provider.updatePosition(provider.currentPosition!);
+                        }
+                      }
+                      
+                      // 設定變更後立即觸發一次 UI 同步
                       _startObdToWebviewSync();
                     });
                   },
