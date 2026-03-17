@@ -642,6 +642,7 @@ class ObdSppService {
               final int odoRaw = (g << 16) | (h << 8) | i;
               if (odoRaw > 0) {
                 odometer = odoRaw.toDouble();
+                hasOdometer = true;
               }
               fuelLevel = int.parse(data.substring(8, 10), radix: 16);
               hasFuel = true;
@@ -657,6 +658,7 @@ class ObdSppService {
               final String data = sanitized.substring(payloadStart);
               final int byteE = int.parse(data.substring(8, 10), radix: 16);
               hevSoc = double.parse((byteE / 2.0).toStringAsFixed(1));
+              hasHevSoc = true;
               _log('[Parser Result] Display SOC=$hevSoc%');
             }
           }

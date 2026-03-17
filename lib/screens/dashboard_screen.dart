@@ -554,7 +554,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.tpmsRl != null) jsonMap["rl_pressure"] = provider.tpmsRl;
       if (provider.tpmsRr != null) jsonMap["rr_pressure"] = provider.tpmsRr;
       if (provider.obdHevSoc != null) jsonMap["battery"] = provider.obdHevSoc;
+      // Webview 使用 odometer，雲端使用 odo
       if (provider.obdOdometer != null) jsonMap["odometer"] = provider.obdOdometer;
+      if (provider.obdOdometer != null) jsonMap["odo"] = provider.obdOdometer;
       if (provider.obdFuel != null) jsonMap["fuelLevel"] = provider.obdFuel;
 
       // 測速照相
@@ -604,7 +606,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-    if (obd.hasOdometer && provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
+    if (obd.hasOdometer && provider.obdOdometer != null) uploadData["odo"] = provider.obdOdometer;
     if (obd.hasFuel && provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
     if (obd.hasSpeed && provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
     if (obd.hasRpm && provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
