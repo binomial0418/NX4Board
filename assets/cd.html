@@ -136,20 +136,21 @@
         }
 
         .camera-alert-card {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(185, 28, 28, 0.9) 100%);
-            border: 4px solid #fff;
-            box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(185, 28, 28, 0.95) 100%);
+            border: 6px solid #fff;
+            box-shadow: 0 0 60px rgba(255, 0, 0, 0.8);
             animation: slide-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
         }
 
         @keyframes slide-up {
             from {
-                transform: translateY(100px);
+                transform: translateX(-50%) translateY(100px);
                 opacity: 0;
             }
 
             to {
-                transform: translateY(0);
+                transform: translateX(-50%) translateY(0);
                 opacity: 1;
             }
         }
@@ -262,7 +263,7 @@
                             class="text-6xl text-gray-400 font-black tracking-widest uppercase mb-12 ml-6 italic">KM/H</span>
                     </div>
 
-                    <div id="limit_wrapper" class="flex items-center justify-center w-[85%] my-2 relative">
+                    <div id="limit_wrapper" class="flex items-center justify-center w-[85%] my-2 relative" style="display: none;">
                         <div class="w-1/3 h-[2px] bg-gradient-to-r from-transparent via-gray-600 to-gray-400"></div>
                         <div id="limit_container"
                             class="mx-12 speed-limit-sign relative bg-white border-[2.5rem] border-red-500 shadow-[0_0_50px_rgba(255,0,0,0.6)] z-10">
@@ -284,22 +285,6 @@
                             class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block val-rounded">11:07</span>
                     </div>
 
-                    <!-- 測速點警示區 -->
-                    <div id="camera_alert" class="mt-12 hidden">
-                        <div class="camera-alert-card rounded-3xl p-8 flex items-center gap-8 min-w-[600px]">
-                            <div class="w-32 h-32 bg-white rounded-full flex items-center justify-center shrink-0">
-                                <svg class="w-20 h-20 text-red-600" fill="currentColor" viewBox="0 0 24 24">
-                                    <path
-                                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
-                                </svg>
-                            </div>
-                            <div class="flex flex-col">
-                                <span class="text-white text-4xl font-black uppercase tracking-widest mb-1">測速點提醒</span>
-                                <span id="camera_msg" class="text-white text-[3.2rem] font-bold leading-tight">前方 300
-                                    公尺速限 60</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -317,16 +302,21 @@
 
             const CARD_HIGHLIGHT_DURATION = 420;
             const highlightTimers = {};
+            let alertStartTime = null;
+            let minDisplayUntil = 0; // 強迫顯示直到此時
+            let lastCameraLimit = null; // 暫存最後一次偵測到的相機速限
+            const ALERT_TIMEOUT_MS = 120000; // 120秒自動消失
+
             const prevValues = {
                 rpm: document.getElementById('rpm')?.innerText ?? '',
                 tpms_fl: document.getElementById('tpms_fl')?.innerText ?? '',
                 tpms_fr: document.getElementById('tpms_fr')?.innerText ?? '',
                 tpms_rl: document.getElementById('tpms_rl')?.innerText ?? '',
                 tpms_rr: document.getElementById('tpms_rr')?.innerText ?? '',
-                battery: document.getElementById('battery')?.innerText ?? '',
-                odo: document.getElementById('odo')?.innerText ?? '',
-                fuel: document.getElementById('fuel')?.innerText ?? '',
                 temp: document.getElementById('temp')?.innerText ?? '',
+                battery: document.getElementById('battery')?.innerText ?? '',
+                fuel: document.getElementById('fuel')?.innerText ?? '',
+                odo: document.getElementById('odo')?.innerText ?? ''
             };
 
             function triggerCardHighlight(cardId) {
@@ -452,7 +442,8 @@
                 if (data.rl_pressure !== undefined) document.getElementById('tpms_rl').innerText = (data.rl_pressure === null) ? "--" : parseFloat(data.rl_pressure).toFixed(0);
                 if (data.rr_pressure !== undefined) document.getElementById('tpms_rr').innerText = (data.rr_pressure === null) ? "--" : parseFloat(data.rr_pressure).toFixed(0);
                 if (data.limit !== undefined) {
-                    document.getElementById('limit_value').innerText = data.limit;
+                    const limitVal = (data.limit === null || data.limit === undefined) ? "--" : data.limit;
+                    document.getElementById('limit_value').innerText = limitVal;
                     window._currentLimit = data.limit;
                 }
 
@@ -460,11 +451,48 @@
                     window._ocrEnabled = data.enableOcr;
                 }
 
-                // 核心顯隱邏輯：(功能開啟 && 有速限) OR (有測速點警示)
-                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || (data.cameraInfo);
+                // --- 測速與警示整合邏輯 ---
+                const now = Date.now();
+                const hasCameraData = (data.cameraInfo && data.cameraInfo !== null);
                 
+                // 啟動 3 秒強迫顯示計時 (僅針對測速照相點)
+                if (hasCameraData && !alertStartTime) {
+                    alertStartTime = now;
+                    minDisplayUntil = now + 4000; // 3秒 + 1秒緩衝
+                }
+
+                const isTimedOut = alertStartTime ? (now - alertStartTime > ALERT_TIMEOUT_MS) : false;
+                
+                // 顯示紅圈限速牌的條件：
+                // (OCR開啟且有偵測速限) OR (正在觸發測速點且未超時) OR (3秒強迫顯示中)
+                const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
+                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || isCameraAlertActive;
+
                 const wrapper = document.getElementById('limit_wrapper');
                 if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
+
+                // 更新限速數值：優先顯示測速照相點的速限，並防止顯示為 --
+                if (shouldShowLimit) {
+                    let displayLimit = window._currentLimit;
+                    
+                    if (isCameraAlertActive) {
+                        // 如果有新資料，更新暫存值
+                        if (data.cameraInfo && data.cameraInfo.limit) {
+                            lastCameraLimit = data.cameraInfo.limit;
+                        }
+                        // 警示期間，若有暫存值則鎖定顯示，避免變回 --
+                        if (lastCameraLimit) {
+                            displayLimit = lastCameraLimit;
+                        }
+                    }
+                    
+                    document.getElementById('limit_value').innerText = displayLimit || "--";
+                }
+
+                if (!hasCameraData && now >= minDisplayUntil) {
+                    alertStartTime = null; // 徹底離開後重置計時
+                    lastCameraLimit = null; // 重置暫存速限
+                }
 
                 const divider = document.getElementById('ocr_off_divider');
                 if (divider) divider.style.display = shouldShowLimit ? 'none' : 'block';
@@ -548,7 +576,7 @@
                     }
                 });
 
-                // 超速邏輯 (大於速限+10時亮紅暈)
+                // 處理速限燈效
                 const speed = parseInt(document.getElementById('speed').innerText);
                 const limitText = document.getElementById('limit_value').innerText;
                 const limit = parseInt(limitText);
@@ -558,25 +586,6 @@
                     speedEl.classList.add('speed-red-glow');
                 } else {
                     speedEl.classList.remove('speed-red-glow');
-                }
-
-                // 處理測速照相提示
-                const camAlert = document.getElementById('camera_alert');
-                const camMsg = document.getElementById('camera_msg');
-                if (data.cameraInfo) {
-                    camAlert.classList.remove('hidden');
-                    camMsg.innerText = data.cameraInfo.message;
-
-                    // 如果相機速限已知，暫時覆蓋主速限顯示 (視覺引導)
-                    if (data.cameraInfo.limit) {
-                        document.getElementById('limit_value').innerText = data.cameraInfo.limit;
-                    }
-                } else {
-                    camAlert.classList.add('hidden');
-                    // 當沒有測速照相提示時，檢查是否需恢復原本偵測到的速限
-                    if (window._currentLimit) {
-                        document.getElementById('limit_value').innerText = window._currentLimit;
-                    }
                 }
             }
 

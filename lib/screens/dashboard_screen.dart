@@ -93,7 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // 初始化背景服務配置
     _initForegroundTask();
-    
+
     // 啟動電源監控 (這會觸發首次 _handleBatteryStateChange 並決定是否進入睡眠)
     _startBatteryMonitoring();
   }
@@ -110,7 +110,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       Permission.notification,
     ];
 
-    Map<Permission, PermissionStatus> statuses = await basePermissions.request();
+    Map<Permission, PermissionStatus> statuses =
+        await basePermissions.request();
 
     // 檢查是否有權限被拒絕（非永久）
     bool hasDenied = statuses.values.any((s) => s.isDenied);
@@ -189,7 +190,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('權限已被永久拒絕'),
-        content: const Text('部分必要權限（定位、藍牙、通知）被設定為「不再詢問」。\n請前往系統設定手動開啟，否則部分功能將無法運作。'),
+        content:
+            const Text('部分必要權限（定位、藍牙、通知）被設定為「不再詢問」。\n請前往系統設定手動開啟，否則部分功能將無法運作。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -298,7 +300,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       _sleepCountdownTimer?.cancel();
       _sleepCountdownTimer = null;
       _wakeUp();
-
     } else if (!charging && _isCharging!) {
       _isCharging = false;
       print('[電源] 偵測到外部電源中斷，10 秒後進入深度睡眠');
@@ -380,7 +381,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     ObdSppService().handleDisconnect('power_disconnected');
     print('[電源] OBD 藍牙已斷線');
 
-    if (mounted) setState(() {}); 
+    if (mounted) setState(() {});
     print('[電源] 系統資源已釋放，進入深度睡眠');
   }
 
@@ -480,7 +481,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         "_type": "location",
         "tid": "obd",
       };
-      
+
       final Map<String, dynamic> tires = {};
       final obd = ObdSppService();
       if (obd.hasTpms) {
@@ -491,16 +492,23 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-      if (obd.hasOdometer && provider.obdOdometer != null) uploadData["mileage"] = provider.obdOdometer;
-      if (obd.hasFuel && provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
+      if (obd.hasOdometer && provider.obdOdometer != null)
+        uploadData["mileage"] = provider.obdOdometer;
+      if (obd.hasFuel && provider.obdFuel != null)
+        uploadData["fuel"] = provider.obdFuel;
 
       // 同時保留儀表板需要的原始屬性
-      if (obd.hasSpeed && provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
-      if (obd.hasRpm && provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
-      if (obd.hasCoolant && provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
-      if (obd.hasHevSoc && provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+      if (obd.hasSpeed && provider.obdSpeed != null)
+        uploadData["speed"] = provider.obdSpeed;
+      if (obd.hasRpm && provider.obdRpm != null)
+        uploadData["rpm"] = provider.obdRpm;
+      if (obd.hasCoolant && provider.obdCoolant != null)
+        uploadData["temperature"] = provider.obdCoolant;
+      if (obd.hasHevSoc && provider.obdHevSoc != null)
+        uploadData["battery"] = provider.obdHevSoc;
 
-      if (uploadData.length > 2) { // 除了 _type, tid 之外還有其他資料
+      if (uploadData.length > 2) {
+        // 除了 _type, tid 之外還有其他資料
         final jsonString = jsonEncode(uploadData);
         try {
           _channel!.sink.add(jsonString);
@@ -562,7 +570,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (provider.nearestCameraInfo != null) {
         jsonMap["cameraInfo"] = provider.nearestCameraInfo;
       }
-      
+
       // 無論是否為空皆傳送，供 HTML 判斷顯隱
       jsonMap["limit"] = provider.currentSpeedLimit;
 
@@ -581,7 +589,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _sendObdDataViaWsOnce() {
     if (!mounted || !_isWsConnected || _channel == null) return;
     if (_isCharging != true) return; // 沒供電時不主動發送
-    
+
     final provider = context.read<AppProvider>();
 
     // 檢查 OBD 是否連線
@@ -605,12 +613,18 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     if (tires.isNotEmpty) uploadData["tires"] = tires;
 
-    if (obd.hasOdometer && provider.obdOdometer != null) uploadData["odo"] = provider.obdOdometer;
-    if (obd.hasFuel && provider.obdFuel != null) uploadData["fuel"] = provider.obdFuel;
-    if (obd.hasSpeed && provider.obdSpeed != null) uploadData["speed"] = provider.obdSpeed;
-    if (obd.hasRpm && provider.obdRpm != null) uploadData["rpm"] = provider.obdRpm;
-    if (obd.hasCoolant && provider.obdCoolant != null) uploadData["temperature"] = provider.obdCoolant;
-    if (obd.hasHevSoc && provider.obdHevSoc != null) uploadData["battery"] = provider.obdHevSoc;
+    if (obd.hasOdometer && provider.obdOdometer != null)
+      uploadData["odo"] = provider.obdOdometer;
+    if (obd.hasFuel && provider.obdFuel != null)
+      uploadData["fuel"] = provider.obdFuel;
+    if (obd.hasSpeed && provider.obdSpeed != null)
+      uploadData["speed"] = provider.obdSpeed;
+    if (obd.hasRpm && provider.obdRpm != null)
+      uploadData["rpm"] = provider.obdRpm;
+    if (obd.hasCoolant && provider.obdCoolant != null)
+      uploadData["temperature"] = provider.obdCoolant;
+    if (obd.hasHevSoc && provider.obdHevSoc != null)
+      uploadData["battery"] = provider.obdHevSoc;
 
     if (uploadData.length > 2) {
       final jsonString = jsonEncode(uploadData);
@@ -699,8 +713,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ObdConnectionState.connected;
                       return _StatusBadge(
                         isActive: isObdConn,
-                        activeLabel: 'OBD 連接',
-                        inactiveLabel: 'OBD 中斷',
+                        activeLabel: 'OBD',
+                        inactiveLabel: 'OBD',
                         activeColor: Colors.deepPurpleAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -713,8 +727,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
-                        activeLabel: 'WiFi 已連',
-                        inactiveLabel: 'WiFi 未連',
+                        activeLabel: 'WiFi',
+                        inactiveLabel: 'WiFi',
                         activeColor: Colors.lightBlueAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -723,13 +737,44 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                   const SizedBox(height: 10),
                   // 測速點偵測狀態
-                  _StatusBadge(
-                    isActive: SettingsService().enableOcr,
-                    activeLabel: '偵測運作',
-                    inactiveLabel: '偵測關閉',
-                    activeColor: Colors.greenAccent,
-                    inactiveColor: Colors.grey,
-                    pulseAnimation: _pulseAnimation,
+                  Consumer<AppProvider>(
+                    builder: (context, provider, child) {
+                      bool ocrEnabled = SettingsService().enableOcr;
+                      bool isPowerOk = _isCharging ?? true;
+
+                      String label = ocrEnabled ? '測速' : '測速';
+                      Color color =
+                          ocrEnabled ? Colors.greenAccent : Colors.grey;
+
+                      if (provider.isSimulating) {
+                        label = '模擬測試中';
+                        color = Colors.orangeAccent;
+                      } else if (ocrEnabled && !isPowerOk) {
+                        label = '電力暫停';
+                        color = Colors.amber.withOpacity(0.6);
+                      }
+
+                      return GestureDetector(
+                        onLongPress: () {
+                          if (ocrEnabled) {
+                            provider.simulateSpeedCameraPath();
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('請先在設定中開啟「速限辨識」才能執行模擬測試')));
+                          }
+                        },
+                        child: _StatusBadge(
+                          isActive: ocrEnabled &&
+                              (isPowerOk || provider.isSimulating),
+                          activeLabel: label,
+                          inactiveLabel: label,
+                          activeColor: color,
+                          inactiveColor: Colors.grey,
+                          pulseAnimation: _pulseAnimation,
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -756,7 +801,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       _channel?.sink.close();
                       if (mounted) setState(() => _isWsConnected = false);
                       _connectWebSocket();
-                      
+
                       // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
                       if (mounted) {
                         final provider = context.read<AppProvider>();
@@ -764,7 +809,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           provider.updatePosition(provider.currentPosition!);
                         }
                       }
-                      
+
                       // 設定變更後立即觸發一次 UI 同步
                       _startObdToWebviewSync();
                     });

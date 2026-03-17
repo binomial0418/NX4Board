@@ -138,4 +138,47 @@ class AppProvider extends ChangeNotifier {
     if (_currentSpeedLimit == null) return false;
     return currentSpeed > _currentSpeedLimit!;
   }
+
+  // ── 測速路徑模擬工具 ──
+  bool _isSimulating = false;
+  bool get isSimulating => _isSimulating;
+  Timer? _simulationTimer;
+
+  void simulateSpeedCameraPath() {
+    if (_isSimulating) {
+      _isSimulating = false;
+      _simulationTimer?.cancel();
+      _status = 'Simulation stopped';
+      notifyListeners();
+      return;
+    }
+
+    _isSimulating = true;
+    _status = '模擬中: 近金湖鎮黃海路...';
+    notifyListeners();
+
+    // 模擬座標序列：從南往北接近金門金湖鎮黃海路 (24.458809, 118.43147)
+    final List<Position> points = [
+      Position(latitude: 24.450000, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.453000, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.456000, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.458000, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.458700, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.459000, longitude: 118.43147, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+    ];
+
+    int index = 0;
+    _simulationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (index >= points.length) {
+        _isSimulating = false;
+        timer.cancel();
+        _status = 'Simulation completed';
+        notifyListeners();
+        return;
+      }
+      print('DEBUG: Simulation Inject Point $index: ${points[index].latitude}');
+      updatePosition(points[index]);
+      index++;
+    });
+  }
 }
