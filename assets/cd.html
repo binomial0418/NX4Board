@@ -172,7 +172,7 @@
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">動力</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="rpm"
-                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded ">4000</span>
+                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded ">--</span>
                             <span id="rpm_unit" class="text-5xl ml-4 text-gray-500 italic font-black">RPM</span>
                         </div>
                     </div>
@@ -186,12 +186,12 @@
                             <!-- FL 強制靠向左邊中線，並在右側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-end pr-6">
                                 <span id="tpms_fl"
-                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
                             </div>
                             <!-- FR 強制靠向右邊中線，並在左側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-start pl-9">
                                 <span id="tpms_fr"
-                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
                             </div>
                         </div>
 
@@ -202,11 +202,11 @@
                         <div class="flex w-full items-center justify-between mt-1">
                             <div class="w-1/2 flex justify-end pr-6">
                                 <span id="tpms_rl"
-                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
                             </div>
                             <div class="w-1/2 flex justify-start pl-9">
                                 <span id="tpms_rr"
-                                    class="text-[6rem] font-bold text-white leading-none val-rounded">35</span>
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
                             </div>
                         </div>
                     </div>
@@ -218,7 +218,7 @@
                         <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="battery"
-                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">60.5</span>
+                                class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
                             <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
                         </div>
                     </div>
@@ -227,13 +227,13 @@
                         <div class="flex flex-col gap-2">
                             <div class="flex items-baseline">
                                 <span class="text-white text-[2.8rem] font-bold mr-4">ODO</span>
-                                <span id="odo" class="text-[4rem] font-bold text-white val-rounded">26000</span>
+                                <span id="odo" class="text-[4rem] font-bold text-white val-rounded">--</span>
                                 <span class="text-3xl ml-2 text-gray-500 font-black">KM</span>
                             </div>
                             <div class="w-full h-[2px] bg-gray-800 my-1"></div>
                             <div class="flex items-baseline">
                                 <span class="text-white text-[2.8rem] font-bold mr-4">油箱</span>
-                                <span id="fuel" class="text-[4rem] font-bold text-white val-rounded">4</span>
+                                <span id="fuel" class="text-[4rem] font-bold text-white val-rounded">--</span>
                                 <span class="text-3xl ml-2 text-gray-500 font-black">%</span>
                             </div>
                         </div>
@@ -245,7 +245,7 @@
                     <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline -mt-6">
                         <span id="temp"
-                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">50</span>
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">°C</span>
                     </div>
                 </div>
@@ -257,7 +257,7 @@
 
                     <div class="flex items-end mb-2 ml-[10em]">
                         <span id="speed"
-                            class="text-[34rem] font-black leading-[0.85] pt-6 pb-2 text-white tracking-tighter inline-block val-rounded">120</span>
+                            class="text-[34rem] font-black leading-[0.85] pt-6 pb-2 text-white tracking-tighter inline-block val-rounded">--</span>
                         <span
                             class="text-6xl text-gray-400 font-black tracking-widest uppercase mb-12 ml-6 italic">KM/H</span>
                     </div>
@@ -361,78 +361,96 @@
                         return;
                     }
                 }
-                if (data.speed !== undefined) document.getElementById('speed').innerText = Math.ceil(parseFloat(data.speed));
+                if (data.speed !== undefined) {
+                    const speedEl = document.getElementById('speed');
+                    speedEl.innerText = (data.speed === null) ? "--" : Math.ceil(parseFloat(data.speed));
+                }
                 if (data.rpm !== undefined) {
                     const rpmEl = document.getElementById('rpm');
                     const rpmUnit = document.getElementById('rpm_unit');
-                    const rpmVal = Math.ceil(parseFloat(data.rpm));
-                    const rpmDisplay = rpmVal === 0 ? 'EV' : rpmVal;
-                    if (rpmVal === 0) {
-                        rpmEl.innerText = "EV";
-                        rpmEl.classList.remove('text-white');
-                        rpmEl.classList.add('text-green-500', 'italic');
-                        rpmEl.style.letterSpacing = '1rem';
-                        if (rpmUnit) rpmUnit.style.display = 'none';
-                    } else {
-                        rpmEl.innerText = rpmVal;
+                    if (data.rpm === null) {
+                        rpmEl.innerText = "--";
                         rpmEl.classList.remove('text-green-500', 'italic');
                         rpmEl.classList.add('text-white');
-                        rpmEl.style.letterSpacing = '';
                         if (rpmUnit) rpmUnit.style.display = 'inline';
+                    } else {
+                        const rpmVal = Math.ceil(parseFloat(data.rpm));
+                        const rpmDisplay = rpmVal === 0 ? 'EV' : rpmVal;
+                        if (rpmVal === 0) {
+                            rpmEl.innerText = "EV";
+                            rpmEl.classList.remove('text-white');
+                            rpmEl.classList.add('text-green-500', 'italic');
+                            rpmEl.style.letterSpacing = '1rem';
+                            if (rpmUnit) rpmUnit.style.display = 'none';
+                        } else {
+                            rpmEl.innerText = rpmVal;
+                            rpmEl.classList.remove('text-green-500', 'italic');
+                            rpmEl.classList.add('text-white');
+                            rpmEl.style.letterSpacing = '';
+                            if (rpmUnit) rpmUnit.style.display = 'inline';
+                        }
                     }
-                    markCardValueChange('rpm', rpmDisplay, 'card-rpm');
+                    markCardValueChange('rpm', data.rpm, 'card-rpm');
                 }
 
                 if (data.temperature !== undefined) {
                     const tempEl = document.getElementById('temp');
-                    const tempVal = Math.ceil(parseFloat(data.temperature));
-                    tempEl.innerText = tempVal;
-                    markCardValueChange('temp', tempVal, 'card-temp');
-
-                    // 先清除所有警示樣式
-                    tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
-
-                    if (tempVal > 110) {
-                        tempEl.classList.add('alert-pulse');
-                    } else if (tempVal < 40) {
-                        tempEl.classList.add('alert-pulse-blue');
+                    if (data.temperature === null) {
+                        tempEl.innerText = "--";
+                        tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
+                    } else {
+                        const tempVal = Math.ceil(parseFloat(data.temperature));
+                        tempEl.innerText = tempVal;
+                        markCardValueChange('temp', tempVal, 'card-temp');
+                        tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
+                        if (tempVal > 110) tempEl.classList.add('alert-pulse');
+                        else if (tempVal < 40) tempEl.classList.add('alert-pulse-blue');
                     }
                 }
 
-                // HEV 電池：保留一位小數
                 if (data.battery !== undefined) {
-                    const batteryText = parseFloat(data.battery).toFixed(1);
-                    document.getElementById('battery').innerText = batteryText;
-                    markCardValueChange('battery', batteryText, 'card-battery');
-                }
-                // 里程與油箱
-                if (data.mileage !== undefined) {
-                    const mileageText = Math.round(data.mileage);
-                    document.getElementById('odo').innerText = mileageText;
-                    markCardValueChange('odo', mileageText, 'card-odo-fuel');
-                }
-                if (data.odometer !== undefined) {
-                    const odometerText = Math.round(data.odometer);
-                    document.getElementById('odo').innerText = odometerText;
-                    markCardValueChange('odo', odometerText, 'card-odo-fuel');
+                    const batteryEl = document.getElementById('battery');
+                    if (data.battery === null) {
+                        batteryEl.innerText = "--";
+                    } else {
+                        const batteryText = parseFloat(data.battery).toFixed(1);
+                        batteryEl.innerText = batteryText;
+                        markCardValueChange('battery', batteryText, 'card-battery');
+                    }
                 }
 
-                if (data.fuel !== undefined) {
-                    const fuelEl = document.getElementById('fuel');
-                    const fuelVal = Math.round(data.fuel);
-                    fuelEl.innerText = fuelVal;
-                    markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
-                    if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
-                    else fuelEl.classList.remove('alert-pulse');
+                const odoEl = document.getElementById('odo');
+                if (data.odometer !== undefined || data.odo !== undefined || data.mileage !== undefined) {
+                    const val = data.odometer || data.odo || data.mileage;
+                    if (val === null || val === undefined) {
+                        odoEl.innerText = "--";
+                    } else {
+                        const text = Math.round(val);
+                        odoEl.innerText = text;
+                        markCardValueChange('odo', text, 'card-odo-fuel');
+                    }
                 }
-                if (data.fuelLevel !== undefined) { // 相容模擬器
-                    const fuelEl = document.getElementById('fuel');
-                    const fuelVal = Math.round(data.fuelLevel);
-                    fuelEl.innerText = fuelVal;
-                    markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
-                    if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
-                    else fuelEl.classList.remove('alert-pulse');
+
+                const fuelEl = document.getElementById('fuel');
+                if (data.fuel !== undefined || data.fuelLevel !== undefined) {
+                    const val = data.fuel !== undefined ? data.fuel : data.fuelLevel;
+                    if (val === null || val === undefined) {
+                        fuelEl.innerText = "--";
+                        fuelEl.classList.remove('alert-pulse');
+                    } else {
+                        const fuelVal = Math.round(val);
+                        fuelEl.innerText = fuelVal;
+                        markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
+                        if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
+                        else fuelEl.classList.remove('alert-pulse');
+                    }
                 }
+
+                // 胎壓
+                if (data.fl_pressure !== undefined) document.getElementById('tpms_fl').innerText = (data.fl_pressure === null) ? "--" : parseFloat(data.fl_pressure).toFixed(0);
+                if (data.fr_pressure !== undefined) document.getElementById('tpms_fr').innerText = (data.fr_pressure === null) ? "--" : parseFloat(data.fr_pressure).toFixed(0);
+                if (data.rl_pressure !== undefined) document.getElementById('tpms_rl').innerText = (data.rl_pressure === null) ? "--" : parseFloat(data.rl_pressure).toFixed(0);
+                if (data.rr_pressure !== undefined) document.getElementById('tpms_rr').innerText = (data.rr_pressure === null) ? "--" : parseFloat(data.rr_pressure).toFixed(0);
                 if (data.limit !== undefined) {
                     document.getElementById('limit_value').innerText = data.limit;
                     window._currentLimit = data.limit;

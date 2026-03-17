@@ -307,6 +307,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _wakeUp() {
+    ObdSppService().resetData(); // 喚醒當下立即重置數據緩存，確保 UI 顯示 --
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
@@ -546,18 +547,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         displaySpeed = provider.currentPosition!.speed * 3.6;
       }
       jsonMap["speed"] = displaySpeed.ceil();
-      if (provider.obdRpm != null) jsonMap["rpm"] = provider.obdRpm;
-      if (provider.obdCoolant != null)
-        jsonMap["temperature"] = provider.obdCoolant;
-      if (provider.tpmsFl != null) jsonMap["fl_pressure"] = provider.tpmsFl;
-      if (provider.tpmsFr != null) jsonMap["fr_pressure"] = provider.tpmsFr;
-      if (provider.tpmsRl != null) jsonMap["rl_pressure"] = provider.tpmsRl;
-      if (provider.tpmsRr != null) jsonMap["rr_pressure"] = provider.tpmsRr;
-      if (provider.obdHevSoc != null) jsonMap["battery"] = provider.obdHevSoc;
-      // Webview 使用 odometer，雲端使用 odo
-      if (provider.obdOdometer != null) jsonMap["odometer"] = provider.obdOdometer;
-      if (provider.obdOdometer != null) jsonMap["odo"] = provider.obdOdometer;
-      if (provider.obdFuel != null) jsonMap["fuelLevel"] = provider.obdFuel;
+      jsonMap["rpm"] = provider.obdRpm;
+      jsonMap["temperature"] = provider.obdCoolant;
+      jsonMap["fl_pressure"] = provider.tpmsFl;
+      jsonMap["fr_pressure"] = provider.tpmsFr;
+      jsonMap["rl_pressure"] = provider.tpmsRl;
+      jsonMap["rr_pressure"] = provider.tpmsRr;
+      jsonMap["battery"] = provider.obdHevSoc;
+      jsonMap["odometer"] = provider.obdOdometer;
+      jsonMap["odo"] = provider.obdOdometer;
+      jsonMap["fuelLevel"] = provider.obdFuel;
 
       // 測速照相
       if (provider.nearestCameraInfo != null) {
