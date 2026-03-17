@@ -497,6 +497,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (obd.hasFuel && provider.obdFuel != null)
         uploadData["fuel"] = provider.obdFuel;
 
+      // 新增：保養維護資訊
+      if (obd.hasServiceDistanceRemaining)
+        uploadData["serviceDistance"] = provider.serviceDistanceRemaining;
+      if (obd.hasServiceDaysRemaining)
+        uploadData["serviceDays"] = provider.serviceDaysRemaining;
+
       // 同時保留儀表板需要的原始屬性
       if (obd.hasSpeed && provider.obdSpeed != null)
         uploadData["speed"] = provider.obdSpeed;
@@ -565,6 +571,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       jsonMap["odometer"] = provider.obdOdometer;
       jsonMap["odo"] = provider.obdOdometer;
       jsonMap["fuelLevel"] = provider.obdFuel;
+      jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
+      jsonMap["serviceDays"] = provider.serviceDaysRemaining;
 
       // 測速照相
       if (provider.nearestCameraInfo != null) {
@@ -617,6 +625,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       uploadData["odo"] = provider.obdOdometer;
     if (obd.hasFuel && provider.obdFuel != null)
       uploadData["fuel"] = provider.obdFuel;
+    
+    // 新增：保養維護資訊
+    if (obd.hasServiceDistanceRemaining)
+      uploadData["serviceDistance"] = provider.serviceDistanceRemaining;
+    if (obd.hasServiceDaysRemaining)
+      uploadData["serviceDays"] = provider.serviceDaysRemaining;
+
     if (obd.hasSpeed && provider.obdSpeed != null)
       uploadData["speed"] = provider.obdSpeed;
     if (obd.hasRpm && provider.obdRpm != null)

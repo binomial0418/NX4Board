@@ -35,6 +35,12 @@ class ObdSppService {
   final List<String> _logHistory = [];
   List<String> get logHistory => List.unmodifiable(_logHistory);
 
+  // ── Maintenance Log Stream ───────────────────────────────────────────────
+  final _maintenanceLogController = StreamController<String>.broadcast();
+  Stream<String> get maintenanceLogStream => _maintenanceLogController.stream;
+  final List<String> _maintenanceLogHistory = [];
+  List<String> get maintenanceLogHistory => List.unmodifiable(_maintenanceLogHistory);
+
   void _log(String msg) {
     final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
     final String fullMsg = '[$timestamp] $msg';
@@ -46,6 +52,15 @@ class ObdSppService {
 
   void logWsSend(String json) {
     _log('[WS-TX] $json');
+  }
+
+  void _logMaintenance(String msg) {
+    final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
+    final String fullMsg = '[$timestamp] $msg';
+    _maintenanceLogHistory.add(fullMsg);
+    if (_maintenanceLogHistory.length > 500) _maintenanceLogHistory.removeAt(0);
+    _maintenanceLogController.add(fullMsg);
+    _log('[CLU-Service] $msg'); // Also log to main log for visibility
   }
 
   // ── RX Buffer + Completer (半雙工核心) ────────────────────────────────────
@@ -72,6 +87,8 @@ class ObdSppService {
   double? hevSoc; // 保留一位小數
   double? odometer;
   int? fuelLevel;
+  int serviceDistanceRemaining = 0;
+  int serviceDaysRemaining = 0;
 
   // TPMS (FL, FR, RL, RR)
   double? tpmsFl;
@@ -87,12 +104,15 @@ class ObdSppService {
   bool hasHevSoc = false;
   bool hasOdometer = false;
   bool hasFuel = false;
+  bool hasServiceDistanceRemaining = false;
+  bool hasServiceDaysRemaining = false;
   bool hasTpms = false;
 
   // ── Polling Timers ────────────────────────────────────────────────────────
   Timer? _fastPollTimer;
   Timer? _slowPollTimer;
   Timer? _minutePollTimer;
+  Timer? _longPollTimer;
 
   // =========================================================================
   // 模組一：電源狀態感知 (Power State Listener)
@@ -220,6 +240,15 @@ class ObdSppService {
     sendCommand('ATSH7DF');
   }
 
+  /// 手動觸發查詢保養資訊 (Header 7C6, PID 22B002)
+  Future<void> queryMaintenanceInfo() async {
+    if (!_isConnected) return;
+    _log('[OBD] Manual queryMaintenanceInfo() triggered');
+    await sendCommand('ATSH7C6');
+    await sendCommand('22B002');
+    await sendCommand('ATSH7DF');
+  }
+
   Future<List<Map<String, String>>> getBondedDevices() async {
     try {
       final List<dynamic> result =
@@ -305,6 +334,8 @@ class ObdSppService {
     _slowPollTimer = null;
     _minutePollTimer?.cancel();
     _minutePollTimer = null;
+    _longPollTimer?.cancel();
+    _longPollTimer = null;
 
     // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
@@ -488,6 +519,8 @@ class ObdSppService {
     tpmsFr = null;
     tpmsRl = null;
     tpmsRr = null;
+    serviceDistanceRemaining = 0;
+    serviceDaysRemaining = 0;
 
     hasRpm = false;
     hasSpeed = false;
@@ -496,6 +529,8 @@ class ObdSppService {
     hasHevSoc = false;
     hasOdometer = false;
     hasFuel = false;
+    hasServiceDistanceRemaining = false;
+    hasServiceDaysRemaining = false;
     hasTpms = false;
   }
 
@@ -656,8 +691,25 @@ class ObdSppService {
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
               hasVoltage = true;
+              
+              // ── 新增：保養資訊解析 (Byte G,H,I,J) ──
+              if (data.length >= 26) {
+                final int byteG = int.parse(data.substring(18, 20), radix: 16);
+                final int byteH = int.parse(data.substring(20, 22), radix: 16);
+                final int byteI = int.parse(data.substring(22, 24), radix: 16);
+                final int byteJ = int.parse(data.substring(24, 26), radix: 16);
+                
+                serviceDistanceRemaining = (byteG * 256) + byteH;
+                serviceDaysRemaining = (byteI * 256) + byteJ;
+                hasServiceDistanceRemaining = true;
+                hasServiceDaysRemaining = true;
+                
+                _logMaintenance('Raw: $data');
+                _logMaintenance('Parsed: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days (G=$byteG, H=$byteH, I=$byteI, J=$byteJ)');
+              }
+
               _log(
-                  '[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage');
+                  '[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage Dist=$serviceDistanceRemaining Days=$serviceDaysRemaining');
             }
           } else if (pid == '0105') {
             // Display SOC = Byte E / 2
@@ -710,6 +762,7 @@ class ObdSppService {
     _fastPollTimer?.cancel();
     _slowPollTimer?.cancel();
     _minutePollTimer?.cancel();
+    _longPollTimer?.cancel();
 
     _fastPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!_isConnected) return;
@@ -731,6 +784,14 @@ class ObdSppService {
       sendCommand('22B002');
       sendCommand('ATSH7A0');
       sendCommand('22C00B');
+      sendCommand('ATSH7DF');
+    });
+
+    // 維護資訊每 30 分鐘：使用 PID 22B002
+    _longPollTimer = Timer.periodic(const Duration(minutes: 30), (_) {
+      if (!_isConnected) return;
+      sendCommand('ATSH7C6');
+      sendCommand('22B002');
       sendCommand('ATSH7DF');
     });
   }
