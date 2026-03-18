@@ -382,7 +382,7 @@
                         胎壓(PSI)</p>
                     <div class="">
                         <!-- 前輪 (Front) -->
-                        <div class="flex w-full items-center justify-between mb-1 ml-[-3rem]">
+                        <div class="flex w-full items-center justify-between mb-1 ml-[-4rem]">
                             <div class="w-1/2 flex justify-end pr-6">
                                 <span id="tpms_fl_v2"
                                     class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
@@ -394,10 +394,10 @@
                         </div>
 
                         <!-- 分隔線 -->
-                        <div class="w-[85%] h-[2px] bg-gray-800 mx-auto my-1"></div>
+                        <!-- <div class="w-[85%] h-[2px] bg-gray-800 mx-auto my-1"></div> -->
 
                         <!-- 後輪 (Rear) -->
-                        <div class="flex w-full items-center justify-between mt-1 ml-[-8rem]">
+                        <div class="flex w-full items-center justify-between mt-1 ml-[-4rem]">
                             <div class="w-1/2 flex justify-end pr-6">
                                 <span id="tpms_rl_v2"
                                     class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
@@ -413,14 +413,14 @@
                     class="data-card p-8 h-[31%] flex flex-col justify-center border-l-indigo-500">
                     <div class="flex flex-col gap-2">
                         <div class="flex items-baseline">
-                            <span class="text-white text-[2.8rem] font-bold mr-4">ODO</span>
-                            <span id="odo_v2" class="text-[4rem] font-bold text-white val-rounded">--</span>
-                            <span class="text-3xl ml-2 text-gray-500 font-black">KM</span>
+                            <span class="text-white text-[3.2rem] font-bold mr-4">ODO</span>
+                            <span id="odo_v2" class="text-[6rem] font-bold text-white val-rounded">--</span>
+                            <span class="text-3xl ml-2 text-gray-500 font-black">K</span>
                         </div>
                         <div class="w-full h-[2px] bg-gray-800 my-1"></div>
                         <div class="flex items-baseline">
-                            <span class="text-white text-[2.8rem] font-bold mr-4">油箱</span>
-                            <span id="fuel_v2" class="text-[4rem] font-bold text-white val-rounded">--</span>
+                            <span class="text-white text-[3.2rem] font-bold mr-4">油箱</span>
+                            <span id="fuel_v2" class="text-[6rem] font-bold text-white val-rounded">--</span>
                             <span class="text-3xl ml-2 text-gray-500 font-black">%</span>
                         </div>
                     </div>
@@ -537,11 +537,11 @@
                     const sweep = Math.sin(progress_ratio * Math.PI);
 
                     // 同步模擬數字 (0-180)
-                    const simulatedSpeed = Math.round(sweep * 180);
-                    speedText.innerText = simulatedSpeed;
-
+                    const simSpeed = Math.round(sweep * 180);
+                    speedText.innerText = simSpeed;
+                    speedText.style.fontSize = (simSpeed > 99) ? '18rem' : '22rem';
                     // 同步更新圓環與顏色
-                    setDialSpeed(simulatedSpeed);
+                    setDialSpeed(simSpeed);
 
                     if (progress_ratio < 1) {
                         requestAnimationFrame(animate);
@@ -551,10 +551,13 @@
                         dial.style.transition = 'stroke-dashoffset 0.3s ease-out, stroke 0.3s ease';
 
                         if (window.lastData && window.lastData.speed !== undefined) {
-                            speedText.innerText = Math.round(window.lastData.speed);
+                            const finalSpeed = Math.round(window.lastData.speed);
+                            speedText.innerText = finalSpeed;
+                            speedText.style.fontSize = (finalSpeed > 99) ? '18rem' : '22rem';
                             setDialSpeed(window.lastData.speed);
                         } else {
                             speedText.innerText = "0";
+                            speedText.style.fontSize = '22rem';
                             setDialSpeed(0);
                         }
                     }
@@ -613,7 +616,11 @@
                     window._lastValidSpeed = speedVal;
                     const display = (data.speed === null) ? "--" : speedVal;
                     document.getElementById('speed').innerText = display;
-                    document.getElementById('speed_v2').innerText = display;
+                    const speedV2 = document.getElementById('speed_v2');
+                    if (speedV2) {
+                        speedV2.innerText = display;
+                        speedV2.style.fontSize = (speedVal > 99) ? '18rem' : '22rem';
+                    }
                     if (!dialAnimationActive) setDialSpeed(speedVal);
                 }
 
