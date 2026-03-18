@@ -6,8 +6,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:provider/provider.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
+import '../providers/app_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -29,6 +31,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   List<Map<String, String>> _bondedDevices = [];
   bool _isScanning = false;
+
+  // --- Maintenance Log ---
+  StreamSubscription? _maintenanceLogSub;
+  final List<String> _maintenanceLogs = [];
+  final ScrollController _maintenanceScrollController = ScrollController();
+  bool _maintenanceAutoScroll = true;
 
   @override
   void initState() {
@@ -61,6 +69,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     _refreshBondedDevices();
+
+    // Maintenance logs
+    _maintenanceLogs.addAll(ObdSppService().maintenanceLogHistory);
+    _maintenanceLogSub = ObdSppService().maintenanceLogStream.listen((log) {
+      if (mounted) {
+        setState(() {
+          _maintenanceLogs.add(log);
+          if (_maintenanceLogs.length > 500) _maintenanceLogs.removeAt(0);
+        });
+        if (_maintenanceAutoScroll) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (_maintenanceScrollController.hasClients) {
+              _maintenanceScrollController.animateTo(
+                _maintenanceScrollController.position.maxScrollExtent,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          });
+        }
+      }
+    });
   }
 
   @override
@@ -68,6 +98,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ipController.dispose();
     _portController.dispose();
     _logSub?.cancel();
+    _maintenanceLogSub?.cancel();
+    _scrollController.dispose();
+    _maintenanceScrollController.dispose();
     super.dispose();
   }
 
@@ -164,6 +197,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (result.status == ShareResultStatus.success) {
         debugPrint('Log shared successfully');
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('匯出失敗: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportMaintenanceLogs() async {
+    try {
+      if (_maintenanceLogs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('無維護日誌可供匯出')),
+        );
+        return;
+      }
+
+      final String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final String fileName = 'NX4Board_MaintenanceLog_$timestamp.txt';
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/$fileName');
+
+      final String content = _maintenanceLogs.join('\n');
+      await file.writeAsString(content);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'NX4Board Maintenance Log Export',
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('匯出失敗: $e')),
@@ -417,6 +478,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           );
                         },
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // --- 維護資訊獨立 LOG 區 ---
+            Card(
+              color: Colors.grey[900],
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('保養維護資訊 (CLU Raw/Parsed)',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orangeAccent)),
+                        Row(
+                          children: [
+                            Consumer<AppProvider>(
+                              builder: (context, provider, child) {
+                                return IconButton(
+                                  icon: const Icon(Icons.search,
+                                      color: Colors.orangeAccent),
+                                  tooltip: '手動查詢保養資訊',
+                                  onPressed: provider.obdConnectionState ==
+                                          ObdConnectionState.connected
+                                      ? () => provider.queryMaintenanceInfo()
+                                      : null,
+                                );
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.download,
+                                  color: Colors.orangeAccent),
+                              tooltip: '匯出維護日誌',
+                              onPressed: _exportMaintenanceLogs,
+                            ),
+                            GestureDetector(
+                                onTap: () => setState(() =>
+                                    _maintenanceAutoScroll =
+                                        !_maintenanceAutoScroll),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _maintenanceAutoScroll
+                                        ? Colors.orange.withOpacity(0.2)
+                                        : Colors.grey.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: _maintenanceAutoScroll
+                                          ? Colors.orange
+                                          : Colors.grey,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _maintenanceAutoScroll
+                                            ? Icons.pause
+                                            : Icons.play_arrow,
+                                        color: _maintenanceAutoScroll
+                                            ? Colors.orange
+                                            : Colors.grey,
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _maintenanceAutoScroll
+                                            ? '自動捲動 ON'
+                                            : '自動捲動 OFF',
+                                        style: TextStyle(
+                                          color: _maintenanceAutoScroll
+                                              ? Colors.orange
+                                              : Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 200,
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: _maintenanceLogs.isEmpty
+                          ? const Center(
+                              child: Text('目前尚無維護資料。',
+                                  style: TextStyle(color: Colors.grey)))
+                          : ListView.builder(
+                              controller: _maintenanceScrollController,
+                              itemCount: _maintenanceLogs.length,
+                              itemBuilder: (context, index) {
+                                final log = _maintenanceLogs[index];
+                                Color textColor = Colors.white;
+                                if (log.contains('Parsed:')) {
+                                  textColor = Colors.orangeAccent;
+                                } else if (log.contains('Raw:')) {
+                                  textColor = Colors.grey;
+                                }
+                                return Text(
+                                  log,
+                                  style: TextStyle(
+                                      color: textColor,
+                                      fontFamily: 'monospace',
+                                      fontSize: 12),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),

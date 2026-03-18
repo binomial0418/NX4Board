@@ -44,6 +44,10 @@ class AppProvider extends ChangeNotifier {
   double? get tpmsFr => _obdService.tpmsFr;
   double? get tpmsRl => _obdService.tpmsRl;
   double? get tpmsRr => _obdService.tpmsRr;
+  int get serviceDistanceRemaining => _obdService.serviceDistanceRemaining;
+  int get serviceDaysRemaining => _obdService.serviceDaysRemaining;
+  List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;
+  Stream<String> get maintenanceLogStream => _obdService.maintenanceLogStream;
   bool get isWifiConnected => _isWifiConnected;
 
   /// Initialize app - load CSV data
@@ -137,6 +141,12 @@ class AppProvider extends ChangeNotifier {
   bool isExceedingSpeedLimit(double currentSpeed) {
     if (_currentSpeedLimit == null) return false;
     return currentSpeed > _currentSpeedLimit!;
+  }
+
+  /// 手動查詢保養資訊
+  Future<void> queryMaintenanceInfo() async {
+    await _obdService.queryMaintenanceInfo();
+    notifyListeners();
   }
 
   // ── 測速路徑模擬工具 ──

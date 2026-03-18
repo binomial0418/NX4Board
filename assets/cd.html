@@ -354,7 +354,7 @@
                 }
                 if (data.speed !== undefined) {
                     const speedEl = document.getElementById('speed');
-                    speedEl.innerText = (data.speed === null) ? "--" : Math.ceil(parseFloat(data.speed));
+                    speedEl.innerText = (data.speed === null) ? "--" : Math.round(parseFloat(data.speed));
                 }
                 if (data.rpm !== undefined) {
                     const rpmEl = document.getElementById('rpm');
@@ -365,7 +365,7 @@
                         rpmEl.classList.add('text-white');
                         if (rpmUnit) rpmUnit.style.display = 'inline';
                     } else {
-                        const rpmVal = Math.ceil(parseFloat(data.rpm));
+                        const rpmVal = Math.round(parseFloat(data.rpm));
                         const rpmDisplay = rpmVal === 0 ? 'EV' : rpmVal;
                         if (rpmVal === 0) {
                             rpmEl.innerText = "EV";
@@ -390,7 +390,7 @@
                         tempEl.innerText = "--";
                         tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
                     } else {
-                        const tempVal = Math.ceil(parseFloat(data.temperature));
+                        const tempVal = Math.round(parseFloat(data.temperature));
                         tempEl.innerText = tempVal;
                         markCardValueChange('temp', tempVal, 'card-temp');
                         tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
@@ -530,7 +530,7 @@
                                     el.classList.remove('alert-pulse');
                                     markCardValueChange(targetId, el.innerText, 'card-tpms');
                                 } else {
-                                    el.innerText = Math.ceil(val);
+                                    el.innerText = Math.round(val);
                                     if (val < 32) el.classList.add('alert-pulse');
                                     else el.classList.remove('alert-pulse');
                                     markCardValueChange(targetId, el.innerText, 'card-tpms');
@@ -552,7 +552,7 @@
                                 el.classList.remove('alert-pulse');
                                 markCardValueChange(targetId, el.innerText, 'card-tpms');
                             } else {
-                                el.innerText = Math.ceil(val);
+                                el.innerText = Math.round(val);
                                 if (val < 32) el.classList.add('alert-pulse');
                                 else el.classList.remove('alert-pulse');
                                 markCardValueChange(targetId, el.innerText, 'card-tpms');
@@ -569,7 +569,7 @@
                         const el = document.getElementById(targetId);
                         const val = parseFloat(data[key]);
                         if (el && !isNaN(val) && val > 0) {
-                            el.innerText = Math.ceil(val);
+                            el.innerText = Math.round(val);
                             if (val < 32) el.classList.add('alert-pulse');
                             else el.classList.remove('alert-pulse');
                             markCardValueChange(targetId, el.innerText, 'card-tpms');
