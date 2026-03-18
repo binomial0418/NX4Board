@@ -161,6 +161,89 @@
             filter: drop-shadow(0 0 15px rgba(59, 130, 246, 0.5));
         }
 
+        .turbo-bar-flex-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0px;
+            margin-top: 1rem;
+            width: 920px;
+        }
+
+        .turbo-bar-center-container {
+            width: 720px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            position: relative;
+            overflow: visible;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
+        }
+
+        .turbo-bar-center-zero {
+            position: absolute;
+            left: 33.33%;
+            top: -10px;
+            bottom: -10px;
+            width: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            z-index: 10;
+        }
+
+        .turbo-bar-center-active {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            border-radius: 24px;
+            transition: width 0.08s ease-out, left 0.08s ease-out, background 0.3s ease;
+            box-shadow: 0 0 20px var(--bar-glow, transparent);
+        }
+
+        .turbo-bar-center-peak {
+            position: absolute;
+            top: -8px;
+            bottom: -8px;
+            width: 5px;
+            background: #ff3333;
+            border-radius: 2px;
+            box-shadow: 0 0 12px #ff0000;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: 20;
+        }
+
+        .turbo-bar-label {
+            position: absolute;
+            top: 48px;
+            transform: translateX(-50%);
+            font-size: 1.8rem;
+            color: rgba(255, 255, 255, 0.4);
+            font-weight: bold;
+        }
+
+        .turbo-val-center {
+            font-size: 5.5rem;
+            color: white;
+            font-weight: 900;
+            font-family: 'Outfit', sans-serif;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+            white-space: nowrap;
+            width: auto;
+            text-align: center;
+            margin-bottom: 15px;
+            flex-shrink: 0;
+        }
+
+        .speed-v2-wrapper {
+            height: 420px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
         .speed-dial-bg {
             stroke: rgba(255, 255, 255, 0.1);
             stroke-dasharray: 904 1206;
@@ -285,13 +368,13 @@
                         <div class="flex flex-col gap-2">
                             <div class="flex items-baseline">
                                 <span class="text-white text-[2.8rem] font-bold mr-4">ODO</span>
-                                <span id="odo" class="text-[4rem] font-bold text-white val-rounded">--</span>
-                                <span class="text-3xl ml-2 text-gray-500 font-black">KM</span>
+                                <span id="odo" class="text-[6rem] font-bold text-white val-rounded">--</span>
+                                <span class="text-3xl ml-2 text-gray-500 font-black">K</span>
                             </div>
                             <div class="w-full h-[2px] bg-gray-800 my-1"></div>
                             <div class="flex items-baseline">
                                 <span class="text-white text-[2.8rem] font-bold mr-4">油箱</span>
-                                <span id="fuel" class="text-[4rem] font-bold text-white val-rounded">--</span>
+                                <span id="fuel" class="text-[6rem] font-bold text-white val-rounded">--</span>
                                 <span class="text-3xl ml-2 text-gray-500 font-black">%</span>
                             </div>
                         </div>
@@ -348,14 +431,6 @@
         <div id="ui-v2" class="flex h-full w-full relative z-20 hidden-ui">
             <!-- P1: 25% (Turbo, Battery, Temp) -->
             <div class="w-[25%] flex flex-col justify-between py-4 pr-16 gap-2">
-                <div id="card-turbo-v2" class="data-card p-8 h-[31%] flex flex-col justify-center border-l-orange-400">
-                    <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">渦輪</p>
-                    <div class="flex items-baseline -mt-6">
-                        <span id="turbo_v2"
-                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
-                        <span class="text-5xl ml-6 text-gray-500 font-bold">BAR</span>
-                    </div>
-                </div>
                 <div id="card-battery-v2"
                     class="data-card p-8 h-[31%] flex flex-col justify-center border-l-emerald-500">
                     <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
@@ -365,12 +440,25 @@
                         <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
                     </div>
                 </div>
+
                 <div id="card-temp-v2" class="data-card p-10 h-[31%] flex flex-col justify-center border-l-cyan-500">
                     <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
                     <div class="flex items-baseline -mt-6">
                         <span id="temp_v2"
                             class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
                         <span class="text-6xl ml-6 text-gray-500 font-bold">°C</span>
+                    </div>
+                </div>
+
+                <div id="card-status-v2"
+                    class="data-card p-10 h-[31%] flex flex-col justify-center border-l-orange-400">
+                    <div class="flex-1 flex flex-col justify-center items-center gap-4">
+                        <span id="time_v2"
+                            class="text-[10rem] font-bold text-gray-300 tracking-wider leading-[0.85] inline-block val-rounded">11:07</span>
+                        <div id="camera_alert_v2" class="hidden flex flex-col items-center">
+                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">Speed Camera</span>
+                            <span id="camera_limit_v2" class="text-[8rem] font-black text-white val-rounded">--</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -433,29 +521,44 @@
             <div class="w-[50%] flex flex-col">
                 <!-- Top 70%: Dial -->
                 <div class="h-[70%] flex items-center justify-center relative mt-16">
-                    <svg class="speed-dial-svg w-[800px] h-[800px]" viewBox="0 0 420 420">
+                    <svg class="speed-dial-svg w-[900px] h-[900px]" viewBox="0 0 420 420">
                         <circle cx="210" cy="210" r="192" fill="none" class="speed-dial-bg" stroke-width="22"
                             stroke-linecap="round" />
                         <circle id="speed_dial_progress" cx="210" cy="210" r="192" fill="none"
                             class="speed-dial-progress" stroke-width="22" stroke-linecap="round" />
                     </svg>
                     <!-- Center Values -->
-                    <div class="absolute inset-0 flex flex-col items-center justify-center mt-12">
-                        <span id="speed_v2"
-                            class="text-[22rem] font-black leading-none text-white val-rounded">--</span>
-                        <div class="flex items-baseline -mt-10">
-                            <span id="rpm_v2" class="text-[10rem] font-bold text-blue-400 val-rounded">--</span>
-                            <span id="rpm_unit_v2" class="text-5xl ml-6 text-gray-500 italic font-black">R</span>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center mt-[10rem]">
+                        <div class="speed-v2-wrapper">
+                            <span id="speed_v2"
+                                class="text-[28rem] font-black leading-none text-white val-rounded">--</span>
+                        </div>
+                        <div class="flex flex-col items-center -mt-10">
+                            <div class="flex items-baseline">
+                                <span id="rpm_v2" class="text-[10rem] font-bold text-blue-400 val-rounded">--</span>
+                                <span id="rpm_unit_v2" class="text-[4rem] ml-8 text-gray-500 italic font-black">R</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <!-- Bottom 30%: Status/Time -->
-                <div class="h-[30%] flex items-center justify-center">
-                    <div id="status_v2_container" class="w-full flex justify-center">
-                        <span id="time_v2" class="text-[12rem] font-bold text-gray-300 val-rounded">11:07</span>
-                        <div id="camera_alert_v2" class="hidden flex flex-col items-center">
-                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">Speed Camera</span>
-                            <span id="camera_limit_v2" class="text-[8rem] font-black text-white val-rounded">--</span>
+                <div class="h-[30%] flex items-end justify-center pb-12">
+                    <div class="flex flex-col items-center gap-6 w-[90%]">
+                        <div class="turbo-bar-flex-wrapper">
+                            <div id="turbo_val_center" class="turbo-val-center">0.00 BAR</div>
+                            <div class="turbo-bar-center-container">
+                                <div class="turbo-bar-center-zero"></div>
+                                <div id="turbo_bar_center_active" class="turbo-bar-center-active"
+                                    style="left: 33.33%; width: 0%;"></div>
+                                <div id="turbo_bar_center_peak" class="turbo-bar-center-peak"></div>
+                                <!-- Ticks & Labels -->
+                                <div class="absolute left-0 top-0 bottom-0 w-px bg-white/20"></div>
+                                <span class="turbo-bar-label" style="left: 0%">-1</span>
+                                <span class="turbo-bar-label" style="left: 33.33%">0</span>
+                                <div class="absolute left-[66.66%] top-0 bottom-0 w-px bg-white/20"></div>
+                                <span class="turbo-bar-label" style="left: 66.66%">1</span>
+                                <div class="absolute right-0 top-0 bottom-0 w-px bg-white/20"></div>
+                                <span class="turbo-bar-label" style="left: 100%">2</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -539,7 +642,7 @@
                     // 同步模擬數字 (0-180)
                     const simSpeed = Math.round(sweep * 180);
                     speedText.innerText = simSpeed;
-                    speedText.style.fontSize = (simSpeed > 99) ? '18rem' : '22rem';
+                    speedText.style.fontSize = (simSpeed > 99) ? '24rem' : '30rem';
                     // 同步更新圓環與顏色
                     setDialSpeed(simSpeed);
 
@@ -553,11 +656,11 @@
                         if (window.lastData && window.lastData.speed !== undefined) {
                             const finalSpeed = Math.round(window.lastData.speed);
                             speedText.innerText = finalSpeed;
-                            speedText.style.fontSize = (finalSpeed > 99) ? '18rem' : '22rem';
+                            speedText.style.fontSize = (finalSpeed > 99) ? '24rem' : '30rem';
                             setDialSpeed(window.lastData.speed);
                         } else {
                             speedText.innerText = "0";
-                            speedText.style.fontSize = '22rem';
+                            speedText.style.fontSize = '30rem';
                             setDialSpeed(0);
                         }
                     }
@@ -619,7 +722,7 @@
                     const speedV2 = document.getElementById('speed_v2');
                     if (speedV2) {
                         speedV2.innerText = display;
-                        speedV2.style.fontSize = (speedVal > 99) ? '18rem' : '22rem';
+                        speedV2.style.fontSize = (speedVal > 99) ? '24rem' : '30rem';
                     }
                     if (!dialAnimationActive) setDialSpeed(speedVal);
                 }
@@ -689,10 +792,62 @@
                 }
 
                 if (data.turbo !== undefined) {
-                    const val = (data.turbo === null) ? "--" : parseFloat(data.turbo).toFixed(2);
-                    const el2 = document.getElementById('turbo_v2');
-                    if (el2) el2.innerText = val;
-                    markCardValueChange('turbo', val, 'card-turbo-v2');
+                    const turboVal = (data.turbo === null) ? 0 : parseFloat(data.turbo);
+
+                    // Center Bar Logic: -1 to +2 (total 3), 0 is at 33.33%
+                    const cBar = document.getElementById('turbo_bar_center_active');
+                    const cPeak = document.getElementById('turbo_bar_center_peak');
+                    const cVal = document.getElementById('turbo_val_center');
+                    if (cVal) cVal.innerText = turboVal.toFixed(2) + " BAR";
+
+                    if (cBar) {
+                        const clamped = Math.min(Math.max(turboVal, -1), 2);
+                        const zeroPoint = 33.333; // % from left
+
+                        if (clamped >= 0) {
+                            // Right from zero: 0 to 2 mapped to 33.33 to 100%
+                            const width = (clamped / 2) * (100 - zeroPoint);
+                            cBar.style.left = zeroPoint + '%';
+                            cBar.style.width = width + '%';
+                            cBar.style.background = '#ff3333'; // Red
+                            cBar.style.setProperty('--bar-glow', 'rgba(255, 51, 51, 0.5)');
+                        } else {
+                            // Left from zero: 0 to -1 mapped to 33.33 to 0%
+                            const width = (Math.abs(clamped) / 1) * zeroPoint;
+                            cBar.style.left = (zeroPoint - width) + '%';
+                            cBar.style.width = width + '%';
+                            cBar.style.background = '#60a5fa'; // Gray Blue
+                            cBar.style.setProperty('--bar-glow', 'rgba(96, 165, 250, 0.5)');
+                        }
+
+                        // Peak Retention Logic (2 seconds) - Improved Robustness
+                        if (cPeak) {
+                            const lastVal = window._lastTurboVal || 0;
+                            const diff = turboVal - lastVal;
+
+                            // Use sign of movement, filtering noise
+                            const currentDir = (Math.abs(diff) < 0.005) ? 0 : Math.sign(diff);
+
+                            if (currentDir !== 0 && window._lastTurboDir !== undefined && currentDir !== window._lastTurboDir) {
+                                // Direction flipped! Show red cursor at the extreme (lastVal)
+                                cPeak.style.transition = 'none';
+                                cPeak.style.left = `calc(${((lastVal + 1) / 3) * 100}% - 2px)`;
+                                cPeak.style.opacity = '1';
+
+                                if (window._turboPeakTimer) clearTimeout(window._turboPeakTimer);
+                                window._turboPeakTimer = setTimeout(() => {
+                                    cPeak.style.transition = 'opacity 0.4s ease';
+                                    cPeak.style.opacity = '0';
+                                    window._turboPeakTimer = null;
+                                }, 2000);
+                            }
+
+                            if (currentDir !== 0) {
+                                window._lastTurboDir = currentDir;
+                            }
+                            window._lastTurboVal = turboVal;
+                        }
+                    }
                 }
 
                 if (data.odometer !== undefined || data.odo !== undefined || data.mileage !== undefined) {

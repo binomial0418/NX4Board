@@ -153,6 +153,12 @@
             <small class="text-xs text-slate-400 block mt-1">* > 110 紅色警告，< 60 淡藍警告</small>
         </div>
 
+        <div class="form-group border-t border-slate-700 pt-3 mt-3">
+            <label>渦輪壓力 (BAR) <span class="val-display" id="val_turbo">0.00</span></label>
+            <input type="range" id="turbo" min="-1" max="2" step="0.01" value="0.00" oninput="syncVal('turbo')">
+            <small class="text-xs text-slate-400 block mt-1">* -1 到 2，測試能量條與峰值光標</small>
+        </div>
+
         <div class="form-group">
             <label>大電池電量 (EV %) <span class="val-display" id="val_battery">60.5</span></label>
             <input type="range" id="battery" min="0" max="100" step="0.1" value="60.5" oninput="syncVal('battery')">
@@ -232,6 +238,7 @@
                 fr_pressure: parseFloat(document.getElementById('tpms_fr').value),
                 rl_pressure: parseFloat(document.getElementById('tpms_rl').value),
                 rr_pressure: parseFloat(document.getElementById('tpms_rr').value),
+                turbo: parseFloat(document.getElementById('turbo').value),
             };
 
             const frame = document.getElementById('dashboard-frame');
@@ -275,8 +282,9 @@
             }
 
             // 更新滑桿旁的文字顯示
-            ['speed', 'limit', 'rpm', 'temp', 'battery', 'fuel', 'odo'].forEach(id => {
-                document.getElementById('val_' + id).innerText = document.getElementById(id).value;
+            ['speed', 'limit', 'rpm', 'temp', 'turbo', 'battery', 'fuel', 'odo'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) document.getElementById('val_' + id).innerText = el.value;
             });
 
             // 送出資料
