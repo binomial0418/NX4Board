@@ -339,6 +339,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (_isCharging == true) {
         _sendObdDataViaWsOnce();
         _startObdToWebviewSync(); // 強制刷一次 UI
+        
+        // 傳送 WAKEUP 指令觸發圓盤動畫
+        _webViewController?.evaluateJavascript(
+          source: "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');"
+        );
       }
     });
   }
@@ -573,7 +578,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       jsonMap["battery"] = provider.obdHevSoc;
       jsonMap["odometer"] = provider.obdOdometer;
       jsonMap["odo"] = provider.obdOdometer;
-      jsonMap["fuelLevel"] = provider.obdFuel;
+       jsonMap["fuelLevel"] = provider.obdFuel;
+      jsonMap["turbo"] = provider.obdTurbo;
       jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
       jsonMap["serviceDays"] = provider.serviceDaysRemaining;
 

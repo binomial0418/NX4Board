@@ -154,6 +154,60 @@
                 opacity: 1;
             }
         }
+
+        /* --- UI 2 專用樣式 --- */
+        .speed-dial-svg {
+            transform: rotate(-225deg);
+            filter: drop-shadow(0 0 15px rgba(59, 130, 246, 0.5));
+        }
+
+        .speed-dial-bg {
+            stroke: rgba(255, 255, 255, 0.1);
+            stroke-dasharray: 904 1206;
+            /* 2*PI*192*0.75 ≈ 904 arc */
+            stroke-dashoffset: 0;
+        }
+
+        .speed-dial-progress {
+            stroke: #3b82f6;
+            stroke-dasharray: 904 1206;
+            stroke-dashoffset: 904;
+            transition: stroke-dashoffset 0.3s ease-out, stroke 0.3s ease;
+        }
+
+        .ui-toggle-btn {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 80px;
+            height: 200px;
+            background: linear-gradient(270deg, rgba(59, 130, 246, 0.4) 0%, transparent 100%);
+            border-left: 2px solid rgba(59, 130, 246, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 1000;
+            transition: background 0.3s;
+        }
+
+        .ui-toggle-btn:hover {
+            background: linear-gradient(270deg, rgba(59, 130, 246, 0.7) 0%, transparent 100%);
+        }
+
+        .ui-toggle-btn span {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            font-weight: bold;
+            letter-spacing: 0.5em;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.5rem;
+        }
+
+        .hidden-ui {
+            display: none !important;
+        }
     </style>
 </head>
 
@@ -164,8 +218,13 @@
     <div id="app-container" class="w-[2400px] h-[1080px] p-12 origin-center shrink-0 relative overflow-hidden">
         <div class="scanline"></div>
 
-        <div class="flex h-full w-full relative z-20">
+        <!-- UI 切換按鈕 -->
+        <div class="ui-toggle-btn" onclick="toggleUI()">
+            <span>切換介面</span>
+        </div>
 
+        <!-- UI Version 1 (Original) -->
+        <div id="ui-v1" class="flex h-full w-full relative z-20">
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
                     <div id="card-rpm"
@@ -184,12 +243,10 @@
 
                         <!-- 前輪 (Front) -->
                         <div class="flex w-full items-center justify-between mb-1">
-                            <!-- FL 強制靠向左邊中線，並在右側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-end pr-6">
                                 <span id="tpms_fl"
                                     class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
                             </div>
-                            <!-- FR 強制靠向右邊中線，並在左側創造實體抗黏連空白 -->
                             <div class="w-1/2 flex justify-start pl-9">
                                 <span id="tpms_fr"
                                     class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
@@ -254,7 +311,7 @@
 
             <div class="w-[62%] flex flex-col justify-center items-center">
                 <div id="central_group"
-                    class="w-full flex flex-col items-center mt-4 transition-transform duration-500">
+                    class="w-full flex flex-col items-center mt-0 transition-transform duration-500">
 
                     <div class="flex items-end mb-2 ml-[10em]">
                         <span id="speed"
@@ -272,23 +329,137 @@
                                 class="text-black text-[9.5rem] font-black leading-none mt-2 tracking-tighter val-rounded">60</span>
                         </div>
                         <div class="w-1/3 h-[2px] bg-gradient-to-l from-transparent via-gray-600 to-gray-400"></div>
-                        <!-- Extended blueish line behind the sign seen in design -->
                         <div class="absolute w-[90%] h-px bg-blue-400/30 top-1/2 -z-10 blur-[1px]"></div>
                     </div>
 
-                    <!-- OCR 關閉時顯示的分隔線 -->
                     <div id="ocr_off_divider"
                         class="w-1/3 h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent my-12 opacity-60 hidden">
                     </div>
 
-                    <div class="flex items-center mt-4 ml-[2em]">
+                    <div class="flex items-center mt-40 ml-[2em]">
                         <span id="time"
                             class="text-[12rem] font-bold text-gray-300 tracking-wider leading-[0.85] pt-4 pb-2 inline-block val-rounded">11:07</span>
                     </div>
+                </div>
+            </div>
+        </div>
 
+        <!-- UI Version 2 (New) -->
+        <div id="ui-v2" class="flex h-full w-full relative z-20 hidden-ui">
+            <!-- P1: 25% (Turbo, Battery, Temp) -->
+            <div class="w-[25%] flex flex-col justify-between py-4 pr-16 gap-2">
+                <div id="card-turbo-v2" class="data-card p-8 h-[31%] flex flex-col justify-center border-l-orange-400">
+                    <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">渦輪</p>
+                    <div class="flex items-baseline -mt-6">
+                        <span id="turbo_v2"
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
+                        <span class="text-5xl ml-6 text-gray-500 font-bold">BAR</span>
+                    </div>
+                </div>
+                <div id="card-battery-v2"
+                    class="data-card p-8 h-[31%] flex flex-col justify-center border-l-emerald-500">
+                    <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
+                    <div class="flex items-baseline -mt-6">
+                        <span id="battery_v2"
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
+                        <span class="text-6xl ml-6 text-gray-500 font-bold">%</span>
+                    </div>
+                </div>
+                <div id="card-temp-v2" class="data-card p-10 h-[31%] flex flex-col justify-center border-l-cyan-500">
+                    <p class="text-white text-[4rem] font-bold mb-4 tracking-widest uppercase">水溫</p>
+                    <div class="flex items-baseline -mt-6">
+                        <span id="temp_v2"
+                            class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
+                        <span class="text-6xl ml-6 text-gray-500 font-bold">°C</span>
+                    </div>
                 </div>
             </div>
 
+            <!-- P2: 25% (TPMS, ODO+Fuel, Empty) -->
+            <div class="w-[25%] flex flex-col justify-between py-4 pr-16 gap-2">
+                <div id="card-tpms-v2" class="data-card p-8 h-[31%] flex flex-col justify-center border-l-orange-500">
+                    <p class="text-white text-[3.2rem] whitespace-nowrap font-bold tracking-wider uppercase mb-2">
+                        胎壓(PSI)</p>
+                    <div class="">
+                        <!-- 前輪 (Front) -->
+                        <div class="flex w-full items-center justify-between mb-1 ml-[-3rem]">
+                            <div class="w-1/2 flex justify-end pr-6">
+                                <span id="tpms_fl_v2"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
+                            </div>
+                            <div class="w-1/2 flex justify-start pl-9">
+                                <span id="tpms_fr_v2"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
+                            </div>
+                        </div>
+
+                        <!-- 分隔線 -->
+                        <div class="w-[85%] h-[2px] bg-gray-800 mx-auto my-1"></div>
+
+                        <!-- 後輪 (Rear) -->
+                        <div class="flex w-full items-center justify-between mt-1 ml-[-8rem]">
+                            <div class="w-1/2 flex justify-end pr-6">
+                                <span id="tpms_rl_v2"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
+                            </div>
+                            <div class="w-1/2 flex justify-start pl-9">
+                                <span id="tpms_rr_v2"
+                                    class="text-[6rem] font-bold text-white leading-none val-rounded">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="card-odo-fuel-v2"
+                    class="data-card p-8 h-[31%] flex flex-col justify-center border-l-indigo-500">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-baseline">
+                            <span class="text-white text-[2.8rem] font-bold mr-4">ODO</span>
+                            <span id="odo_v2" class="text-[4rem] font-bold text-white val-rounded">--</span>
+                            <span class="text-3xl ml-2 text-gray-500 font-black">KM</span>
+                        </div>
+                        <div class="w-full h-[2px] bg-gray-800 my-1"></div>
+                        <div class="flex items-baseline">
+                            <span class="text-white text-[2.8rem] font-bold mr-4">油箱</span>
+                            <span id="fuel_v2" class="text-[4rem] font-bold text-white val-rounded">--</span>
+                            <span class="text-3xl ml-2 text-gray-500 font-black">%</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- 空白卡片 -->
+                <div class="data-card p-8 h-[31%] flex flex-col justify-center border-l-transparent"></div>
+            </div>
+
+            <!-- P3: 50% (Speed Dial, Info) -->
+            <div class="w-[50%] flex flex-col">
+                <!-- Top 70%: Dial -->
+                <div class="h-[70%] flex items-center justify-center relative mt-16">
+                    <svg class="speed-dial-svg w-[800px] h-[800px]" viewBox="0 0 420 420">
+                        <circle cx="210" cy="210" r="192" fill="none" class="speed-dial-bg" stroke-width="22"
+                            stroke-linecap="round" />
+                        <circle id="speed_dial_progress" cx="210" cy="210" r="192" fill="none"
+                            class="speed-dial-progress" stroke-width="22" stroke-linecap="round" />
+                    </svg>
+                    <!-- Center Values -->
+                    <div class="absolute inset-0 flex flex-col items-center justify-center mt-12">
+                        <span id="speed_v2"
+                            class="text-[22rem] font-black leading-none text-white val-rounded">--</span>
+                        <div class="flex items-baseline -mt-10">
+                            <span id="rpm_v2" class="text-[10rem] font-bold text-blue-400 val-rounded">--</span>
+                            <span id="rpm_unit_v2" class="text-5xl ml-6 text-gray-500 italic font-black">R</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Bottom 30%: Status/Time -->
+                <div class="h-[30%] flex items-center justify-center">
+                    <div id="status_v2_container" class="w-full flex justify-center">
+                        <span id="time_v2" class="text-[12rem] font-bold text-gray-300 val-rounded">11:07</span>
+                        <div id="camera_alert_v2" class="hidden flex flex-col items-center">
+                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">Speed Camera</span>
+                            <span id="camera_limit_v2" class="text-[8rem] font-black text-white val-rounded">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
@@ -304,20 +475,104 @@
             const CARD_HIGHLIGHT_DURATION = 420;
             const highlightTimers = {};
             let alertStartTime = null;
-            let minDisplayUntil = 0; // 強迫顯示直到此時
-            let lastCameraLimit = null; // 暫存最後一次偵測到的相機速限
-            const ALERT_TIMEOUT_MS = 60000; // 60秒自動消失
+            let minDisplayUntil = 0;
+            let lastCameraLimit = null;
+            const ALERT_TIMEOUT_MS = 60000;
+
+            let currentView = 1;
+            let dialAnimationActive = false;
+
+            function toggleUI() {
+                const v1 = document.getElementById('ui-v1');
+                const v2 = document.getElementById('ui-v2');
+                if (currentView === 1) {
+                    v1.classList.add('hidden-ui');
+                    v2.classList.remove('hidden-ui');
+                    currentView = 2;
+                    startDialAnimation();
+                } else {
+                    v2.classList.add('hidden-ui');
+                    v1.classList.remove('hidden-ui');
+                    currentView = 1;
+                }
+            }
+
+            function setDialSpeed(speed) {
+                const progress = document.getElementById('speed_dial_progress');
+                if (!progress) return;
+                const maxSpeed = 180;
+                const arcLength = 904; // 2 * PI * 192 * 0.75
+                const clampedSpeed = Math.min(Math.max(speed, 0), maxSpeed);
+                const offset = arcLength - (clampedSpeed / maxSpeed) * arcLength;
+                progress.style.strokeDashoffset = offset;
+
+                // 顏色過渡 (0: blue, 120: yellow, 180: red)
+                if (clampedSpeed > 140) progress.style.stroke = '#ef4444';
+                else if (clampedSpeed > 100) progress.style.stroke = '#f59e0b';
+                else progress.style.stroke = '#3b82f6';
+            }
+
+            function startDialAnimation() {
+                if (dialAnimationActive) return;
+                dialAnimationActive = true;
+                const dial = document.getElementById('speed_dial_progress');
+                const speedText = document.getElementById('speed_v2');
+                if (!dial || !speedText) {
+                    dialAnimationActive = false;
+                    return;
+                }
+
+                const duration = 1500;
+                const startTime = Date.now();
+
+                // 啟動動畫期間關閉 transition，確保物理圓環跟得上快速變化的模擬數字
+                dial.style.transition = 'none';
+
+                function animate() {
+                    const now = Date.now();
+                    const elapsed = now - startTime;
+                    const progress_ratio = Math.min(elapsed / duration, 1);
+
+                    // 0 -> 1 -> 0 sweep
+                    const sweep = Math.sin(progress_ratio * Math.PI);
+
+                    // 同步模擬數字 (0-180)
+                    const simulatedSpeed = Math.round(sweep * 180);
+                    speedText.innerText = simulatedSpeed;
+
+                    // 同步更新圓環與顏色
+                    setDialSpeed(simulatedSpeed);
+
+                    if (progress_ratio < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        dialAnimationActive = false;
+                        // 動畫結束，恢復實際值並開啟 transition
+                        dial.style.transition = 'stroke-dashoffset 0.3s ease-out, stroke 0.3s ease';
+
+                        if (window.lastData && window.lastData.speed !== undefined) {
+                            speedText.innerText = Math.round(window.lastData.speed);
+                            setDialSpeed(window.lastData.speed);
+                        } else {
+                            speedText.innerText = "0";
+                            setDialSpeed(0);
+                        }
+                    }
+                }
+                animate();
+            }
 
             const prevValues = {
-                rpm: document.getElementById('rpm')?.innerText ?? '',
-                tpms_fl: document.getElementById('tpms_fl')?.innerText ?? '',
-                tpms_fr: document.getElementById('tpms_fr')?.innerText ?? '',
-                tpms_rl: document.getElementById('tpms_rl')?.innerText ?? '',
-                tpms_rr: document.getElementById('tpms_rr')?.innerText ?? '',
-                temp: document.getElementById('temp')?.innerText ?? '',
-                battery: document.getElementById('battery')?.innerText ?? '',
-                fuel: document.getElementById('fuel')?.innerText ?? '',
-                odo: document.getElementById('odo')?.innerText ?? ''
+                rpm: '',
+                tpms_fl: '',
+                tpms_fr: '',
+                tpms_rl: '',
+                tpms_rr: '',
+                temp: '',
+                battery: '',
+                fuel: '',
+                odo: '',
+                turbo: ''
             };
 
             function triggerCardHighlight(cardId) {
@@ -339,256 +594,241 @@
                 if (prevValues[key] === normalized) return false;
                 prevValues[key] = normalized;
                 triggerCardHighlight(cardId);
+                if (cardId.includes('-v2')) return true; // Avoid double triggering if called twice
+                // Sync to v2 if exists
+                const v2CardId = cardId + '-v2';
+                triggerCardHighlight(v2CardId);
                 return true;
             }
 
-            // 由 Flutter 呼叫來更新數值
             function updateDashboard(data) {
                 if (typeof data === 'string') {
                     try {
                         data = JSON.parse(data);
-                    } catch (e) {
-                        console.error('Invalid JSON', e);
-                        return;
-                    }
+                    } catch (e) { return; }
                 }
+
                 if (data.speed !== undefined) {
-                    const speedEl = document.getElementById('speed');
-                    speedEl.innerText = (data.speed === null) ? "--" : Math.round(parseFloat(data.speed));
+                    const speedVal = (data.speed === null) ? 0 : Math.round(parseFloat(data.speed));
+                    window._lastValidSpeed = speedVal;
+                    const display = (data.speed === null) ? "--" : speedVal;
+                    document.getElementById('speed').innerText = display;
+                    document.getElementById('speed_v2').innerText = display;
+                    if (!dialAnimationActive) setDialSpeed(speedVal);
                 }
+
                 if (data.rpm !== undefined) {
                     const rpmEl = document.getElementById('rpm');
+                    const rpmEl2 = document.getElementById('rpm_v2');
                     const rpmUnit = document.getElementById('rpm_unit');
+                    const rpmUnit2 = document.getElementById('rpm_unit_v2');
+
                     if (data.rpm === null) {
-                        rpmEl.innerText = "--";
-                        rpmEl.classList.remove('text-green-500', 'italic');
-                        rpmEl.classList.add('text-white');
+                        [rpmEl, rpmEl2].forEach(el => {
+                            if (el) {
+                                el.innerText = "--";
+                                el.classList.remove('text-green-500', 'italic');
+                                el.classList.add('text-white');
+                            }
+                        });
                         if (rpmUnit) rpmUnit.style.display = 'inline';
+                        if (rpmUnit2) rpmUnit2.style.display = 'inline';
                     } else {
                         const rpmVal = Math.round(parseFloat(data.rpm));
-                        const rpmDisplay = rpmVal === 0 ? 'EV' : rpmVal;
-                        if (rpmVal === 0) {
-                            rpmEl.innerText = "EV";
-                            rpmEl.classList.remove('text-white');
-                            rpmEl.classList.add('text-green-500', 'italic');
-                            rpmEl.style.letterSpacing = '1rem';
-                            if (rpmUnit) rpmUnit.style.display = 'none';
-                        } else {
-                            rpmEl.innerText = rpmVal;
-                            rpmEl.classList.remove('text-green-500', 'italic');
-                            rpmEl.classList.add('text-white');
-                            rpmEl.style.letterSpacing = '';
-                            if (rpmUnit) rpmUnit.style.display = 'inline';
-                        }
+                        const isEV = (rpmVal === 0);
+                        const display = isEV ? 'EV' : rpmVal;
+
+                        [rpmEl, rpmEl2].forEach(el => {
+                            if (el) {
+                                el.innerText = display;
+                                if (isEV) {
+                                    el.classList.remove('text-white', 'text-blue-400');
+                                    el.classList.add('text-green-500', 'italic');
+                                } else {
+                                    el.classList.remove('text-green-500', 'italic');
+                                    el.classList.add(el.id === 'rpm' ? 'text-white' : 'text-blue-400');
+                                }
+                            }
+                        });
+                        if (rpmUnit) rpmUnit.style.display = isEV ? 'none' : 'inline';
+                        if (rpmUnit2) rpmUnit2.style.display = isEV ? 'none' : 'inline';
                     }
                     markCardValueChange('rpm', data.rpm, 'card-rpm');
                 }
 
                 if (data.temperature !== undefined) {
-                    const tempEl = document.getElementById('temp');
-                    if (data.temperature === null) {
-                        tempEl.innerText = "--";
-                        tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
-                    } else {
-                        const tempVal = Math.round(parseFloat(data.temperature));
-                        tempEl.innerText = tempVal;
-                        markCardValueChange('temp', tempVal, 'card-temp');
-                        tempEl.classList.remove('alert-pulse', 'alert-pulse-blue');
-                        if (tempVal > 110) tempEl.classList.add('alert-pulse');
-                        else if (tempVal < 40) tempEl.classList.add('alert-pulse-blue');
-                    }
-                }
+                    const val = (data.temperature === null) ? null : Math.round(parseFloat(data.temperature));
+                    const display = (val === null) ? "--" : val;
+                    document.getElementById('temp').innerText = display;
+                    document.getElementById('temp_v2').innerText = display;
+                    markCardValueChange('temp', val, 'card-temp');
 
-                if (data.battery !== undefined) {
-                    const batteryEl = document.getElementById('battery');
-                    if (data.battery === null) {
-                        batteryEl.innerText = "--";
-                    } else {
-                        const batteryText = parseFloat(data.battery).toFixed(1);
-                        batteryEl.innerText = batteryText;
-                        markCardValueChange('battery', batteryText, 'card-battery');
-                    }
-                }
-
-                const odoEl = document.getElementById('odo');
-                if (data.odometer !== undefined || data.odo !== undefined || data.mileage !== undefined) {
-                    const val = data.odometer || data.odo || data.mileage;
-                    if (val === null || val === undefined) {
-                        odoEl.innerText = "--";
-                    } else {
-                        const text = Math.round(val);
-                        odoEl.innerText = text;
-                        markCardValueChange('odo', text, 'card-odo-fuel');
-                    }
-                }
-
-                const fuelEl = document.getElementById('fuel');
-                if (data.fuel !== undefined || data.fuelLevel !== undefined) {
-                    const val = data.fuel !== undefined ? data.fuel : data.fuelLevel;
-                    if (val === null || val === undefined) {
-                        fuelEl.innerText = "--";
-                        fuelEl.classList.remove('alert-pulse');
-                    } else {
-                        const fuelVal = Math.round(val);
-                        fuelEl.innerText = fuelVal;
-                        markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
-                        if (fuelVal < 15) fuelEl.classList.add('alert-pulse');
-                        else fuelEl.classList.remove('alert-pulse');
-                    }
-                }
-
-                // 胎壓
-                if (data.fl_pressure !== undefined) document.getElementById('tpms_fl').innerText = (data.fl_pressure === null) ? "--" : parseFloat(data.fl_pressure).toFixed(0);
-                if (data.fr_pressure !== undefined) document.getElementById('tpms_fr').innerText = (data.fr_pressure === null) ? "--" : parseFloat(data.fr_pressure).toFixed(0);
-                if (data.rl_pressure !== undefined) document.getElementById('tpms_rl').innerText = (data.rl_pressure === null) ? "--" : parseFloat(data.rl_pressure).toFixed(0);
-                if (data.rr_pressure !== undefined) document.getElementById('tpms_rr').innerText = (data.rr_pressure === null) ? "--" : parseFloat(data.rr_pressure).toFixed(0);
-                if (data.limit !== undefined) {
-                    const limitVal = (data.limit === null || data.limit === undefined) ? "--" : data.limit;
-                    document.getElementById('limit_value').innerText = limitVal;
-                    window._currentLimit = data.limit;
-                }
-
-                if (data.enableOcr !== undefined) {
-                    window._ocrEnabled = data.enableOcr;
-                }
-
-                // --- 測速與警示整合邏輯 ---
-                const now = Date.now();
-                const hasCameraData = (data.cameraInfo && data.cameraInfo !== null);
-
-                // 啟動 3 秒強迫顯示計時 (僅針對測速照相點)
-                if (hasCameraData && !alertStartTime) {
-                    alertStartTime = now;
-                    minDisplayUntil = now + 4000; // 3秒 + 1秒緩衝
-                }
-
-                const isTimedOut = alertStartTime ? (now - alertStartTime > ALERT_TIMEOUT_MS) : false;
-
-                // 顯示紅圈限速牌的條件：
-                // (OCR開啟且有偵測速限) OR (正在觸發測速點且未超時) OR (3秒強迫顯示中)
-                const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
-                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || isCameraAlertActive;
-
-                const wrapper = document.getElementById('limit_wrapper');
-                if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
-
-                // 更新限速數值：優先顯示測速照相點的速限，並防止顯示為 --
-                if (shouldShowLimit) {
-                    let displayLimit = window._currentLimit;
-
-                    if (isCameraAlertActive) {
-                        // 如果有新資料，更新暫存值
-                        if (data.cameraInfo && data.cameraInfo.limit) {
-                            lastCameraLimit = data.cameraInfo.limit;
-                        }
-                        // 警示期間，若有暫存值則鎖定顯示，避免變回 --
-                        if (lastCameraLimit) {
-                            displayLimit = lastCameraLimit;
-                        }
-                    }
-
-                    document.getElementById('limit_value').innerText = displayLimit || "--";
-                }
-
-                if (!hasCameraData && now >= minDisplayUntil) {
-                    alertStartTime = null; // 徹底離開後重置計時
-                    lastCameraLimit = null; // 重置暫存速限
-                }
-
-                const divider = document.getElementById('ocr_off_divider');
-                if (divider) divider.style.display = shouldShowLimit ? 'none' : 'block';
-
-                const centralGroup = document.getElementById('central_group');
-                if (centralGroup) {
-                    if (shouldShowLimit) {
-                        centralGroup.classList.remove('-translate-y-20');
-                    } else {
-                        centralGroup.classList.add('-translate-y-20');
-                    }
-                }
-
-                // 胎壓對照表
-                const tpmsMapping = {
-                    'fl_pressure': 'tpms_fl',
-                    'fr_pressure': 'tpms_fr',
-                    'rl_pressure': 'tpms_rl',
-                    'rr_pressure': 'tpms_rr'
-                };
-
-                // 處理 nested tires 結構
-                if (data.tires) {
-                    const tires = data.tires;
-                    const nestedMap = { 'fl': 'tpms_fl', 'fr': 'tpms_fr', 'rl': 'tpms_rl', 'rr': 'tpms_rr' };
-                    Object.keys(nestedMap).forEach(key => {
-                        if (tires[key] !== undefined) {
-                            const targetId = nestedMap[key];
-                            const el = document.getElementById(targetId);
-                            if (el) {
-                                const val = parseFloat(tires[key]);
-                                if (val === 0 || isNaN(val)) {
-                                    el.innerText = '--';
-                                    el.classList.remove('alert-pulse');
-                                    markCardValueChange(targetId, el.innerText, 'card-tpms');
-                                } else {
-                                    el.innerText = Math.round(val);
-                                    if (val < 32) el.classList.add('alert-pulse');
-                                    else el.classList.remove('alert-pulse');
-                                    markCardValueChange(targetId, el.innerText, 'card-tpms');
-                                }
-                            }
+                    const els = [document.getElementById('temp'), document.getElementById('temp_v2')];
+                    els.forEach(el => {
+                        if (!el) return;
+                        el.classList.remove('alert-pulse', 'alert-pulse-blue');
+                        if (val !== null) {
+                            if (val > 110) el.classList.add('alert-pulse');
+                            else if (val < 40) el.classList.add('alert-pulse-blue');
                         }
                     });
                 }
 
-                // 處理扁平化 tpms 結構 (相容舊模擬器與現有邏輯)
-                Object.keys(tpmsMapping).forEach(key => {
-                    if (data[key] !== undefined) {
-                        const targetId = tpmsMapping[key];
-                        const el = document.getElementById(targetId);
-                        if (el) {
-                            const val = parseFloat(data[key]);
-                            if (isNaN(val) || val === 0) {
-                                el.innerText = '--';
-                                el.classList.remove('alert-pulse');
-                                markCardValueChange(targetId, el.innerText, 'card-tpms');
-                            } else {
-                                el.innerText = Math.round(val);
-                                if (val < 32) el.classList.add('alert-pulse');
-                                else el.classList.remove('alert-pulse');
-                                markCardValueChange(targetId, el.innerText, 'card-tpms');
-                            }
-                        }
+                if (data.battery !== undefined) {
+                    const val = (data.battery === null) ? "--" : parseFloat(data.battery).toFixed(1);
+                    document.getElementById('battery').innerText = val;
+                    document.getElementById('battery_v2').innerText = val;
+                    markCardValueChange('battery', val, 'card-battery');
+                }
+
+                if (data.turbo !== undefined) {
+                    const val = (data.turbo === null) ? "--" : parseFloat(data.turbo).toFixed(2);
+                    const el2 = document.getElementById('turbo_v2');
+                    if (el2) el2.innerText = val;
+                    markCardValueChange('turbo', val, 'card-turbo-v2');
+                }
+
+                if (data.odometer !== undefined || data.odo !== undefined || data.mileage !== undefined) {
+                    const val = data.odometer || data.odo || data.mileage;
+                    const text = (val === null || val === undefined) ? "--" : Math.round(val);
+                    document.getElementById('odo').innerText = text;
+                    document.getElementById('odo_v2').innerText = text;
+                    markCardValueChange('odo', text, 'card-odo-fuel');
+                }
+
+                if (data.fuel !== undefined || data.fuelLevel !== undefined) {
+                    const val = data.fuel !== undefined ? data.fuel : data.fuelLevel;
+                    const fuelVal = (val === null || val === undefined) ? null : Math.round(val);
+                    const display = (fuelVal === null) ? "--" : fuelVal;
+                    document.getElementById('fuel').innerText = display;
+                    document.getElementById('fuel_v2').innerText = display;
+                    markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
+                }
+
+                // 胎壓
+                const tpmsMap = {
+                    'tpms_fl': ['tpmsFl', 'fl_pressure', 'fl'],
+                    'tpms_fr': ['tpmsFr', 'fr_pressure', 'fr'],
+                    'tpms_rl': ['tpmsRl', 'rl_pressure', 'rl'],
+                    'tpms_rr': ['tpmsRr', 'rr_pressure', 'rr']
+                };
+
+                Object.keys(tpmsMap).forEach(id => {
+                    const sources = tpmsMap[id];
+                    let val = null;
+                    for (let s of sources) {
+                        if (data[s] !== undefined) { val = data[s]; break; }
+                        if (data.tires && data.tires[s] !== undefined) { val = data.tires[s]; break; }
+                    }
+
+                    const display = (val === undefined || val === null || val === 0) ? "--" : Math.round(val);
+                    const el1 = document.getElementById(id);
+                    const el2 = document.getElementById(id + '_v2');
+
+                    if (el1) {
+                        el1.innerText = display;
+                        if (val !== null && val > 0 && val < 32) el1.classList.add('alert-pulse');
+                        else el1.classList.remove('alert-pulse');
+                    }
+                    if (el2) {
+                        el2.innerText = display;
+                        if (val !== null && val > 0 && val < 32) el2.classList.add('alert-pulse');
+                        else el2.classList.remove('alert-pulse');
                     }
                 });
+                markCardValueChange('tpms', '', 'card-tpms');
 
-                // 相容 obdSppService.dart 原生屬性 (如果有傳過來的話)
-                ['tpmsFl', 'tpmsFr', 'tpmsRl', 'tpmsRr'].forEach(key => {
-                    if (data[key] !== undefined) {
-                        const idMap = { 'tpmsFl': 'tpms_fl', 'tpmsFr': 'tpms_fr', 'tpmsRl': 'tpms_rl', 'tpmsRr': 'tpms_rr' };
-                        const targetId = idMap[key];
-                        const el = document.getElementById(targetId);
-                        const val = parseFloat(data[key]);
-                        if (el && !isNaN(val) && val > 0) {
-                            el.innerText = Math.round(val);
-                            if (val < 32) el.classList.add('alert-pulse');
-                            else el.classList.remove('alert-pulse');
-                            markCardValueChange(targetId, el.innerText, 'card-tpms');
-                        }
+                if (data.limit !== undefined) {
+                    const val = (data.limit === null || data.limit === undefined) ? "--" : data.limit;
+                    document.getElementById('limit_value').innerText = val;
+                    window._currentLimit = data.limit;
+                }
+                if (data.enableOcr !== undefined) window._ocrEnabled = data.enableOcr;
+
+                // --- 測速警示邏輯 ---
+                const now = Date.now();
+                const hasCameraData = (data.cameraInfo && data.cameraInfo !== null);
+                if (hasCameraData && !alertStartTime) {
+                    alertStartTime = now;
+                    minDisplayUntil = now + 4000;
+                }
+                const isTimedOut = alertStartTime ? (now - alertStartTime > ALERT_TIMEOUT_MS) : false;
+                const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
+
+                // UI 2 Info Switch
+                const timeV2 = document.getElementById('time_v2');
+                const cameraV2 = document.getElementById('camera_alert_v2');
+                if (isCameraAlertActive) {
+                    timeV2.classList.add('hidden');
+                    cameraV2.classList.remove('hidden');
+                    const camLimit = (data.cameraInfo && data.cameraInfo.limit) || lastCameraLimit || "--";
+                    document.getElementById('camera_limit_v2').innerText = camLimit;
+                    if (data.cameraInfo && data.cameraInfo.limit) lastCameraLimit = data.cameraInfo.limit;
+                } else {
+                    timeV2.classList.remove('hidden');
+                    cameraV2.classList.add('hidden');
+                    alertStartTime = null;
+                    lastCameraLimit = null;
+                }
+
+                // UI 1 Limit Wrapper
+                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || isCameraAlertActive;
+                const wrapper = document.getElementById('limit_wrapper');
+                const centralGroup = document.getElementById('central_group');
+
+                if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
+                if (shouldShowLimit && document.getElementById('limit_value')) {
+                    document.getElementById('limit_value').innerText = (isCameraAlertActive ? lastCameraLimit : window._currentLimit) || "--";
+                }
+
+                if (centralGroup) {
+                    if (shouldShowLimit) {
+                        centralGroup.classList.remove('-translate-y-32');
+                    } else {
+                        centralGroup.classList.add('-translate-y-32');
                     }
-                });
+                }
 
-                // 處理速限燈效
+                // 速度紅圈連動
                 const speed = parseInt(document.getElementById('speed').innerText);
-                const limitText = document.getElementById('limit_value').innerText;
-                const limit = parseInt(limitText);
+                const limit = parseInt(document.getElementById('limit_value').innerText);
                 const speedEl = document.getElementById('speed');
-
+                const speedEl2 = document.getElementById('speed_v2');
                 if (window._ocrEnabled !== false && !isNaN(limit) && limit > 0 && speed > limit + 10) {
                     speedEl.classList.add('speed-red-glow');
+                    speedEl2.classList.add('speed-red-glow');
                 } else {
                     speedEl.classList.remove('speed-red-glow');
+                    speedEl2.classList.remove('speed-red-glow');
                 }
             }
+
+            // 初始動畫觸發 (或是接到外部電源喚醒時)
+            // 監聽來自 Flutter 的喚醒或啟動指令
+            window.addEventListener('message', function (event) {
+                if (typeof event.data === 'string') {
+                    try {
+                        const parsed = JSON.parse(event.data);
+                        if (parsed.type === 'WAKEUP') {
+                            if (currentView === 2) startDialAnimation();
+                        } else {
+                            updateDashboard(parsed);
+                        }
+                    } catch (e) { }
+                }
+            });
+
+            // 初始化與自動更新
+            function updateClock() {
+                const now = new Date();
+                const h = String(now.getHours()).padStart(2, '0');
+                const m = String(now.getMinutes()).padStart(2, '0');
+                const timeStr = `${h}:${m}`;
+                document.getElementById('time').innerText = timeStr;
+                document.getElementById('time_v2').innerText = timeStr;
+            }
+            setInterval(updateClock, 1000);
+            updateClock();
 
             function resizeApp() {
                 const container = document.getElementById('app-container');
@@ -598,19 +838,7 @@
             }
             window.addEventListener('resize', resizeApp);
             window.addEventListener('orientationchange', resizeApp);
-            window.addEventListener('load', resizeApp);
-
-            // 監聽來自 simulator 模擬器的跨來源呼叫
-            window.addEventListener('message', function (event) {
-                // 如果是字串嘗試轉換後丟給 updateDashboard
-                if (typeof event.data === 'string') {
-                    try {
-                        const parsed = JSON.parse(event.data);
-                        updateDashboard(parsed);
-                    } catch (e) { }
-                }
-            });
-
+            window.addEventListener('load', () => { resizeApp(); if (currentView === 2) startDialAnimation(); });
         </script>
     </div>
 </body>

@@ -87,6 +87,7 @@ class ObdSppService {
   double? hevSoc; // 保留一位小數
   double? odometer;
   int? fuelLevel;
+  double? turbo; // 渦輪壓力 (Bar)
   int serviceDistanceRemaining = 0;
   int serviceDaysRemaining = 0;
 
@@ -104,6 +105,7 @@ class ObdSppService {
   bool hasHevSoc = false;
   bool hasOdometer = false;
   bool hasFuel = false;
+  bool hasTurbo = false;
   bool hasServiceDistanceRemaining = false;
   bool hasServiceDaysRemaining = false;
   bool hasTpms = false;
@@ -515,6 +517,7 @@ class ObdSppService {
     hevSoc = null;
     odometer = null;
     fuelLevel = null;
+    turbo = null;
     tpmsFl = null;
     tpmsFr = null;
     tpmsRl = null;
@@ -529,6 +532,7 @@ class ObdSppService {
     hasHevSoc = false;
     hasOdometer = false;
     hasFuel = false;
+    hasTurbo = false;
     hasServiceDistanceRemaining = false;
     hasServiceDaysRemaining = false;
     hasTpms = false;
@@ -651,6 +655,17 @@ class ObdSppService {
               hasHevSoc = true;
               _log('[Parser Result] HEV SOC=$hevSoc% (hex=$hex)');
             }
+          } else if (pid == '0B') {
+            if (sanitized.length >= payloadStart + 2) {
+              final String hex =
+                  sanitized.substring(payloadStart, payloadStart + 2);
+              final int mapKpa = int.parse(hex, radix: 16);
+              // 渦輪壓力 = MAP - 101.3 kPa. 換算為 Bar: / 100.0
+              final double val = (mapKpa - 101.3) / 100.0;
+              turbo = double.parse(val.toStringAsFixed(2));
+              hasTurbo = true;
+              _log('[Parser Result] Turbo=$turbo Bar (hex=$hex)');
+            }
           }
           return;
         }
@@ -768,6 +783,7 @@ class ObdSppService {
       if (!_isConnected) return;
       sendCommand('010C');
       sendCommand('010D');
+      sendCommand('010B'); // Turbo (MAP)
     });
 
     // HEV SOC 每 5 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header

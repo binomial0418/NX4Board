@@ -132,8 +132,8 @@
         <h2 class="text-xl font-bold mb-4 border-b border-slate-600 pb-2 text-center text-blue-400">儀表板模擬器</h2>
 
         <div class="form-group">
-            <label>車速 (KM/H) <span class="val-display" id="val_speed">120</span></label>
-            <input type="range" id="speed" min="0" max="240" value="120" oninput="syncVal('speed')">
+            <label>車速 (KM/H) <span class="val-display" id="val_speed">0</span></label>
+            <input type="range" id="speed" min="0" max="180" value="0" oninput="syncVal('speed')">
         </div>
 
         <div class="form-group">
@@ -157,7 +157,7 @@
             <label>大電池電量 (EV %) <span class="val-display" id="val_battery">60.5</span></label>
             <input type="range" id="battery" min="0" max="100" step="0.1" value="60.5" oninput="syncVal('battery')">
         </div>
-        
+
         <div class="form-group border-t border-slate-700 pt-3 mt-3">
             <label>油箱油量 (%) <span class="val-display" id="val_fuel">80</span></label>
             <input type="range" id="fuel" min="0" max="100" value="80" oninput="syncVal('fuel')">
