@@ -291,6 +291,34 @@
         .hidden-ui {
             display: none !important;
         }
+
+        /* --- 動畫過場樣式 --- */
+        .ui-fade-container {
+            position: absolute;
+            top: 48px; /* 補償 #app-container 的 p-12 */
+            left: 48px;
+            width: calc(100% - 96px);
+            height: calc(100% - 96px);
+            transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: opacity, transform;
+            display: flex; /* 確保內部 flex 佈局生效 */
+        }
+
+        .ui-active {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: auto;
+            visibility: visible;
+            z-index: 30;
+        }
+
+        .ui-inactive {
+            opacity: 0;
+            transform: scale(0.96);
+            pointer-events: none;
+            visibility: hidden;
+            z-index: 20;
+        }
     </style>
 </head>
 
@@ -307,7 +335,7 @@
         </div>
 
         <!-- UI Version 1 (Original) -->
-        <div id="ui-v1" class="flex h-full w-full relative z-20">
+        <div id="ui-v1" class="ui-fade-container ui-active">
             <div class="w-[38%] flex flex-col justify-between py-6 pr-16 gap-6">
                 <div class="flex-1 flex gap-6 h-[28%]">
                     <div id="card-rpm"
@@ -428,7 +456,7 @@
         </div>
 
         <!-- UI Version 2 (New) -->
-        <div id="ui-v2" class="flex h-full w-full relative z-20 hidden-ui">
+        <div id="ui-v2" class="ui-fade-container ui-inactive">
             <!-- P1: 25% (Turbo, Battery, Temp) -->
             <div class="w-[25%] flex flex-col justify-between py-4 pr-16 gap-2">
                 <div id="card-battery-v2"
@@ -588,14 +616,21 @@
             function toggleUI() {
                 const v1 = document.getElementById('ui-v1');
                 const v2 = document.getElementById('ui-v2');
+                
                 if (currentView === 1) {
-                    v1.classList.add('hidden-ui');
-                    v2.classList.remove('hidden-ui');
+                    // 切換至 UI 2
+                    v1.classList.replace('ui-active', 'ui-inactive');
+                    v2.classList.replace('ui-inactive', 'ui-active');
                     currentView = 2;
-                    startDialAnimation();
+                    
+                    // 稍微延遲撥桿動畫，增加視覺層次感
+                    setTimeout(() => {
+                        startDialAnimation();
+                    }, 200);
                 } else {
-                    v2.classList.add('hidden-ui');
-                    v1.classList.remove('hidden-ui');
+                    // 切換至 UI 1
+                    v2.classList.replace('ui-active', 'ui-inactive');
+                    v1.classList.replace('ui-inactive', 'ui-active');
                     currentView = 1;
                 }
             }
