@@ -554,13 +554,16 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       // --- 速度來源處理 (OBD 優先，GPS 備援) ---
       double displaySpeed = 0.0;
-      if (provider.obdSpeed != null && provider.obdSpeed! > 0) {
+      if (provider.obdSpeed != null) {
+        // 只要 OBD 有連線且有速值（含 0），應優先以 OBD 為準
         displaySpeed = provider.obdSpeed!.toDouble();
       } else if (provider.currentPosition != null) {
         // Geolocator 回傳的速度為 m/s，轉換為 km/h
-        displaySpeed = provider.currentPosition!.speed * 3.6;
+        final gpsSpeed = provider.currentPosition!.speed * 3.6;
+        // 增加 GPS 雜訊閾值：低於 1.5 km/h 視為靜止，避免飄移顯示為 1
+        displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
       }
-      jsonMap["speed"] = displaySpeed.ceil();
+      jsonMap["speed"] = displaySpeed.round();
       jsonMap["rpm"] = provider.obdRpm;
       jsonMap["temperature"] = provider.obdCoolant;
       jsonMap["fl_pressure"] = provider.tpmsFl;
