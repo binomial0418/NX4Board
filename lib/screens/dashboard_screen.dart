@@ -249,6 +249,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (mounted) {
           final appProvider = context.read<AppProvider>();
           appProvider.updatePosition(position);
+          ObdSppService().onGpsAltitudeChanged(position.altitude);
         }
       },
       onError: (e) => print('Location stream error: $e'),

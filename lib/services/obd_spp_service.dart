@@ -88,6 +88,9 @@ class ObdSppService {
   double? odometer;
   int? fuelLevel;
   double? turbo; // 渦輪壓力 (Bar)
+  double currentBaroKpa = 101.0;
+  double turboBoostBar = 0.0;
+  double? referenceGpsAltitude;
   int serviceDistanceRemaining = 0;
   int serviceDaysRemaining = 0;
 
@@ -249,6 +252,27 @@ class ObdSppService {
     await sendCommand('ATSH7C6');
     await sendCommand('22B002');
     await sendCommand('ATSH7DF');
+  }
+
+  void _enqueueBarometricPressureQuery() {
+    if (!_isConnected) return;
+    sendCommand('0133');
+  }
+
+  void onGpsAltitudeChanged(double newAltitude) {
+    if (referenceGpsAltitude == null) {
+      referenceGpsAltitude = newAltitude;
+      _log('[GPS] 初始化基準高度：$newAltitude m，請求大氣壓');
+      _enqueueBarometricPressureQuery();
+      return;
+    }
+
+    final double delta = (newAltitude - referenceGpsAltitude!).abs();
+    if (delta > 50.0) {
+      referenceGpsAltitude = newAltitude;
+      _log('[GPS] 高度變化 $delta m > 50 m，更新大氣壓');
+      _enqueueBarometricPressureQuery();
+    }
   }
 
   Future<List<Map<String, String>>> getBondedDevices() async {
@@ -660,11 +684,18 @@ class ObdSppService {
               final String hex =
                   sanitized.substring(payloadStart, payloadStart + 2);
               final int mapKpa = int.parse(hex, radix: 16);
-              // 渦輪壓力 = MAP - 101.3 kPa. 換算為 Bar: / 100.0
-              final double val = (mapKpa - 101.3) / 100.0;
-              turbo = double.parse(val.toStringAsFixed(2));
+              turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
+              turbo = double.parse(turboBoostBar.toStringAsFixed(2));
               hasTurbo = true;
-              _log('[Parser Result] Turbo=$turbo Bar (hex=$hex)');
+              _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa, base=$currentBaroKpa)');
+            }
+          } else if (pid == '33') {
+            if (sanitized.length >= payloadStart + 2) {
+              final String hex =
+                  sanitized.substring(payloadStart, payloadStart + 2);
+              final int baro = int.parse(hex, radix: 16);
+              currentBaroKpa = baro.toDouble();
+              _log('[Parser Result] Baro=$currentBaroKpa kPa (hex=$hex)');
             }
           }
           return;
