@@ -14,7 +14,7 @@ enum ObdConnectionState {
   connected
 }
 
-class ObdSppService {
+class ObdSppService with ChangeNotifier {
   static final ObdSppService _instance = ObdSppService._internal();
   factory ObdSppService() => _instance;
   ObdSppService._internal();
@@ -330,11 +330,14 @@ class ObdSppService {
     }
   }
 
+  @override
   void dispose() {
     _batterySubscription?.cancel();
     _batterySubscription = null;
     handleDisconnect('dispose');
     _logController.close();
+    _maintenanceLogController.close();
+    super.dispose();
   }
 
   // =========================================================================
@@ -623,6 +626,7 @@ class ObdSppService {
 
   void _parseObdResponse(String sanitized, String lastCmd) {
     if (sanitized.isEmpty) return;
+
     if (_isAtResponse(sanitized)) {
       if (lastCmd == '0105') {
         _log('[Parser 0105] AT response (NODATA?): $sanitized');
@@ -631,77 +635,89 @@ class ObdSppService {
     }
 
     try {
-      // ── 2. 特徵碼定位提取 (Signature Indexing) ───────────────────────────
+      // ── 1. 01 系列：改為非同步「特徵掃描 (Signature Scanning)」 ──────
       if (lastCmd.startsWith('01')) {
-        final String pid = lastCmd.substring(2);
-        final String signature = '41$pid';
-        final int index = sanitized.indexOf(signature);
-
-        if (index != -1) {
-          final int payloadStart = index + signature.length;
-
-          if (pid == '0C') {
-            if (sanitized.length >= payloadStart + 4) {
-              final String hex =
-                  sanitized.substring(payloadStart, payloadStart + 4);
-              final int a = int.parse(hex.substring(0, 2), radix: 16);
-              final int b = int.parse(hex.substring(2, 4), radix: 16);
-              rpm = ((a * 256) + b) ~/ 4;
-              hasRpm = true;
-              _log('[Parser Result] RPM=$rpm');
-            }
-          } else if (pid == '0D') {
-            if (sanitized.length >= payloadStart + 2) {
-              final String hex =
-                  sanitized.substring(payloadStart, payloadStart + 2);
-              speed = int.parse(hex, radix: 16);
-              hasSpeed = true;
-              _log('[Parser Result] Speed=$speed');
-            }
-          } else if (pid == '67') {
-            if (sanitized.length >= payloadStart + 6) {
-              final String hexA =
-                  sanitized.substring(payloadStart + 2, payloadStart + 4);
-              final String hexB =
-                  sanitized.substring(payloadStart + 4, payloadStart + 6);
-              coolantTemp = int.parse(hexA, radix: 16) - 40;
-              hasCoolant = true;
-              final int coolantB = int.parse(hexB, radix: 16) - 40;
-              _log(
-                  '[Parser Result] CoolantA=$coolantTemp °C CoolantB=$coolantB °C');
-            }
-          } else if (pid == '5B') {
-            if (sanitized.length >= payloadStart + 2) {
-              final String hex =
-                  sanitized.substring(payloadStart, payloadStart + 2);
-              final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
-              hevSoc = double.parse(rawSoc.toStringAsFixed(1));
-              hasHevSoc = true;
-              _log('[Parser Result] HEV SOC=$hevSoc% (hex=$hex)');
-            }
-          } else if (pid == '0B') {
-            if (sanitized.length >= payloadStart + 2) {
-              final String hex =
-                  sanitized.substring(payloadStart, payloadStart + 2);
-              final int mapKpa = int.parse(hex, radix: 16);
-              turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
-              turbo = double.parse(turboBoostBar.toStringAsFixed(2));
-              hasTurbo = true;
-              _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa, base=$currentBaroKpa)');
-            }
-          } else if (pid == '33') {
-            if (sanitized.length >= payloadStart + 2) {
-              final String hex =
-                  sanitized.substring(payloadStart, payloadStart + 2);
-              final int baro = int.parse(hex, radix: 16);
-              currentBaroKpa = baro.toDouble();
-              _log('[Parser Result] Baro=$currentBaroKpa kPa (hex=$hex)');
-            }
+        // --- 掃描 410B (MAP) ---
+        if (sanitized.contains('410B')) {
+          final int idx = sanitized.indexOf('410B');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 2) {
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final int mapKpa = int.parse(hex, radix: 16);
+            turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
+            turbo = double.parse(turboBoostBar.toStringAsFixed(2));
+            hasTurbo = true;
+            _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
           }
-          return;
         }
+
+        // --- 掃描 410C (RPM) ---
+        if (sanitized.contains('410C')) {
+          final int idx = sanitized.indexOf('410C');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 4) {
+            final String hex = sanitized.substring(payloadStart, payloadStart + 4);
+            final int a = int.parse(hex.substring(0, 2), radix: 16);
+            final int b = int.parse(hex.substring(2, 4), radix: 16);
+            rpm = ((a * 256) + b) ~/ 4;
+            hasRpm = true;
+            _log('[Parser Result] RPM=$rpm');
+          }
+        }
+
+        // --- 掃描 410D (Speed) ---
+        if (sanitized.contains('410D')) {
+          final int idx = sanitized.indexOf('410D');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 2) {
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            speed = int.parse(hex, radix: 16);
+            hasSpeed = true;
+            _log('[Parser Result] Speed=$speed');
+          }
+        }
+
+        // --- 掃描 415B (HEV SOC) ---
+        if (sanitized.contains('415B')) {
+          final int idx = sanitized.indexOf('415B');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 2) {
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
+            hevSoc = double.parse(rawSoc.toStringAsFixed(1));
+            hasHevSoc = true;
+            _log('[Parser Result] HEV SOC=$hevSoc%');
+          }
+        }
+
+        // --- 掃描 4167 (Coolant) ---
+        if (sanitized.contains('4167')) {
+          final int idx = sanitized.indexOf('4167');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 6) {
+            final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
+            coolantTemp = int.parse(hexA, radix: 16) - 40;
+            hasCoolant = true;
+            _log('[Parser Result] Coolant=$coolantTemp °C');
+          }
+        }
+
+        // --- 掃描 4133 (Baro) ---
+        if (sanitized.contains('4133')) {
+          final int idx = sanitized.indexOf('4133');
+          final int payloadStart = idx + 4;
+          if (sanitized.length >= payloadStart + 2) {
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            currentBaroKpa = int.parse(hex, radix: 16).toDouble();
+            _log('[Parser Result] Baro=$currentBaroKpa kPa');
+          }
+        }
+        
+        notifyListeners(); // 01 系列解析完成，通知 UI
+        return;
       }
 
+      // ── 2. 22 系列：保留原邏輯但與 01 系列隔離 ────────────────────────
       if (lastCmd.startsWith('22')) {
         final String pid = lastCmd.substring(2);
         final String signature = '62$pid';
@@ -709,21 +725,19 @@ class ObdSppService {
 
         if (index != -1) {
           final int payloadStart = index + signature.length;
-          final String data = sanitized.substring(payloadStart); // Extract data once
+          final String data = sanitized.substring(payloadStart);
 
           if (pid == 'C00B') {
-            if (data.length >= 42) { // Check length of 'data'
+            if (data.length >= 42) {
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
               tpmsRl = int.parse(data.substring(28, 30), radix: 16) / 5.0;
               tpmsRr = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               hasTpms = true;
-              _log(
-                  '[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
+              _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
             }
           } else if (pid == 'B002') {
-            if (sanitized.length >= payloadStart + 18) {
-              final String data = sanitized.substring(payloadStart);
+            if (data.length >= 18) {
               final int g = int.parse(data.substring(12, 14), radix: 16);
               final int h = int.parse(data.substring(14, 16), radix: 16);
               final int i = int.parse(data.substring(16, 18), radix: 16);
@@ -738,35 +752,23 @@ class ObdSppService {
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
               hasVoltage = true;
               
-              // ── 新增：保養資訊解析 (Byte G,H,I,J) ──
               if (data.length >= 26) {
                 final int byteG = int.parse(data.substring(18, 20), radix: 16);
                 final int byteH = int.parse(data.substring(20, 22), radix: 16);
                 final int byteI = int.parse(data.substring(22, 24), radix: 16);
                 final int byteJ = int.parse(data.substring(24, 26), radix: 16);
-                
                 serviceDistanceRemaining = (byteG * 256) + byteH;
                 serviceDaysRemaining = (byteI * 256) + byteJ;
                 hasServiceDistanceRemaining = true;
                 hasServiceDaysRemaining = true;
                 
-                _logMaintenance('Raw: $data');
-                _logMaintenance('Parsed: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days (G=$byteG, H=$byteH, I=$byteI, J=$byteJ)');
+                _logMaintenance('Raw Data: $data');
+                _logMaintenance('Maintenance Info: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days');
               }
-
-              _log(
-                  '[Parser Result] Odo=$odometer Fuel=$fuelLevel Volt=$voltage Dist=$serviceDistanceRemaining Days=$serviceDaysRemaining');
-            }
-          } else if (pid == '0105') {
-            // Display SOC = Byte E / 2
-            if (sanitized.length >= payloadStart + 10) {
-              final String data = sanitized.substring(payloadStart);
-              final int byteE = int.parse(data.substring(8, 10), radix: 16);
-              hevSoc = double.parse((byteE / 2.0).toStringAsFixed(1));
-              hasHevSoc = true;
-              _log('[Parser Result] Display SOC=$hevSoc%');
+              _log('[Parser Result] Heavy Data Parsed');
             }
           }
+          notifyListeners(); // 22 系列解析完成，通知 UI
           return;
         }
       }
@@ -810,11 +812,10 @@ class ObdSppService {
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
 
-    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (!_isConnected) return;
-      sendCommand('010C');
-      sendCommand('010D');
-      sendCommand('010B'); // Turbo (MAP)
+      // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
+      sendCommand('010B0C0D');
     });
 
     // HEV SOC 每 5 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
