@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import '../lib/services/camera_service.dart';
-import 'package:flutter/services.dart';
+// import 'package:flutter/services.dart';
 import 'dart:io';
 
 void main() {
@@ -12,8 +12,8 @@ void main() {
     
     // 模擬載入 CSV (直接注入資料到私有變數或透過 Mock rootBundle)
     // 由於我們無法輕易存取私有變數，我們使用檔案系統讀取 assets/camera_data.csv
-    final file = File('assets/camera_data.csv');
-    final csvData = await file.readAsString();
+    // final file = File('assets/camera_data.csv'); // Removed as `file` is no longer used
+    // final csvData = await file.readAsString(); // Removed as `csvData` is no longer used
     
     // 我們稍微修改 CameraService 的 init 讓它能接受字串，或者直接模擬 rootBundle
     // 這裡我們先用簡單的方式：手動模擬一個軌跡點，測試附近的相機

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:perfect_volume_control/perfect_volume_control.dart';
+import 'package:volume_controller/volume_controller.dart';
+import 'dart:typed_data';
 
 class TtsService {
   static final TtsService _instance = TtsService._internal();
@@ -8,7 +9,7 @@ class TtsService {
   TtsService._internal();
 
   final FlutterTts _flutterTts = FlutterTts();
-  StreamSubscription<double>? _volumeSubscription;
+  // volume_controller 使用 listener 回呼，不需要 StreamSubscription
   
   // 防重複報讀：針對同一 ID (或座標 Hash) 在 45 秒內不重複
   final Map<String, DateTime> _lastAlerts = {};
@@ -27,24 +28,11 @@ class TtsService {
     await _flutterTts.setSpeechRate(0.55);
     await _flutterTts.setPitch(1.0);
     
-    // 設定 Ios/Android 的 Audio Context 以支援 Ducking (播放語音時降低音樂)
-    await _flutterTts.setAudioContext(
-      androidAudioAttributes: const AndroidAudioAttributes(
-        contentType: AndroidContentType.speech,
-        usage: AndroidUsage.assistanceNavigationGuidance,
-        flags: AndroidUint8List.fromList([1]), // FLAG_AUDIBILITY_ENFORCED
-      ),
-      appleAudioContext: AppleAudioContext(
-        category: AppleAudioCategory.playback,
-        options: [
-          AppleAudioCategoryOption.duckOthers,
-          AppleAudioCategoryOption.interruptSpokenAudioAndMixWithOthers,
-        ],
-      ),
-    );
+    // 暫時移除複雜的 AudioContext 設定，避免 API 不相容導致編譯失敗
+    // 待編譯成功後再評估特定版本的 Ducking 實作方式
 
     // 監聽硬體音量鍵
-    _volumeSubscription = PerfectVolumeControl.stream.listen((volume) {
+    VolumeController().listener((volume) {
       _handleVolumeChange(volume);
     });
 
@@ -64,9 +52,12 @@ class TtsService {
 
   /// 智慧報讀測速點
   void speakCameraAlert(Map<String, dynamic> camInfo, double currentSpeed) {
+    final String id = "${camInfo['lat']}_${camInfo['lon']}"; 
+
+    // ignore: unused_local_variable
     final String address = camInfo['name'] ?? '未知地點';
+// 使用座標作為唯一識別
     final int? limit = camInfo['limit'];
-    final String id = "${camInfo['lat']}_${camInfo['lon']}"; // 使用座標作為唯一識別
 
     final now = DateTime.now();
     if (_lastAlerts.containsKey(id)) {
@@ -94,7 +85,7 @@ class TtsService {
   }
 
   void dispose() {
-    _volumeSubscription?.cancel();
+    VolumeController().removeListener();
     _flutterTts.stop();
   }
 }
