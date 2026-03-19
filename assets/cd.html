@@ -915,8 +915,21 @@
                     const val = data.fuel !== undefined ? data.fuel : data.fuelLevel;
                     const fuelVal = (val === null || val === undefined) ? null : Math.round(val);
                     const display = (fuelVal === null) ? "--" : fuelVal;
-                    document.getElementById('fuel').innerText = display;
-                    document.getElementById('fuel_v2').innerText = display;
+                    
+                    const f1 = document.getElementById('fuel');
+                    const f2 = document.getElementById('fuel_v2');
+                    
+                    if (f1) {
+                        f1.innerText = display;
+                        if (fuelVal !== null && fuelVal < 20) f1.classList.add('alert-pulse');
+                        else f1.classList.remove('alert-pulse');
+                    }
+                    if (f2) {
+                        f2.innerText = display;
+                        if (fuelVal !== null && fuelVal < 20) f2.classList.add('alert-pulse');
+                        else f2.classList.remove('alert-pulse');
+                    }
+                    
                     markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
                 }
 
