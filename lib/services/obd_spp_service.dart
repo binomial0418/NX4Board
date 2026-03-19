@@ -330,11 +330,14 @@ class ObdSppService with ChangeNotifier {
     }
   }
 
+  @override
   void dispose() {
     _batterySubscription?.cancel();
     _batterySubscription = null;
     handleDisconnect('dispose');
     _logController.close();
+    _maintenanceLogController.close();
+    super.dispose();
   }
 
   // =========================================================================
@@ -758,6 +761,9 @@ class ObdSppService with ChangeNotifier {
                 serviceDaysRemaining = (byteI * 256) + byteJ;
                 hasServiceDistanceRemaining = true;
                 hasServiceDaysRemaining = true;
+                
+                _logMaintenance('Raw Data: $data');
+                _logMaintenance('Maintenance Info: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days');
               }
               _log('[Parser Result] Heavy Data Parsed');
             }
