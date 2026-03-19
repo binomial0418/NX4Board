@@ -30,7 +30,8 @@
             font-family: 'Outfit', sans-serif;
             font-weight: 800;
             letter-spacing: 0.04em;
-            transform: translateZ(0); /* 硬體加速，減少更新時的閃爍 */
+            transform: translateZ(0);
+            /* 硬體加速，減少更新時的閃爍 */
         }
 
         .data-card {
@@ -39,7 +40,8 @@
             border-left-color: var(--stripe-color, transparent);
             background: linear-gradient(90deg, rgba(31, 41, 55, 0.6) 0%, rgba(31, 41, 55, 0) 100%);
             transition: border-color 0.35s ease, box-shadow 0.35s ease;
-            transform: translateZ(0); /* 數據包裝容器硬體加速 */
+            transform: translateZ(0);
+            /* 數據包裝容器硬體加速 */
         }
 
         .data-card::before {
@@ -297,7 +299,7 @@
         /* --- 動畫過場樣式 --- */
         .ui-fade-container {
             position: absolute;
-            top: 48px; 
+            top: 48px;
             left: 48px;
             width: calc(100% - 96px);
             height: calc(100% - 96px);
@@ -308,7 +310,8 @@
 
         .ui-active {
             opacity: 1;
-            transform: none; /* 靜態時不使用 transform */
+            transform: none;
+            /* 靜態時不使用 transform */
             pointer-events: auto;
             visibility: visible;
             z-index: 30;
@@ -316,7 +319,8 @@
 
         .ui-inactive {
             opacity: 0;
-            transform: scale(0.96); /* 僅在靜止隱藏或動畫時使用 scale */
+            transform: scale(0.96);
+            /* 僅在靜止隱藏或動畫時使用 scale */
             pointer-events: none;
             visibility: hidden;
             z-index: 20;
@@ -486,8 +490,8 @@
                         <span id="time_v2"
                             class="text-[10rem] font-bold text-gray-300 tracking-wider leading-[0.85] inline-block val-rounded">11:07</span>
                         <div id="camera_alert_v2" class="hidden flex flex-col items-center">
-                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">Speed Camera</span>
-                            <span id="camera_limit_v2" class="text-[8rem] font-black text-white val-rounded">--</span>
+                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">速限</span>
+                            <span id="camera_limit_v2" class="text-[5rem] font-black text-white val-rounded">--</span>
                         </div>
                     </div>
                 </div>
@@ -618,13 +622,13 @@
             function toggleUI() {
                 const v1 = document.getElementById('ui-v1');
                 const v2 = document.getElementById('ui-v2');
-                
+
                 if (currentView === 1) {
                     // 切換至 UI 2
                     v1.classList.replace('ui-active', 'ui-inactive');
                     v2.classList.replace('ui-inactive', 'ui-active');
                     currentView = 2;
-                    
+
                     // 稍微延遲撥桿動畫，增加視覺層次感
                     setTimeout(() => {
                         startDialAnimation();
@@ -717,6 +721,7 @@
                 odo: '',
                 turbo: ''
             };
+            let lastRpm = 0;
 
             function triggerCardHighlight(cardId) {
                 const card = document.getElementById(cardId);
@@ -769,6 +774,8 @@
                     const rpmEl2 = document.getElementById('rpm_v2');
                     const rpmUnit = document.getElementById('rpm_unit');
                     const rpmUnit2 = document.getElementById('rpm_unit_v2');
+
+                    lastRpm = (data.rpm === null) ? 0 : Math.round(parseFloat(data.rpm));
 
                     if (data.rpm === null) {
                         [rpmEl, rpmEl2].forEach(el => {
@@ -829,7 +836,16 @@
                 }
 
                 if (data.turbo !== undefined) {
-                    const turboVal = (data.turbo === null) ? 0 : parseFloat(data.turbo);
+                    const rawTurbo = (data.turbo === null) ? 0 : parseFloat(data.turbo);
+                    let turboVal = rawTurbo;
+                    const absTurbo = Math.abs(rawTurbo);
+
+                    // 實作顯示死區 (Display Deadzone)
+                    if (lastRpm === 0 && absTurbo < 0.05) {
+                        turboVal = 0;
+                    } else if (absTurbo < 0.02) {
+                        turboVal = 0;
+                    }
 
                     // Center Bar Logic: -1 to +2 (total 3), 0 is at 33.33%
                     const cBar = document.getElementById('turbo_bar_center_active');
