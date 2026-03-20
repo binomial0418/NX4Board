@@ -340,11 +340,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (_isCharging == true) {
         _sendObdDataViaWsOnce();
         _startObdToWebviewSync(); // 強制刷一次 UI
-        
+
         // 傳送 WAKEUP 指令觸發圓盤動畫
         _webViewController?.evaluateJavascript(
-          source: "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');"
-        );
+            source:
+                "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');");
       }
     });
   }
@@ -551,7 +551,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   void _startObdToWebviewSync() {
     _obdSyncTimer?.cancel();
-    _obdSyncTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+    _obdSyncTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
       final provider = context.read<AppProvider>();
 
@@ -579,7 +579,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       jsonMap["battery"] = provider.obdHevSoc;
       jsonMap["odometer"] = provider.obdOdometer;
       jsonMap["odo"] = provider.obdOdometer;
-       jsonMap["fuelLevel"] = provider.obdFuel;
+      jsonMap["fuelLevel"] = provider.obdFuel;
       jsonMap["turbo"] = provider.obdTurbo;
       jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
       jsonMap["serviceDays"] = provider.serviceDaysRemaining;
@@ -635,7 +635,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       uploadData["odo"] = provider.obdOdometer;
     if (obd.hasFuel && provider.obdFuel != null)
       uploadData["fuel"] = provider.obdFuel;
-    
+
     // 新增：保養維護資訊
     if (obd.hasServiceDistanceRemaining)
       uploadData["serviceDistance"] = provider.serviceDistanceRemaining;

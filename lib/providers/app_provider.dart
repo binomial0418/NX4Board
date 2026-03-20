@@ -6,6 +6,7 @@ import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
 import '../services/camera_service.dart';
 import '../services/settings_service.dart';
+import '../services/tts_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -67,6 +68,9 @@ class AppProvider extends ChangeNotifier {
       // Initialize BLE Service
       await _obdService.init();
 
+      // Initialize TTS Service
+      await TtsService().init();
+
       // Poll OBD state to update UI globally
       _obdStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
         final wifiOk = await WifiService.isConnected();
@@ -87,6 +91,7 @@ class AppProvider extends ChangeNotifier {
   @override
   void dispose() {
     _obdStatusTimer?.cancel();
+    TtsService().dispose();
     super.dispose();
   }
 
@@ -131,6 +136,9 @@ class AppProvider extends ChangeNotifier {
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
       }
+      
+      // 觸發 TTS 語音報讀
+      TtsService().speakCameraAlert(camInfo, position.speed * 3.6);
     } else {
       _nearestCameraInfo = null;
     }
