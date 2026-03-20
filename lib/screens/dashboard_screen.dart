@@ -54,7 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
   bool _isWsConnecting = false; // 防止重複連線
-  Timer? _obdSyncTimer;
+  DateTime? _lastUiUpdateTime;
   Timer? _wsUploadTimer;
 
   // --- 電源管理 ---
@@ -78,6 +78,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _initializeWidgets();
+    // 註冊 OBD 數據更新監聽器 (事件驅動)
+    ObdSppService().addListener(_handleUiUpdate);
   }
 
   Future<void> _initializeWidgets() async {
@@ -331,15 +333,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!_isWsConnected) {
       _connectWebSocket();
     }
-
-    _startObdToWebviewSync();
     _startWsUploadSync();
 
     // 喚醒後短暫延遲傳送一次資料
     Future.delayed(const Duration(seconds: 2), () {
       if (_isCharging == true) {
         _sendObdDataViaWsOnce();
-        _startObdToWebviewSync(); // 強制刷一次 UI
+        _handleUiUpdate(); // 強制刷一次 UI
 
         // 傳送 WAKEUP 指令觸發圓盤動畫
         _webViewController?.evaluateJavascript(
@@ -376,7 +376,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _channel?.sink.close();
     if (mounted) setState(() => _isWsConnected = false);
 
-    _obdSyncTimer?.cancel();
     _wsUploadTimer?.cancel();
 
     // 暫停 GPS 定位以省電 (不再進行任何測速偵測)
@@ -549,56 +548,58 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // 同步 BLE 資料至 WebView
   // ──────────────────────────────────────────────
-  void _startObdToWebviewSync() {
-    _obdSyncTimer?.cancel();
-    _obdSyncTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (!mounted) return;
-      final provider = context.read<AppProvider>();
+  void _handleUiUpdate() {
+    if (!mounted) return;
 
-      final Map<String, dynamic> jsonMap = {};
-      jsonMap["enableOcr"] = SettingsService().enableOcr;
+    // ── 節流控管 (Throttle) ──
+    final now = DateTime.now();
+    if (_lastUiUpdateTime != null &&
+        now.difference(_lastUiUpdateTime!) < const Duration(milliseconds: 50)) {
+      return;
+    }
+    _lastUiUpdateTime = now;
 
-      // --- 速度來源處理 (OBD 優先，GPS 備援) ---
-      double displaySpeed = 0.0;
-      if (provider.obdSpeed != null) {
-        // 只要 OBD 有連線且有速值（含 0），應優先以 OBD 為準
-        displaySpeed = provider.obdSpeed!.toDouble();
-      } else if (provider.currentPosition != null) {
-        // Geolocator 回傳的速度為 m/s，轉換為 km/h
-        final gpsSpeed = provider.currentPosition!.speed * 3.6;
-        // 增加 GPS 雜訊閾值：低於 1.5 km/h 視為靜止，避免飄移顯示為 1
-        displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
-      }
-      jsonMap["speed"] = displaySpeed.round();
-      jsonMap["rpm"] = provider.obdRpm;
-      jsonMap["temperature"] = provider.obdCoolant;
-      jsonMap["fl_pressure"] = provider.tpmsFl;
-      jsonMap["fr_pressure"] = provider.tpmsFr;
-      jsonMap["rl_pressure"] = provider.tpmsRl;
-      jsonMap["rr_pressure"] = provider.tpmsRr;
-      jsonMap["battery"] = provider.obdHevSoc;
-      jsonMap["odometer"] = provider.obdOdometer;
-      jsonMap["odo"] = provider.obdOdometer;
-      jsonMap["fuelLevel"] = provider.obdFuel;
-      jsonMap["turbo"] = provider.obdTurbo;
-      jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
-      jsonMap["serviceDays"] = provider.serviceDaysRemaining;
+    final provider = context.read<AppProvider>();
 
-      // 測速照相
-      if (provider.nearestCameraInfo != null) {
-        jsonMap["cameraInfo"] = provider.nearestCameraInfo;
-      }
+    final Map<String, dynamic> jsonMap = {};
+    jsonMap["enableOcr"] = SettingsService().enableOcr;
 
-      // 無論是否為空皆傳送，供 HTML 判斷顯隱
-      jsonMap["limit"] = provider.currentSpeedLimit;
+    // --- 速度來源處理 (OBD 優先，GPS 備援) ---
+    double displaySpeed = 0.0;
+    if (provider.obdSpeed != null) {
+      displaySpeed = provider.obdSpeed!.toDouble();
+    } else if (provider.currentPosition != null) {
+      final gpsSpeed = provider.currentPosition!.speed * 3.6;
+      displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
+    }
+    jsonMap["speed"] = displaySpeed.round();
+    jsonMap["rpm"] = provider.obdRpm;
+    jsonMap["temperature"] = provider.obdCoolant;
+    jsonMap["fl_pressure"] = provider.tpmsFl;
+    jsonMap["fr_pressure"] = provider.tpmsFr;
+    jsonMap["rl_pressure"] = provider.tpmsRl;
+    jsonMap["rr_pressure"] = provider.tpmsRr;
+    jsonMap["battery"] = provider.obdHevSoc;
+    jsonMap["odometer"] = provider.obdOdometer;
+    jsonMap["odo"] = provider.obdOdometer;
+    jsonMap["fuelLevel"] = provider.obdFuel;
+    jsonMap["turbo"] = provider.obdTurbo;
+    jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
+    jsonMap["serviceDays"] = provider.serviceDaysRemaining;
 
-      if (jsonMap.isNotEmpty) {
-        final jsonString = jsonEncode(jsonMap);
-        _webViewController?.evaluateJavascript(
-            source:
-                "if(window.updateDashboard) updateDashboard('$jsonString');");
-      }
-    });
+    // 測速照相
+    if (provider.nearestCameraInfo != null) {
+      jsonMap["cameraInfo"] = provider.nearestCameraInfo;
+    }
+
+    jsonMap["limit"] = provider.currentSpeedLimit;
+
+    if (jsonMap.isNotEmpty) {
+      final jsonString = jsonEncode(jsonMap);
+      _webViewController?.evaluateJavascript(
+          source:
+              "if(window.updateDashboard) updateDashboard('$jsonString');");
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -674,8 +675,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     _batterySubscription?.cancel();
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
-    _obdSyncTimer?.cancel();
     _wsUploadTimer?.cancel();
+    // 移除 OBD 數據監聽器
+    ObdSppService().removeListener(_handleUiUpdate);
     _pulseController.dispose();
     _channel?.sink.close();
     // OBD 斷線（釋放藍牙連線與停止輪詢）
@@ -836,7 +838,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       }
 
                       // 設定變更後立即觸發一次 UI 同步
-                      _startObdToWebviewSync();
+                      _handleUiUpdate();
                     });
                   },
                 ),
