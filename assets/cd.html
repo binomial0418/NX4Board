@@ -390,7 +390,7 @@
                 <div class="flex-1 flex gap-6 h-[28%]">
                     <div id="card-battery"
                         class="data-card p-8 w-[75%] shrink-0 flex flex-col justify-center border-l-emerald-500">
-                        <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
+                        <p class="text-white text-[4rem] font-bold mb-2 tracking-widest ">Hev電池</p>
                         <div class="flex items-baseline -mt-6">
                             <span id="battery"
                                 class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
@@ -467,7 +467,7 @@
             <div class="w-[25%] flex flex-col justify-between py-4 pr-16 gap-2">
                 <div id="card-battery-v2"
                     class="data-card p-8 h-[31%] flex flex-col justify-center border-l-emerald-500">
-                    <p class="text-white text-[4rem] font-bold mb-2 tracking-widest uppercase">大電池</p>
+                    <p class="text-white text-[4rem] font-bold mb-2 tracking-widest ">Hev電池</p>
                     <div class="flex items-baseline -mt-6">
                         <span id="battery_v2"
                             class="text-[14rem] font-bold text-white leading-none tracking-tighter val-rounded">--</span>
@@ -915,10 +915,10 @@
                     const val = data.fuel !== undefined ? data.fuel : data.fuelLevel;
                     const fuelVal = (val === null || val === undefined) ? null : Math.round(val);
                     const display = (fuelVal === null) ? "--" : fuelVal;
-                    
+
                     const f1 = document.getElementById('fuel');
                     const f2 = document.getElementById('fuel_v2');
-                    
+
                     if (f1) {
                         f1.innerText = display;
                         if (fuelVal !== null && fuelVal < 20) f1.classList.add('alert-pulse');
@@ -929,7 +929,7 @@
                         if (fuelVal !== null && fuelVal < 20) f2.classList.add('alert-pulse');
                         else f2.classList.remove('alert-pulse');
                     }
-                    
+
                     markCardValueChange('fuel', fuelVal, 'card-odo-fuel');
                 }
 
