@@ -42,10 +42,10 @@ class AppProvider extends ChangeNotifier {
   double? get obdOdometer => _obdService.odometer;
   int? get obdFuel => _obdService.fuelLevel;
   double? get obdTurbo => _obdService.turbo;
-  double? get tpmsFl => _obdService.tpmsFl;
-  double? get tpmsFr => _obdService.tpmsFr;
-  double? get tpmsRl => _obdService.tpmsRl;
-  double? get tpmsRr => _obdService.tpmsRr;
+  int? get tpmsFl => _obdService.tpmsFl?.floor();
+  int? get tpmsFr => _obdService.tpmsFr?.floor();
+  int? get tpmsRl => _obdService.tpmsRl?.floor();
+  int? get tpmsRr => _obdService.tpmsRr?.floor();
   int get serviceDistanceRemaining => _obdService.serviceDistanceRemaining;
   int get serviceDaysRemaining => _obdService.serviceDaysRemaining;
   List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;

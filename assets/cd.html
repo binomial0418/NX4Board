@@ -949,7 +949,7 @@
                         if (data.tires && data.tires[s] !== undefined) { val = data.tires[s]; break; }
                     }
 
-                    const display = (val === undefined || val === null || val === 0) ? "--" : Math.round(val);
+                    const display = (val === undefined || val === null || val === 0) ? "--" : Math.floor(val);
                     const el1 = document.getElementById(id);
                     const el2 = document.getElementById(id + '_v2');
 
