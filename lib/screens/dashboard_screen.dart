@@ -556,6 +556,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _handleUiUpdate() {
     if (!mounted) return;
 
+    final obd = ObdSppService();
+    // 檢查是否有 WAKEUP 旗標，若有則發送動畫指令
+    if (obd.shouldTriggerWakeup) {
+      _webViewController?.evaluateJavascript(
+          source:
+              "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');");
+    }
+
     // ── 節流控管 (Throttle) ──
     final now = DateTime.now();
     if (_lastUiUpdateTime != null &&

@@ -101,6 +101,10 @@ class ObdSppService with ChangeNotifier {
   double? tpmsRl;
   double? tpmsRr;
 
+  // ── 啟動訊號：用於通知 UI 觸發掃跡動畫 ───────────────────────────────────
+  bool _shouldTriggerWakeup = false;
+  bool get shouldTriggerWakeup => _shouldTriggerWakeup;
+
   // ── Data Validity Flags (本次連線是否已成功解析過) ─────────────────────
   bool hasRpm = false;
   bool hasSpeed = false;
@@ -523,8 +527,32 @@ class ObdSppService with ChangeNotifier {
 
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
+
+      // 1. 觸發掃跡動畫訊號
+      _shouldTriggerWakeup = true;
+      notifyListeners();
+      _shouldTriggerWakeup = false;
+
+      _log('[OBD] --- Deep Sync Starting (Timeout: 1s per cmd) ---');
+
+      // 2. 深度同步：一次性讀取核心靜態數據 (使用 await 確保順序)
+      try {
+        await sendCommand('015B', timeoutMs: 1000); // HEV 電量
+        await sendCommand('ATSH7DF', timeoutMs: 1000);
+        await sendCommand('0167', timeoutMs: 1000); // 水溫
+        await sendCommand('ATSH7C6', timeoutMs: 1000);
+        await sendCommand('22B002', timeoutMs: 1000); // 里程與油量
+        await sendCommand('ATSH7A0', timeoutMs: 1000);
+        await sendCommand('22C00B', timeoutMs: 1000); // 胎壓
+        await sendCommand('ATSH7DF', timeoutMs: 1000); // 重置廣播 Header
+      } catch (e) {
+        _log('[OBD] Deep sync sequence interrupted: $e');
+      }
+
+      _log('[OBD] --- Deep Sync Done, starting real-time poll ---');
+
+      // 3. 最後啟動即時輪詢任務
       _startPollingTasks();
-      pollAllNow();
     } catch (e) {
       _log('[OBD] Init FAILED: $e → triggering disconnect');
       handleDisconnect('init_failed: $e');
