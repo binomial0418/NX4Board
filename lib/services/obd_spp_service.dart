@@ -39,7 +39,8 @@ class ObdSppService with ChangeNotifier {
   final _maintenanceLogController = StreamController<String>.broadcast();
   Stream<String> get maintenanceLogStream => _maintenanceLogController.stream;
   final List<String> _maintenanceLogHistory = [];
-  List<String> get maintenanceLogHistory => List.unmodifiable(_maintenanceLogHistory);
+  List<String> get maintenanceLogHistory =>
+      List.unmodifiable(_maintenanceLogHistory);
 
   void _log(String msg) {
     final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
@@ -516,7 +517,7 @@ class ObdSppService with ChangeNotifier {
       _log(
           '[OBD] ATAL → ${await mustSend('ATAL')}'); // Allow Long messages（多幀合併輸出）
       _log(
-          '[OBD] ATST64→ ${await mustSend('ATST64')}'); // Timeout = 0x64 * 4ms = ~400ms
+          '[OBD] ATST32→ ${await mustSend('ATST32')}'); // Timeout = 0x32 * 4ms = ~200ms
       _log('[OBD] ATAT1 → ${await mustSend('ATAT1')}'); // 自動調整時序
       _log(
           '[OBD] ATSP6 → ${await mustSend('ATSP6')}'); // 直接鎖定 ISO 15765-4 CAN 11-bit 500K
@@ -642,7 +643,8 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('410B');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex =
+                sanitized.substring(payloadStart, payloadStart + 2);
             final int mapKpa = int.parse(hex, radix: 16);
             turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
             turbo = double.parse(turboBoostBar.toStringAsFixed(2));
@@ -656,7 +658,8 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('410C');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 4) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 4);
+            final String hex =
+                sanitized.substring(payloadStart, payloadStart + 4);
             final int a = int.parse(hex.substring(0, 2), radix: 16);
             final int b = int.parse(hex.substring(2, 4), radix: 16);
             rpm = ((a * 256) + b) ~/ 4;
@@ -670,7 +673,8 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('410D');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex =
+                sanitized.substring(payloadStart, payloadStart + 2);
             speed = int.parse(hex, radix: 16);
             hasSpeed = true;
             _log('[Parser Result] Speed=$speed');
@@ -682,7 +686,8 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('415B');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex =
+                sanitized.substring(payloadStart, payloadStart + 2);
             final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
             hevSoc = double.parse(rawSoc.toStringAsFixed(1));
             hasHevSoc = true;
@@ -695,7 +700,8 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('4167');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 6) {
-            final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
+            final String hexA =
+                sanitized.substring(payloadStart + 2, payloadStart + 4);
             coolantTemp = int.parse(hexA, radix: 16) - 40;
             hasCoolant = true;
             _log('[Parser Result] Coolant=$coolantTemp °C');
@@ -707,12 +713,13 @@ class ObdSppService with ChangeNotifier {
           final int idx = sanitized.indexOf('4133');
           final int payloadStart = idx + 4;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex =
+                sanitized.substring(payloadStart, payloadStart + 2);
             currentBaroKpa = int.parse(hex, radix: 16).toDouble();
             _log('[Parser Result] Baro=$currentBaroKpa kPa');
           }
         }
-        
+
         notifyListeners(); // 01 系列解析完成，通知 UI
         return;
       }
@@ -734,7 +741,8 @@ class ObdSppService with ChangeNotifier {
               tpmsRl = int.parse(data.substring(28, 30), radix: 16) / 5.0;
               tpmsRr = int.parse(data.substring(38, 40), radix: 16) / 5.0;
               hasTpms = true;
-              _log('[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
+              _log(
+                  '[Parser Result] TPMS FL=$tpmsFl FR=$tpmsFr RL=$tpmsRl RR=$tpmsRr');
             }
           } else if (pid == 'B002') {
             if (data.length >= 18) {
@@ -751,7 +759,7 @@ class ObdSppService with ChangeNotifier {
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
               hasVoltage = true;
-              
+
               if (data.length >= 26) {
                 final int byteG = int.parse(data.substring(18, 20), radix: 16);
                 final int byteH = int.parse(data.substring(20, 22), radix: 16);
@@ -761,9 +769,10 @@ class ObdSppService with ChangeNotifier {
                 serviceDaysRemaining = (byteI * 256) + byteJ;
                 hasServiceDistanceRemaining = true;
                 hasServiceDaysRemaining = true;
-                
+
                 _logMaintenance('Raw Data: $data');
-                _logMaintenance('Maintenance Info: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days');
+                _logMaintenance(
+                    'Maintenance Info: Dist=$serviceDistanceRemaining km, Days=$serviceDaysRemaining days');
               }
               _log('[Parser Result] Heavy Data Parsed');
             }
