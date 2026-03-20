@@ -465,7 +465,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _startWsUploadSync() {
     _wsUploadTimer?.cancel();
-    _wsUploadTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
+    _wsUploadTimer = Timer.periodic(const Duration(seconds: 60), (timer) async {
       if (!mounted) return;
 
       // 若未連線且正在充電，立即觸發重連（不等下次斷線事件）
@@ -519,7 +519,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         uploadData["battery"] = provider.obdHevSoc;
 
       if (uploadData.length > 2) {
-        // 除了 _type, tid 之外還有其他資料
+        // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態
+        final wifiOk = await WifiService.ensureConnected();
+        if (!wifiOk) {
+          print('[WS-TX] WiFi 未連線，取消本次上傳');
+          return;
+        }
         final jsonString = jsonEncode(uploadData);
         try {
           _channel!.sink.add(jsonString);
@@ -605,7 +610,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // 立即傳送一次 OBD 資料至 WS（輪詢回來後呼叫）
   // ──────────────────────────────────────────────
-  void _sendObdDataViaWsOnce() {
+  Future<void> _sendObdDataViaWsOnce() async {
     if (!mounted || !_isWsConnected || _channel == null) return;
     if (_isCharging != true) return; // 沒供電時不主動發送
 
@@ -653,6 +658,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       uploadData["battery"] = provider.obdHevSoc;
 
     if (uploadData.length > 2) {
+      // 發送前確認 WiFi 狀態
+      final wifiOk = await WifiService.ensureConnected();
+      if (!wifiOk) {
+        print('[WS-TX] WiFi 未連線，取消立即傳送');
+        return;
+      }
       final jsonString = jsonEncode(uploadData);
       try {
         _channel!.sink.add(jsonString);
@@ -749,18 +760,47 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // WiFi 連線狀態 (原 WS 狀態)
-                  Consumer<AppProvider>(
-                    builder: (context, provider, child) {
-                      return _StatusBadge(
-                        isActive: provider.isWifiConnected,
-                        activeLabel: 'Uplink',
-                        inactiveLabel: 'Uplink',
-                        activeColor: Colors.lightBlueAccent,
-                        inactiveColor: Colors.redAccent,
-                        pulseAnimation: _pulseAnimation,
+                  // WiFi 連線狀態 (原 WS 狀態) — 長按可手動觸發重連
+                  GestureDetector(
+                    onLongPress: () async {
+                      final sm = ScaffoldMessenger.of(context);
+                      sm.showSnackBar(
+                        const SnackBar(
+                          content: Text('手動嘗試回連 WiFi...'),
+                          duration: Duration(seconds: 2),
+                        ),
                       );
+                      final ok = await WifiService.forceConnect();
+                      if (!mounted) return;
+                      if (ok) {
+                        sm.showSnackBar(
+                          const SnackBar(
+                            content: Text('WiFi 已連線'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                        _connectWebSocket();
+                      } else {
+                        sm.showSnackBar(
+                          const SnackBar(
+                            content: Text('連線失敗，請手動確認裝置電源'),
+                            duration: Duration(seconds: 3),
+                          ),
+                        );
+                      }
                     },
+                    child: Consumer<AppProvider>(
+                      builder: (context, provider, child) {
+                        return _StatusBadge(
+                          isActive: provider.isWifiConnected,
+                          activeLabel: 'Uplink',
+                          inactiveLabel: 'Uplink',
+                          activeColor: Colors.lightBlueAccent,
+                          inactiveColor: Colors.redAccent,
+                          pulseAnimation: _pulseAnimation,
+                        );
+                      },
+                    ),
                   ),
                   const SizedBox(height: 10),
                   // 測速點偵測狀態

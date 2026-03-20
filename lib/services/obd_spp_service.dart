@@ -235,14 +235,13 @@ class ObdSppService with ChangeNotifier {
   Future<void> pollAllNow() async {
     if (!_isConnected) return;
     _log('[OBD] pollAllNow() triggered');
-    sendCommand('010C');
-    sendCommand('010D');
-    sendCommand('0167');
-    sendCommand('015B'); // HEV SOC：標準 OBD PID，公式 = 100/255*A
+    sendCommand('010B0C0D'); // Turbo + RPM + Speed
+    sendCommand('015B');     // HEV SOC
+    sendCommand('0167');     // Coolant
     sendCommand('ATSH7C6');
-    sendCommand('22B002'); // Odo, Fuel
+    sendCommand('22B002');   // Odo, Fuel, Maintenance
     sendCommand('ATSH7A0');
-    sendCommand('22C00B'); // TPMS
+    sendCommand('22C00B');   // TPMS
     sendCommand('ATSH7DF');
   }
 
@@ -525,7 +524,6 @@ class ObdSppService with ChangeNotifier {
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
       _startPollingTasks();
-      await Future.delayed(const Duration(milliseconds: 1000));
       pollAllNow();
     } catch (e) {
       _log('[OBD] Init FAILED: $e → triggering disconnect');
@@ -636,88 +634,103 @@ class ObdSppService with ChangeNotifier {
     }
 
     try {
-      // ── 1. 01 系列：改為非同步「特徵掃描 (Signature Scanning)」 ──────
+      // ── 1. 01 系列：指令隔離 + 標籤搜尋 (Label Search) ──────────────────
       if (lastCmd.startsWith('01')) {
         final int idx41 = sanitized.indexOf('41');
-        if (idx41 == -1) return; // 沒找到 41 回應頭，視為無效或雜訊
+        if (idx41 == -1) return; // 無效回應
 
-        // --- 掃描 0B (MAP/Turbo) ---
-        final int idx0B = sanitized.indexOf('0B', idx41);
-        if (idx0B != -1) {
-          final int payloadStart = idx0B + 2;
-          if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
-            final int mapKpa = int.parse(hex, radix: 16);
-            turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
-            turbo = double.parse(turboBoostBar.toStringAsFixed(2));
-            hasTurbo = true;
-            _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
+        // ─── 合併指令 010B0C0D：僅解析 MAP/RPM/Speed ───────────
+        if (lastCmd == '010B0C0D') {
+          // MAP (0B)
+          final int idx0B = sanitized.indexOf('0B', idx41);
+          if (idx0B != -1 && sanitized.length >= idx0B + 4) {
+            try {
+              final String hexMap = sanitized.substring(idx0B + 2, idx0B + 4);
+              final int mapKpa = int.parse(hexMap, radix: 16);
+              turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
+              turbo = double.parse(turboBoostBar.toStringAsFixed(2));
+              hasTurbo = true;
+              _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
+            } catch (_) {}
           }
+
+          // RPM (0C)
+          final int idx0C = sanitized.indexOf('0C', idx41);
+          if (idx0C != -1 && sanitized.length >= idx0C + 6) {
+            try {
+              final String hexRpm = sanitized.substring(idx0C + 2, idx0C + 6);
+              final int a = int.parse(hexRpm.substring(0, 2), radix: 16);
+              final int b = int.parse(hexRpm.substring(2, 4), radix: 16);
+              final int valRpm = ((a * 256) + b) ~/ 4;
+              if (valRpm <= 10000) {
+                rpm = valRpm;
+                hasRpm = true;
+                _log('[Parser Result] RPM=$rpm');
+              }
+            } catch (_) {}
+          }
+
+          // Speed (0D)
+          final int idx0D = sanitized.indexOf('0D', idx41);
+          if (idx0D != -1 && sanitized.length >= idx0D + 4) {
+            try {
+              final String hexSpd = sanitized.substring(idx0D + 2, idx0D + 4);
+              final int valSpeed = int.parse(hexSpd, radix: 16);
+              if (valSpeed <= 250) {
+                speed = valSpeed;
+                hasSpeed = true;
+                _log('[Parser Result] Speed=$speed');
+              }
+            } catch (_) {}
+          }
+          notifyListeners();
+          return;
         }
 
-        // --- 掃描 0C (RPM) ---
-        final int idx0C = sanitized.indexOf('0C', idx41);
-        if (idx0C != -1) {
-          final int payloadStart = idx0C + 2;
-          if (sanitized.length >= payloadStart + 4) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 4);
-            final int a = int.parse(hex.substring(0, 2), radix: 16);
-            final int b = int.parse(hex.substring(2, 4), radix: 16);
-            rpm = ((a * 256) + b) ~/ 4;
-            hasRpm = true;
-            _log('[Parser Result] RPM=$rpm');
+        // ─── 單一 PID 01 指令：嚴格指令隔離 ─────────
+
+        // --- 0133 (Baro) ---
+        if (lastCmd == '0133') {
+          final int idx33 = sanitized.indexOf('33', idx41);
+          if (idx33 != -1 && sanitized.length >= idx33 + 4) {
+            final String hex = sanitized.substring(idx33 + 2, idx33 + 4);
+            currentBaroKpa = int.parse(hex, radix: 16).toDouble();
+            _log('[Parser Result] Baro=$currentBaroKpa kPa');
           }
+          notifyListeners();
+          return;
         }
 
-        // --- 掃描 0D (Speed) ---
-        final int idx0D = sanitized.indexOf('0D', idx41);
-        if (idx0D != -1) {
-          final int payloadStart = idx0D + 2;
-          if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
-            speed = int.parse(hex, radix: 16);
-            hasSpeed = true;
-            _log('[Parser Result] Speed=$speed');
-          }
-        }
-
-        // --- 掃描 5B (HEV SOC) ---
-        final int idx5B = sanitized.indexOf('5B', idx41);
-        if (idx5B != -1) {
-          final int payloadStart = idx5B + 2;
-          if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
+        // --- 015B (HEV SOC) ---
+        if (lastCmd == '015B') {
+          final int idx5B = sanitized.indexOf('5B', idx41);
+          if (idx5B != -1 && sanitized.length >= idx5B + 4) {
+            final String hex = sanitized.substring(idx5B + 2, idx5B + 4);
             final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
             hevSoc = double.parse(rawSoc.toStringAsFixed(1));
             hasHevSoc = true;
             _log('[Parser Result] HEV SOC=$hevSoc%');
           }
+          notifyListeners();
+          return;
         }
 
-        // --- 掃描 67 (Coolant) ---
-        final int idx67 = sanitized.indexOf('67', idx41);
-        if (idx67 != -1) {
-          final int payloadStart = idx67 + 2;
-          if (sanitized.length >= payloadStart + 6) {
-            final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
-            coolantTemp = int.parse(hexA, radix: 16) - 40;
-            hasCoolant = true;
-            _log('[Parser Result] Coolant=$coolantTemp °C');
+        // --- 0167 (Coolant) ─── 水溫僅在此指令下更新 ---
+        if (lastCmd == '0167') {
+          final int idx67 = sanitized.indexOf('67', idx41);
+          if (idx67 != -1 && sanitized.length >= idx67 + 8) {
+            final String hexA = sanitized.substring(idx67 + 2 + 2, idx67 + 2 + 4); // 4167 CC AA
+            final int raw = int.parse(hexA, radix: 16) - 40;
+            if (raw >= -40 && raw <= 150) {
+              coolantTemp = raw;
+              hasCoolant = true;
+              _log('[Parser Result] Coolant=$coolantTemp °C');
+            }
           }
+          notifyListeners();
+          return;
         }
 
-        // --- 掃描 33 (Baro) ---
-        final int idx33 = sanitized.indexOf('33', idx41);
-        if (idx33 != -1) {
-          final int payloadStart = idx33 + 2;
-          if (sanitized.length >= payloadStart + 2) {
-            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
-            currentBaroKpa = int.parse(hex, radix: 16).toDouble();
-            _log('[Parser Result] Baro=$currentBaroKpa kPa');
-          }
-        }
-
-        notifyListeners(); // 01 系列解析完成，通知 UI
         return;
       }
 
