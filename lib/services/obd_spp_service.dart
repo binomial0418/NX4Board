@@ -638,13 +638,15 @@ class ObdSppService with ChangeNotifier {
     try {
       // ── 1. 01 系列：改為非同步「特徵掃描 (Signature Scanning)」 ──────
       if (lastCmd.startsWith('01')) {
-        // --- 掃描 410B (MAP) ---
-        if (sanitized.contains('410B')) {
-          final int idx = sanitized.indexOf('410B');
-          final int payloadStart = idx + 4;
+        final int idx41 = sanitized.indexOf('41');
+        if (idx41 == -1) return; // 沒找到 41 回應頭，視為無效或雜訊
+
+        // --- 掃描 0B (MAP/Turbo) ---
+        final int idx0B = sanitized.indexOf('0B', idx41);
+        if (idx0B != -1) {
+          final int payloadStart = idx0B + 2;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex =
-                sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
             final int mapKpa = int.parse(hex, radix: 16);
             turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
             turbo = double.parse(turboBoostBar.toStringAsFixed(2));
@@ -653,13 +655,12 @@ class ObdSppService with ChangeNotifier {
           }
         }
 
-        // --- 掃描 410C (RPM) ---
-        if (sanitized.contains('410C')) {
-          final int idx = sanitized.indexOf('410C');
-          final int payloadStart = idx + 4;
+        // --- 掃描 0C (RPM) ---
+        final int idx0C = sanitized.indexOf('0C', idx41);
+        if (idx0C != -1) {
+          final int payloadStart = idx0C + 2;
           if (sanitized.length >= payloadStart + 4) {
-            final String hex =
-                sanitized.substring(payloadStart, payloadStart + 4);
+            final String hex = sanitized.substring(payloadStart, payloadStart + 4);
             final int a = int.parse(hex.substring(0, 2), radix: 16);
             final int b = int.parse(hex.substring(2, 4), radix: 16);
             rpm = ((a * 256) + b) ~/ 4;
@@ -668,26 +669,24 @@ class ObdSppService with ChangeNotifier {
           }
         }
 
-        // --- 掃描 410D (Speed) ---
-        if (sanitized.contains('410D')) {
-          final int idx = sanitized.indexOf('410D');
-          final int payloadStart = idx + 4;
+        // --- 掃描 0D (Speed) ---
+        final int idx0D = sanitized.indexOf('0D', idx41);
+        if (idx0D != -1) {
+          final int payloadStart = idx0D + 2;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex =
-                sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
             speed = int.parse(hex, radix: 16);
             hasSpeed = true;
             _log('[Parser Result] Speed=$speed');
           }
         }
 
-        // --- 掃描 415B (HEV SOC) ---
-        if (sanitized.contains('415B')) {
-          final int idx = sanitized.indexOf('415B');
-          final int payloadStart = idx + 4;
+        // --- 掃描 5B (HEV SOC) ---
+        final int idx5B = sanitized.indexOf('5B', idx41);
+        if (idx5B != -1) {
+          final int payloadStart = idx5B + 2;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex =
-                sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
             final double rawSoc = int.parse(hex, radix: 16) * 100.0 / 255.0;
             hevSoc = double.parse(rawSoc.toStringAsFixed(1));
             hasHevSoc = true;
@@ -695,26 +694,24 @@ class ObdSppService with ChangeNotifier {
           }
         }
 
-        // --- 掃描 4167 (Coolant) ---
-        if (sanitized.contains('4167')) {
-          final int idx = sanitized.indexOf('4167');
-          final int payloadStart = idx + 4;
+        // --- 掃描 67 (Coolant) ---
+        final int idx67 = sanitized.indexOf('67', idx41);
+        if (idx67 != -1) {
+          final int payloadStart = idx67 + 2;
           if (sanitized.length >= payloadStart + 6) {
-            final String hexA =
-                sanitized.substring(payloadStart + 2, payloadStart + 4);
+            final String hexA = sanitized.substring(payloadStart + 2, payloadStart + 4);
             coolantTemp = int.parse(hexA, radix: 16) - 40;
             hasCoolant = true;
             _log('[Parser Result] Coolant=$coolantTemp °C');
           }
         }
 
-        // --- 掃描 4133 (Baro) ---
-        if (sanitized.contains('4133')) {
-          final int idx = sanitized.indexOf('4133');
-          final int payloadStart = idx + 4;
+        // --- 掃描 33 (Baro) ---
+        final int idx33 = sanitized.indexOf('33', idx41);
+        if (idx33 != -1) {
+          final int payloadStart = idx33 + 2;
           if (sanitized.length >= payloadStart + 2) {
-            final String hex =
-                sanitized.substring(payloadStart, payloadStart + 2);
+            final String hex = sanitized.substring(payloadStart, payloadStart + 2);
             currentBaroKpa = int.parse(hex, radix: 16).toDouble();
             _log('[Parser Result] Baro=$currentBaroKpa kPa');
           }
