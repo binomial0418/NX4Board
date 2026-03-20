@@ -105,6 +105,9 @@ class ObdSppService with ChangeNotifier {
   bool _shouldTriggerWakeup = false;
   bool get shouldTriggerWakeup => _shouldTriggerWakeup;
 
+  /// 安全性掃跡鎖定：記錄此電源週期是否為首次連線
+  bool _isFirstConnectOfSession = true;
+
   // ── Data Validity Flags (本次連線是否已成功解析過) ─────────────────────
   bool hasRpm = false;
   bool hasSpeed = false;
@@ -399,6 +402,11 @@ class ObdSppService with ChangeNotifier {
     final bool shouldReconnect = _isPowerConnected &&
         !noReconnectReasons.any((r) => reason.startsWith(r));
 
+    if (reason == 'power_disconnected') {
+      _isFirstConnectOfSession = true;
+      _log('[OBD] 電源斷開，重置首次連線旗標 (Safety Sweep Lock)');
+    }
+
     if (shouldReconnect) {
       _log('[OBD] 將在 5 秒後嘗試自動重連...');
       _startAutoReconnect();
@@ -528,10 +536,16 @@ class ObdSppService with ChangeNotifier {
       _log('[OBD] --- Init Complete ---');
       connectionState = ObdConnectionState.connected;
 
-      // 1. 觸發掃跡動畫訊號
-      _shouldTriggerWakeup = true;
-      notifyListeners();
-      _shouldTriggerWakeup = false;
+      // 1. 觸發掃跡動畫訊號 (僅在電源開啟後的第一次連線時觸發)
+      if (_isFirstConnectOfSession) {
+        _log('[OBD] 首次連線，觸發掃跡動畫 (WAKEUP)');
+        _shouldTriggerWakeup = true;
+        notifyListeners();
+        _shouldTriggerWakeup = false;
+        _isFirstConnectOfSession = false;
+      } else {
+        _log('[OBD] 靜默重連，跳過掃跡動畫');
+      }
 
       _log('[OBD] --- Deep Sync Starting (Timeout: 1s per cmd) ---');
 
