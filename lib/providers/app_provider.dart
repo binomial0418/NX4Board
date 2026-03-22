@@ -7,6 +7,7 @@ import '../services/wifi_service.dart';
 import '../services/camera_service.dart';
 import '../services/settings_service.dart';
 import '../services/tts_service.dart';
+import '../services/speed_limit_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -14,6 +15,7 @@ class AppProvider extends ChangeNotifier {
   Position? _currentPosition;
   List<SpeedSign> _nearbySpeedSigns = [];
   int? _currentSpeedLimit;
+  int _roadSpeedLimit = 40; // 新增：道路速限 (SpeedLimitCard 專用)
   bool _isLoading = true;
   String _status = 'Initializing...';
   Map<String, dynamic>? _nearestCameraInfo;
@@ -28,6 +30,7 @@ class AppProvider extends ChangeNotifier {
   Position? get currentPosition => _currentPosition;
   List<SpeedSign> get nearbySpeedSigns => _nearbySpeedSigns;
   int? get currentSpeedLimit => _currentSpeedLimit;
+  int get roadSpeedLimit => _roadSpeedLimit;
   bool get isLoading => _isLoading;
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
@@ -49,6 +52,7 @@ class AppProvider extends ChangeNotifier {
   int get serviceDistanceRemaining => _obdService.serviceDistanceRemaining;
   int get serviceDaysRemaining => _obdService.serviceDaysRemaining;
   List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;
+  List<String> get maintenanceLogHistoryHistory => _obdService.maintenanceLogHistory;
   Stream<String> get maintenanceLogStream => _obdService.maintenanceLogStream;
   bool get isWifiConnected => _isWifiConnected;
 
@@ -61,6 +65,9 @@ class AppProvider extends ChangeNotifier {
       _allSpeedSigns = await CsvParser.loadSpeedSigns();
       _status = 'Data loaded: ${_allSpeedSigns.length} signs';
       _isLoading = false;
+
+      // Initialize Speed Limit Service
+      await SpeedLimitService().init();
 
       // Initialize Camera Service
       await CameraService().init();
@@ -99,7 +106,20 @@ class AppProvider extends ChangeNotifier {
   void updatePosition(Position position) {
     _currentPosition = position;
 
-    // Find nearby signs within 500m
+    // ── 道路速限牌面偵測 (SpeedLimitService) ──
+    final speedLimitService = SpeedLimitService();
+    final detectedLimit = speedLimitService.detectNearbyLimit(
+      position.latitude,
+      position.longitude,
+    );
+    if (detectedLimit != null) {
+      _roadSpeedLimit = detectedLimit;
+      print('🚩 SPEED SIGN DETECTED: $detectedLimit km/h');
+    } else {
+      _roadSpeedLimit = speedLimitService.currentLimit;
+    }
+
+    // Find nearby signs within 500m (Legacy logic, keep for backward compatibility or other indicators)
     _nearbySpeedSigns = CsvParser.findNearby(
       _allSpeedSigns,
       position.latitude,

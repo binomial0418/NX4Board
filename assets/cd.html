@@ -547,8 +547,15 @@
                         </div>
                     </div>
                 </div>
-                <!-- 空白卡片 -->
-                <div class="data-card p-8 h-[31%] flex flex-col justify-center border-l-transparent"></div>
+                <!-- 速限牌面偵測卡片 -->
+                <div id="card-speed-limit-v2"
+                    class="data-card p-8 h-[31%] flex flex-col justify-center border-l-red-600 border-[6px] border-red-600 bg-red-900/10">
+                    <p class="text-white text-[4rem] font-bold tracking-widest uppercase mt-6 mb-2">道路速限</p>
+                    <div class="flex justify-center items-center -mt-9">
+                        <span id="speed_limit_sign_v2"
+                            class="text-[16rem] font-bold text-white leading-none val-rounded">40</span>
+                    </div>
+                </div>
             </div>
 
             <!-- P3: 50% (Speed Dial, Info) -->
@@ -767,6 +774,14 @@
                         speedV2.style.fontSize = (speedVal > 99) ? '24rem' : '30rem';
                     }
                     if (!dialAnimationActive) setDialSpeed(speedVal);
+                }
+
+                if (data.road_limit !== undefined) {
+                    const limitEl = document.getElementById('speed_limit_sign_v2');
+                    if (limitEl) {
+                        limitEl.innerText = `${data.road_limit}`;
+                    }
+                    markCardValueChange('road_limit', data.road_limit, 'card-speed-limit-v2');
                 }
 
                 if (data.rpm !== undefined) {

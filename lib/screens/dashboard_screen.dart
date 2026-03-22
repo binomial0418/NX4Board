@@ -592,6 +592,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     jsonMap["limit"] = provider.currentSpeedLimit;
+    jsonMap["road_limit"] = provider.roadSpeedLimit;
 
     if (jsonMap.isNotEmpty) {
       final jsonString = jsonEncode(jsonMap);
