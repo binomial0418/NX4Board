@@ -398,23 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_isWsConnecting) return;
     _isWsConnecting = true;
 
-    if (_isCharging != true) {
-      // 未接外部電源：跳過 WiFi 切換，直接嘗試建立連線
-      print('[WS] 未充電，跳過 WiFi 切換');
-      _doConnectWebSocket();
-      return;
-    }
-
-    // 充電中：先靜默確保 WiFi 已連上 nx4_obd_relay，再建立 WebSocket
-    WifiService.ensureConnected().then((wifiOk) {
-      if (!wifiOk) {
-        print('[WS] WiFi 未連上 nx4_obd_relay，取消本次連線');
-        _isWsConnecting = false;
-        _scheduleReconnect();
-        return;
-      }
-      _doConnectWebSocket();
-    });
+    _doConnectWebSocket();
   }
 
   void _doConnectWebSocket() {
@@ -520,7 +504,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (uploadData.length > 2) {
         // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態
-        final wifiOk = await WifiService.ensureConnected();
+        final wifiOk = await WifiService.isConnected();
         if (!wifiOk) {
           print('[WS-TX] WiFi 未連線，取消本次上傳');
           return;
@@ -667,7 +651,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (uploadData.length > 2) {
       // 發送前確認 WiFi 狀態
-      final wifiOk = await WifiService.ensureConnected();
+      final wifiOk = await WifiService.isConnected();
       if (!wifiOk) {
         print('[WS-TX] WiFi 未連線，取消立即傳送');
         return;
@@ -768,47 +752,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // WiFi 連線狀態 (原 WS 狀態) — 長按可手動觸發重連
-                  GestureDetector(
-                    onLongPress: () async {
-                      final sm = ScaffoldMessenger.of(context);
-                      sm.showSnackBar(
-                        const SnackBar(
-                          content: Text('手動嘗試回連 WiFi...'),
-                          duration: Duration(seconds: 2),
-                        ),
+                  // WiFi 連線狀態 (原 WS 狀態)
+                  Consumer<AppProvider>(
+                    builder: (context, provider, child) {
+                      return _StatusBadge(
+                        isActive: provider.isWifiConnected,
+                        activeLabel: 'Uplink',
+                        inactiveLabel: 'Uplink',
+                        activeColor: Colors.lightBlueAccent,
+                        inactiveColor: Colors.redAccent,
+                        pulseAnimation: _pulseAnimation,
                       );
-                      final ok = await WifiService.forceConnect();
-                      if (!mounted) return;
-                      if (ok) {
-                        sm.showSnackBar(
-                          const SnackBar(
-                            content: Text('WiFi 已連線'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                        _connectWebSocket();
-                      } else {
-                        sm.showSnackBar(
-                          const SnackBar(
-                            content: Text('連線失敗，請手動確認裝置電源'),
-                            duration: Duration(seconds: 3),
-                          ),
-                        );
-                      }
                     },
-                    child: Consumer<AppProvider>(
-                      builder: (context, provider, child) {
-                        return _StatusBadge(
-                          isActive: provider.isWifiConnected,
-                          activeLabel: 'Uplink',
-                          inactiveLabel: 'Uplink',
-                          activeColor: Colors.lightBlueAccent,
-                          inactiveColor: Colors.redAccent,
-                          pulseAnimation: _pulseAnimation,
-                        );
-                      },
-                    ),
                   ),
                   const SizedBox(height: 10),
                   // 測速點偵測狀態

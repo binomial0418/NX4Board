@@ -22,7 +22,6 @@ class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "classic_bt"
     private val EVENT_CHANNEL  = "classic_bt/data"
     private val WIFI_CHANNEL   = "wifi"
-    private val TARGET_SSID    = "nx4_obd_relay"
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     // ── Socket & Stream refs ──────────────────────────────────────────────────
@@ -97,7 +96,7 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getSSID"      -> handleGetSSID(result)
-                "connectSaved" -> handleConnectSaved(result)
+                "openSettings" -> { /* 已由 Flutter 接管或待補 */ }
                 else           -> result.notImplemented()
             }
         }
@@ -300,42 +299,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // =========================================================================
-    // WiFi：靜默切換到已儲存的 TARGET_SSID（無彈窗）
-    // =========================================================================
-
-    @Suppress("DEPRECATION")
-    private fun handleConnectSaved(result: MethodChannel.Result) {
-        try {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-            // 確保 WiFi 已開啟
-            if (!wifiManager.isWifiEnabled) {
-                result.success(false)
-                return
-            }
-
-            val targetSsidQuoted = "\"$TARGET_SSID\""
-            val configs = wifiManager.configuredNetworks
-            if (configs == null) {
-                result.success(false)
-                return
-            }
-
-            val target = configs.find { it.SSID == targetSsidQuoted }
-            if (target == null) {
-                result.success(false)
-                return
-            }
-
-            // 靜默切換：禁用所有其他網路，啟用目標網路
-            val enabled = wifiManager.enableNetwork(target.networkId, true)
-            if (enabled) wifiManager.reconnect()
-            result.success(enabled)
-        } catch (e: Exception) {
-            result.error("WIFI_CONNECT_ERROR", e.message, null)
-        }
-    }
 
     // =========================================================================
     // 生命週期
