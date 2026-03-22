@@ -8,6 +8,6 @@ pubspec.lock
 esp32_relay_gateway/config.h
 speed_camera/
 assets/cd_bak0318.html
-uploadtog.sh
+deploy.sh
 uploadToG.py
 build_error.log
