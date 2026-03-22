@@ -3,7 +3,7 @@ description: A Flutter app to detect and warn about speed limits using GPS and O
 
 publish_to: 'none'
 
-version: 1.0.1+1
+version: 2.1.0+210
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

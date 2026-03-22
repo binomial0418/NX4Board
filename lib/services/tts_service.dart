@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:volume_controller/volume_controller.dart';
-import 'dart:typed_data';
 
 class TtsService {
   static final TtsService _instance = TtsService._internal();

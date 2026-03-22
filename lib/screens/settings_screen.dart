@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:provider/provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
 import '../providers/app_provider.dart';
@@ -23,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _portController = TextEditingController();
 
   bool _enableOcr = true;
+  String _appVersion = 'Loading...';
 
   StreamSubscription? _logSub;
   final List<String> _logs = [];
@@ -44,6 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ipController.text = SettingsService().wsIp;
     _portController.text = SettingsService().wsPort;
     _enableOcr = SettingsService().enableOcr;
+
+    _initPackageInfo();
 
     // Load initial logs from service history
     _logs.addAll(ObdSppService().logHistory);
@@ -102,6 +106,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _scrollController.dispose();
     _maintenanceScrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initPackageInfo() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = '${info.version}+${info.buildNumber}';
+      });
+    }
   }
 
   Future<void> _refreshBondedDevices() async {
@@ -613,7 +626,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Center(
                 child: Text(
-                  'Version 1.0.1+1',
+                  'Version $_appVersion',
                   style: TextStyle(
                     color: Colors.grey.withOpacity(0.6),
                     fontSize: 14,

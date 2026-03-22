@@ -30,17 +30,27 @@ if [ -f "$APK_PATH" ] || [ "$ONLY_UPLOAD" = false ]; then
     FULL_CMD="$RCLONE_BIN copyto \"$APK_PATH\" \"$REMOTE_NAME:$TARGET_NAME\" --drive-root-folder-id $FOLDER_ID --ignore-times"
     
     if [ "$ONLY_UPLOAD" = false ]; then
+        # 從 pubspec.yaml 取得版本名稱 (例如 2.1.0)
+        VERSION_NAME=$(grep 'version: ' pubspec.yaml | sed 's/version: //; s/+.*//' | tr -d '\r')
+        # 產生時間戳記作為 Build Number (YYYYMMDDHH, 例如 2024032216)
+        # 註：Android 限制 versionCode 上限為 2147483647，YYYYMMDDHH 格式可安全用到 2147 年
+        BUILD_NUMBER=$(date +%Y%m%d%H)
+
         echo "------------------------------------------------"
-        echo "編譯："
-        echo "flutter build apk --release --target-platform android-arm64"
+        echo "編譯版本：$VERSION_NAME+$BUILD_NUMBER"
+        echo "flutter build apk --release --target-platform android-arm64 --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER"
         echo "------------------------------------------------"
-        flutter build apk --release --target-platform android-arm64
+        flutter build apk --release --target-platform android-arm64 --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
         
         # 編譯後再次確認檔案是否存在
         if [ ! -f "$APK_PATH" ]; then
             echo "❌ 編譯失敗，找不到產出的 APK 檔案。"
             exit 1
         fi
+
+        # 複製到根目錄方便使用者存取與檢查版本
+        cp "$APK_PATH" "app-release.apk"
+        echo "📂 已同步最新 APK 到專案根目錄: app-release.apk"
     fi
 
     echo "------------------------------------------------"
