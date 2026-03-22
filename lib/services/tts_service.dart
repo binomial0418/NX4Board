@@ -68,9 +68,13 @@ class TtsService {
 
     _lastAlerts[id] = now;
 
-    String msg = "前方測速照相";
+    String msg = "前有測速照相";
     if (limit != null) {
-      msg += "，限速 $limit 公里";
+      msg += "，速限 $limit";
+    }
+    final String direct = camInfo['direct'] ?? '';
+    if (direct.isNotEmpty) {
+      msg += "，$direct";
     }
 
     speak(msg);
@@ -78,6 +82,11 @@ class TtsService {
 
   Future<void> speak(String text) async {
     await _flutterTts.speak(text);
+  }
+
+  void clearCooldown() {
+    _lastAlerts.clear();
+    print('🧹 TtsService Cooldown Cleared');
   }
 
   Future<void> stop() async {
