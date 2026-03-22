@@ -120,12 +120,6 @@ class CameraService {
         if (currentAngleDiff > 80) {
           passCheck = false;
         }
-
-        if (passCheck) {
-          if (!CameraAlgorithm.matchDirection(userDir, cam.direct, cam.address, userHeading)) {
-            passCheck = false;
-          }
-        }
       }
 
       if (!passCheck) continue;
@@ -139,8 +133,8 @@ class CameraService {
 
     if (nearestCam != null) {
       final String msg = nearestCam.limit == null 
-          ? "前方 ${ (minOverallDist * 1000).round() } 公尺有測速照相，請小心駕駛"
-          : "前方 ${ (minOverallDist * 1000).round() } 公尺有測速照相，限速 ${nearestCam.limit}";
+          ? "前有測速照相，${nearestCam.direct}"
+          : "前有測速照相，速限 ${nearestCam.limit}，${nearestCam.direct}";
 
       return {
         "name": nearestCam.address,
