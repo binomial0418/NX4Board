@@ -5,12 +5,9 @@ build/
 .packages
 pubspec.lock
 .DS_Store
-.DS_Store
 esp32_relay_gateway/config.h
-.DS_Store
 speed_camera/
 assets/cd_bak0318.html
 uploadtog.sh
 uploadToG.py
-.DS_Store
 build_error.log
