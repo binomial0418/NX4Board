@@ -1,37 +1,119 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import '../lib/services/camera_service.dart';
-// import 'package:flutter/services.dart';
+import 'package:csv/csv.dart';
 import 'dart:io';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Test Speed Camera Detection Algorithm with Mock Data', () async {
-    final cameraService = CameraService();
+  test('Reproduction Test: Taichung Camera', () async {
+    // 1. Load data
+    final file = File('assets/camera_data.csv');
+    final csvData = await file.readAsString();
+    final List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
     
-    // 模擬載入 CSV (直接注入資料到私有變數或透過 Mock rootBundle)
-    // 由於我們無法輕易存取私有變數，我們使用檔案系統讀取 assets/camera_data.csv
-    // final file = File('assets/camera_data.csv'); // Removed as `file` is no longer used
-    // final csvData = await file.readAsString(); // Removed as `csvData` is no longer used
-    
-    // 我們稍微修改 CameraService 的 init 讓它能接受字串，或者直接模擬 rootBundle
-    // 這裡我們先用簡單的方式：手動模擬一個軌跡點，測試附近的相機
-    
-    print('Testing trajectory logic...');
-    
-    // 模擬一個相機點 (從 CSV 挑選的座標)
-    // 設置地址: 金湖鎮黃海路(陽明湖路段), 118.43147, 24.458809, 南北雙向, 60
-    
-    // 建立軌跡：從南往北移動
-    final p1 = Position(longitude: 118.43147, latitude: 24.450000, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: false, altitudeAccuracy: 0, headingAccuracy: 0);
-    final p2 = Position(longitude: 118.43147, latitude: 24.458000, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: false, altitudeAccuracy: 0, headingAccuracy: 0);
-    
-    cameraService.addPosition(p1);
-    cameraService.addPosition(p2);
-    
-    // 測試 checkNearbyCamera
-    // 注意：init() 必須跑過，但在測試環境 init 會失敗，因為 rootBundle 沒掛載
-    // 所以我們這裡只測試算法部分
+    List<SpeedCamera> cameras = [];
+    for (int i = 2; i < rows.length; i++) {
+        if (rows[i].length < 9) continue;
+        cameras.add(SpeedCamera.fromCsv(rows[i]));
+    }
+    print('[TEST] Total cameras loaded: ' + cameras.length.toString());
+
+    // 2. User coordinates sequence (Taichung)
+    final List<Position> points = [
+      Position(latitude: 24.2458, longitude: 120.5525, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.2439, longitude: 120.5517, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.2419, longitude: 120.5506, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.2396, longitude: 120.5496, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.2389, longitude: 120.5494, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(latitude: 24.2383, longitude: 120.5492, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 10, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+    ];
+
+    final List<Position> trajectory = [];
+
+    // Simulate stepping through points
+    for (int i = 0; i < points.length; i++) {
+      final pos = points[i];
+      trajectory.add(pos);
+      if (trajectory.length > 5) trajectory.removeAt(0);
+
+      if (trajectory.isEmpty) continue;
+
+      final last = trajectory.last;
+      final first = trajectory.first;
+      
+      final double moveDist = CameraAlgorithm.haversine(
+        first.latitude, first.longitude, last.latitude, last.longitude
+      );
+
+      double? userHeading;
+      String? userDir;
+
+      if (moveDist >= 0.005) {
+        userHeading = CameraAlgorithm.calculateBearing(
+          first.latitude, first.longitude, last.latitude, last.longitude
+        );
+        userDir = CameraAlgorithm.bearingToDirection(userHeading);
+      }
+
+      print('\n--- Step ' + i.toString() + ' ---');
+      print('Pos: ' + pos.latitude.toString() + ', ' + pos.longitude.toString());
+      print('MoveDist: ' + moveDist.toString() + ' km');
+      print('Heading: ' + (userHeading?.toString() ?? 'null') + ' (' + (userDir ?? 'null') + ')');
+
+      // Logic from CameraService.checkNearbyCamera
+      SpeedCamera? nearestCam;
+      double minOverallDist = 1.0; 
+      double? finalAngleDiff;
+
+      for (var cam in cameras) {
+        double minTrajectoryDist = double.infinity;
+        for (var p in trajectory) {
+          double d = CameraAlgorithm.haversine(p.latitude, p.longitude, cam.latitude, cam.longitude);
+          if (d < minTrajectoryDist) minTrajectoryDist = d;
+        }
+
+        if (minTrajectoryDist > minOverallDist) continue;
+
+        bool passCheck = true;
+        double? currentAngleDiff;
+
+        if (userHeading != null && userDir != null) {
+          final bearingToCam = CameraAlgorithm.calculateBearing(
+            last.latitude, last.longitude, cam.latitude, cam.longitude
+          );
+          
+          currentAngleDiff = (bearingToCam - userHeading).abs();
+          if (currentAngleDiff > 180) currentAngleDiff = 360 - currentAngleDiff;
+
+          if (currentAngleDiff > 80) passCheck = false;
+
+          if (passCheck) {
+            if (!CameraAlgorithm.matchDirection(userDir, cam.direct, cam.address, userHeading)) {
+              passCheck = false;
+            }
+          }
+        }
+
+        if (!passCheck) continue;
+
+        if (minTrajectoryDist < minOverallDist) {
+          minOverallDist = minTrajectoryDist;
+          nearestCam = cam;
+          finalAngleDiff = currentAngleDiff;
+        }
+      }
+
+      if (nearestCam != null) {
+        print('FOUND CAMERA!');
+        print('Address: ' + nearestCam.address);
+        print('Direct: ' + nearestCam.direct);
+        print('Dist: ' + (minOverallDist * 1000).round().toString() + 'm');
+        print('AngleDiff: ' + finalAngleDiff.toString());
+      } else {
+        print('NO CAMERA in range/match');
+      }
+    }
   });
 }

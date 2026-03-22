@@ -80,6 +80,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     _initializeWidgets();
     // 註冊 OBD 數據更新監聽器 (事件驅動)
     ObdSppService().addListener(_handleUiUpdate);
+    // 註冊 AppProvider 資料更新監聽器 (GPS/測速)
+    context.read<AppProvider>().addListener(_handleUiUpdate);
   }
 
   Future<void> _initializeWidgets() async {
@@ -681,6 +683,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     _wsUploadTimer?.cancel();
     // 移除 OBD 數據監聽器
     ObdSppService().removeListener(_handleUiUpdate);
+    // 移除 AppProvider 數據監聽器
+    if (mounted) {
+      context.read<AppProvider>().removeListener(_handleUiUpdate);
+    }
     _pulseController.dispose();
     _channel?.sink.close();
     // OBD 斷線（釋放藍牙連線與停止輪詢）

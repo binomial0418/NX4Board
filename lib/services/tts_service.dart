@@ -80,6 +80,11 @@ class TtsService {
     await _flutterTts.speak(text);
   }
 
+  void clearCooldown() {
+    _lastAlerts.clear();
+    print('🧹 TtsService Cooldown Cleared');
+  }
+
   Future<void> stop() async {
     await _flutterTts.stop();
   }

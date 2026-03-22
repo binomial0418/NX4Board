@@ -58,9 +58,7 @@ class CameraService {
         _cameras.add(SpeedCamera.fromCsv(rows[i]));
       }
       _isInitialized = true;
-      print('✅ Speed Camera Data Loaded: ${_cameras.length} records.');
     } catch (e) {
-      print('❌ Error loading camera data: $e');
     }
   }
 
