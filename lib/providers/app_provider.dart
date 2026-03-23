@@ -8,6 +8,7 @@ import '../services/camera_service.dart';
 import '../services/settings_service.dart';
 import '../services/tts_service.dart';
 import '../services/speed_limit_service.dart';
+import '../services/road_type_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -65,6 +66,9 @@ class AppProvider extends ChangeNotifier {
       _allSpeedSigns = await CsvParser.loadSpeedSigns();
       _status = 'Data loaded: ${_allSpeedSigns.length} signs';
       _isLoading = false;
+
+      // Initialize Road Type Service (國道/快速道路偵測)
+      await RoadTypeService().init();
 
       // Initialize Speed Limit Service
       await SpeedLimitService().init();

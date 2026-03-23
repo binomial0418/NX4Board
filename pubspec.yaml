@@ -56,6 +56,8 @@ flutter:
     - assets/cd.html
     - assets/tailwind.min.js
     - assets/fonts/
+    - assets/highway_landmarks.json
+    - assets/expressway_landmarks.json
 
 flutter_launcher_icons:
   android: "launcher_icon"
