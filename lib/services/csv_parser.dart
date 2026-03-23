@@ -5,7 +5,7 @@ import '../models/speed_sign.dart';
 class CsvParser {
   static Future<List<SpeedSign>> loadSpeedSigns() async {
     try {
-      final csvData = await rootBundle.loadString('省道速限圖資.csv');
+      final csvData = await rootBundle.loadString('refdata/省道速限圖資.csv');
       List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
       
       // Skip header row
