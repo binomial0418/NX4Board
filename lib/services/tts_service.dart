@@ -31,11 +31,11 @@ class TtsService {
     // 暫時移除複雜的 AudioContext 設定，避免 API 不相容導致編譯失敗
     // 待編譯成功後再評估特定版本的 Ducking 實作方式
 
-    // 套用保存的音量設定
-    final savedVolume = SettingsService().ttsVolume;
-    VolumeController().setVolume(savedVolume);
+    // 從系統音量讀取初始值並套用
+    final systemVolume = await SettingsService().getSystemVolume();
+    VolumeController().setVolume(systemVolume);
 
-    // 監聽硬體音量鍵
+    // 監聽硬體音量鍵變化
     VolumeController().listener((volume) {
       _handleVolumeChange(volume);
     });
@@ -86,8 +86,9 @@ class TtsService {
 
   /// 設定系統音量並播放測試語音
   Future<void> setVolumeAndPreview(double volume) async {
-    VolumeController().setVolume(volume);
-    await Future.delayed(const Duration(milliseconds: 100));
+    // 只透過 SettingsService 同步到系統音量，避免重複調用
+    await SettingsService().setSystemVolume(volume);
+    await Future.delayed(const Duration(milliseconds: 200));
     await speak('音量測試');
   }
 

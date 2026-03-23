@@ -27,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _appVersion = 'Loading...';
 
   StreamSubscription? _logSub;
+  StreamSubscription? _volumeSub;
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
   bool _autoScroll = true;
@@ -45,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ttsVolume = SettingsService().ttsVolume;
 
     _initPackageInfo();
+    _initSystemVolume();
 
     // Load initial logs from service history
     _logs.addAll(ObdSppService().logHistory);
@@ -70,11 +72,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _refreshBondedDevices();
   }
 
+  /// 初始化系統音量並監聽變化
+  Future<void> _initSystemVolume() async {
+    // 從系統讀取初始音量值
+    final initialVolume = await SettingsService().getSystemVolume();
+    if (mounted) {
+      setState(() => _ttsVolume = initialVolume);
+    }
+
+    // 監聽系統音量變化（硬體按鍵或其他來源改變時）
+    _volumeSub = SettingsService().volumeChangeStream.listen((volume) {
+      if (mounted) {
+        setState(() => _ttsVolume = volume);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _ipController.dispose();
     _portController.dispose();
     _logSub?.cancel();
+    _volumeSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -254,7 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     setState(() => _ttsVolume = value);
                                   },
                                   onChangeEnd: (value) async {
-                                    await SettingsService().setTtsVolume(value);
+                                    // 同步到系統音量，只需調用一次
                                     await TtsService().setVolumeAndPreview(value);
                                   },
                                 ),
@@ -395,9 +414,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  SizedBox(
-                    height: 300,
+                  Card(
                     child: Container(
+                      height: 300,
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: Colors.black,

@@ -61,7 +61,8 @@ class ObdSppService with ChangeNotifier {
     _maintenanceLogHistory.add(fullMsg);
     if (_maintenanceLogHistory.length > 500) _maintenanceLogHistory.removeAt(0);
     _maintenanceLogController.add(fullMsg);
-    _log('[CLU-Service] $msg'); // Also log to main log for visibility
+    // 移除重複輸出至主日誌的行為，以符合「拿掉保養資訊log區」的要求
+    // _log('[CLU-Service] $msg');
   }
 
   // ── RX Buffer + Completer (半雙工核心) ────────────────────────────────────
