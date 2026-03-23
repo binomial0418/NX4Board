@@ -11,6 +11,7 @@ class SettingsService {
   String get wsPort => _prefs?.getString('ws_port') ?? '81';
   String get obdMac => _prefs?.getString('obd_mac') ?? '';
   bool get enableOcr => _prefs?.getBool('enable_ocr') ?? true;
+  double get ttsVolume => _prefs?.getDouble('tts_volume') ?? 1.0;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -30,5 +31,9 @@ class SettingsService {
 
   Future<void> setEnableOcr(bool value) async {
     await _prefs?.setBool('enable_ocr', value);
+  }
+
+  Future<void> setTtsVolume(double volume) async {
+    await _prefs?.setDouble('tts_volume', volume);
   }
 }

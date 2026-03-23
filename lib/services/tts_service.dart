@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'settings_service.dart';
 
 class TtsService {
   static final TtsService _instance = TtsService._internal();
@@ -29,6 +30,10 @@ class TtsService {
     
     // 暫時移除複雜的 AudioContext 設定，避免 API 不相容導致編譯失敗
     // 待編譯成功後再評估特定版本的 Ducking 實作方式
+
+    // 套用保存的音量設定
+    final savedVolume = SettingsService().ttsVolume;
+    VolumeController().setVolume(savedVolume);
 
     // 監聽硬體音量鍵
     VolumeController().listener((volume) {
@@ -77,6 +82,13 @@ class TtsService {
     }
 
     speak(msg);
+  }
+
+  /// 設定系統音量並播放測試語音
+  Future<void> setVolumeAndPreview(double volume) async {
+    VolumeController().setVolume(volume);
+    await Future.delayed(const Duration(milliseconds: 100));
+    await speak('音量測試');
   }
 
   Future<void> speak(String text) async {
