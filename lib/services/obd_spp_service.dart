@@ -127,6 +127,9 @@ class ObdSppService with ChangeNotifier {
   Timer? _slowPollTimer;
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
+  
+  // ── Moving Window Buffers ────────────────────────────────────────────────
+  final List<int> _fuelBuffer = [];
 
   // =========================================================================
   // 模組一：電源狀態感知 (Power State Listener)
@@ -605,6 +608,7 @@ class ObdSppService with ChangeNotifier {
     hasServiceDistanceRemaining = false;
     hasServiceDaysRemaining = false;
     hasTpms = false;
+    _fuelBuffer.clear();
   }
 
   bool isDataReady() {
@@ -807,8 +811,26 @@ class ObdSppService with ChangeNotifier {
                 odometer = odoRaw.toDouble();
                 hasOdometer = true;
               }
-              fuelLevel = int.parse(data.substring(8, 10), radix: 16);
-              hasFuel = true;
+              
+              // ── Fuel Level Moving Window (Length 5) ──
+              try {
+                final int rawFuel = int.parse(data.substring(8, 10), radix: 16);
+                _fuelBuffer.add(rawFuel);
+                if (_fuelBuffer.length >= 5) {
+                  final List<int> sorted = List.from(_fuelBuffer)..sort();
+                  // 捨棄最大與最小值，取中間 3 筆平均
+                  final int sum = sorted[1] + sorted[2] + sorted[3];
+                  fuelLevel = sum ~/ 3;
+                  hasFuel = true;
+                  _log('[Parser Result] Filtered Fuel Level: $fuelLevel (avg of mid-3 from $_fuelBuffer)');
+                  _fuelBuffer.clear();
+                } else {
+                  _log('[Parser] Fuel Buffer: ${_fuelBuffer.length}/5 (Current=$rawFuel)');
+                }
+              } catch (e) {
+                _log('[Parser Error] Fuel parse error: $e');
+              }
+
               final int f = int.parse(data.substring(10, 12), radix: 16);
               voltage = double.parse((f * 0.078125).toStringAsFixed(2));
               hasVoltage = true;
