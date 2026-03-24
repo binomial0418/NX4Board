@@ -6,6 +6,7 @@ FOLDER_ID="1EUkGPhnoaZHCxsdSkEc9JVORcnZzAyXx"
 APK_PATH="/Users/duckegg/code/flutter/NX4Board/build/app/outputs/flutter-apk/app-release.apk"
 TARGET_NAME="app-release.apk"
 RCLONE_BIN="/Users/duckegg/rclone"
+ADB_BIN="/Users/duckegg/Library/Android/sdk/platform-tools/adb"
 
 # 參數處理
 ONLY_UPLOAD=false
@@ -51,6 +52,26 @@ if [ -f "$APK_PATH" ] || [ "$ONLY_UPLOAD" = false ]; then
         # 複製到根目錄方便使用者存取與檢查版本
         cp "$APK_PATH" "app-release.apk"
         echo "📂 已同步最新 APK 到專案根目錄: app-release.apk"
+
+        # 🔍 偵測是否有正在運行的模擬器
+        echo "🔍 檢查是否有運行中的模擬器..."
+        EMULATORS=$($ADB_BIN devices | grep -E "emulator-[0-9]+" | grep "device$" | awk '{print $1}')
+
+        if [ -n "$EMULATORS" ]; then
+            for EMULATOR in $EMULATORS; do
+                echo "📲 正在安裝 APK 到模擬器: $EMULATOR..."
+                $ADB_BIN -s "$EMULATOR" install -r "$APK_PATH"
+                if [ $? -eq 0 ]; then
+                    echo "✅ 模擬器 $EMULATOR 安裝完成！"
+                    # 選項：嘗試啟動 App (com.duckegg.nx4board)
+                    $ADB_BIN -s "$EMULATOR" shell monkey -p com.duckegg.nx4board -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
+                else
+                    echo "❌ 模擬器 $EMULATOR 安裝失敗。"
+                fi
+            done
+        else
+            echo "ℹ️ 未偵測到運行中的模擬器，跳過自動安裝步驟。"
+        fi
     fi
 
     echo "------------------------------------------------"
