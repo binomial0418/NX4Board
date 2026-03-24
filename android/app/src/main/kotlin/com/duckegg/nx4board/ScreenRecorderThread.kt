@@ -26,7 +26,7 @@ class ScreenRecorderThread(
     var isRecording = false
         private set
     private var shouldStop = false
-    private val recordingDurationMs = 60000L // 60 seconds
+    private val recordingDurationMs = 180000L // 180 seconds
 
     override fun run() {
         try {

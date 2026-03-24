@@ -28,7 +28,7 @@ class ScreenRecorderService {
   Future<bool> startRecording() async {
     try {
       _recordingState = RecordingState.recording;
-      _remainingSeconds = 60;
+      _remainingSeconds = 180;
 
       // 啟動倒數計時
       _startCountdown();
@@ -60,7 +60,7 @@ class ScreenRecorderService {
 
   /// 開始倒數計時
   void _startCountdown() {
-    _remainingSeconds = 60;
+    _remainingSeconds = 180;
     _countdownTimer();
   }
 
