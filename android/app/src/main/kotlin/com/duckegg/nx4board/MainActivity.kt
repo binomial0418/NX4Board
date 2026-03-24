@@ -1,19 +1,30 @@
 package com.duckegg.nx4board
 
+import android.app.ActivityManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import android.media.MediaRecorder
+import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,12 +36,19 @@ class MainActivity : FlutterActivity() {
     private val WIFI_CHANNEL   = "wifi"
     private val VOLUME_CHANNEL = "com.duckegg.nx4board/volume"
     private val VOLUME_EVENT_CHANNEL = "com.duckegg.nx4board/volumeEvents"
+    private val SCREEN_RECORD_CHANNEL = "com.duckegg.nx4board/screenrecord"
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     private var audioManager: AudioManager? = null
     private var volumeEventSink: EventChannel.EventSink? = null
     private var lastReportedVolume: Double = -1.0
     private var volumeCheckTimer: Timer? = null
+
+    // --- Screen Recording ---
+    private var mediaProjectionManager: MediaProjectionManager? = null
+    private var screenRecorderThread: ScreenRecorderThread? = null
+    private val REQUEST_CODE_MEDIA_PROJECTION = 1001
+    private var pendingScreenRecordResult: MethodChannel.Result? = null
 
     // ── Socket & Stream refs ──────────────────────────────────────────────────
     @Volatile private var bluetoothSocket: BluetoothSocket? = null
@@ -67,6 +85,9 @@ class MainActivity : FlutterActivity() {
 
         // Initialize AudioManager
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // Initialize MediaProjectionManager
+        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL
@@ -164,6 +185,25 @@ class MainActivity : FlutterActivity() {
                 "getSSID"      -> handleGetSSID(result)
                 "openSettings" -> { /* 已由 Flutter 接管或待補 */ }
                 else           -> result.notImplemented()
+            }
+        }
+
+        // ── Screen Recording MethodChannel ──────────────────────────────────
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, SCREEN_RECORD_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startRecording" -> {
+                    if (screenRecorderThread != null && screenRecorderThread!!.isRecording) {
+                        result.error("ALREADY_RECORDING", "Already recording", null)
+                    } else {
+                        requestMediaProjection(result)
+                    }
+                }
+                "stopRecording" -> {
+                    stopRecording(result)
+                }
+                else -> result.notImplemented()
             }
         }
     }
@@ -383,6 +423,87 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // =========================================================================
+    // 螢幕錄影相關
+    // =========================================================================
+
+    private fun requestMediaProjection(result: MethodChannel.Result) {
+        val intent = mediaProjectionManager?.createScreenCaptureIntent()
+        if (intent != null) {
+            pendingScreenRecordResult = result
+            startActivityForResult(intent, REQUEST_CODE_MEDIA_PROJECTION)
+        } else {
+            result.error("PERMISSION_FAILED", "Cannot request media projection", null)
+        }
+    }
+
+    private fun startScreenRecording(mediaProjectionManager: MediaProjectionManager, resultCode: Int, data: Intent, flutterResult: MethodChannel.Result) {
+        try {
+            // Android 14+ (API 34) 要求：獲取 MediaProjection 令牌前，必須已有運行中的特定類型前景服務
+            startForegroundService()
+
+            val mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
+            if (mediaProjection != null) {
+                screenRecorderThread = ScreenRecorderThread(
+                    context = this,
+                    mediaProjection = mediaProjection,
+                    onComplete = {
+                        runOnUiThread {
+                            flutterResult.success(true)
+                        }
+                    },
+                    onError = { error ->
+                        runOnUiThread {
+                            flutterResult.error("RECORDING_FAILED", error, null)
+                        }
+                    }
+                )
+                screenRecorderThread!!.start()
+            } else {
+                flutterResult.error("PROJECTION_FAILED", "Cannot get media projection", null)
+            }
+        } catch (e: Exception) {
+            flutterResult.error("EXCEPTION", e.message, null)
+        }
+    }
+
+    private fun stopRecording(result: MethodChannel.Result) {
+        if (screenRecorderThread != null) {
+            screenRecorderThread!!.stopRecording()
+            result.success(true)
+        } else {
+            result.error("NOT_RECORDING", "Not currently recording", null)
+        }
+    }
+
+    private fun startForegroundService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val serviceIntent = Intent(this, ScreenRecordingService::class.java)
+            startForegroundService(serviceIntent)
+        }
+    }
+
+    // =========================================================================
+    // Activity Result
+    // =========================================================================
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == REQUEST_CODE_MEDIA_PROJECTION && resultCode == RESULT_OK && data != null) {
+            val flutterResult = pendingScreenRecordResult
+            if (flutterResult != null && mediaProjectionManager != null) {
+                pendingScreenRecordResult = null
+                startScreenRecording(mediaProjectionManager!!, resultCode, data, flutterResult)
+            }
+        } else {
+            val flutterResult = pendingScreenRecordResult
+            if (flutterResult != null) {
+                pendingScreenRecordResult = null
+                flutterResult.error("PERMISSION_DENIED", "User denied screen capture permission", null)
+            }
+        }
+    }
 
     // =========================================================================
     // 生命週期

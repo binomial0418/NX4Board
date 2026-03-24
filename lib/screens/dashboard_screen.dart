@@ -16,6 +16,7 @@ import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
+import '../services/screen_recorder_service.dart';
 import 'settings_screen.dart';
 
 // Foreground Task Handler（必須為 top-level function）
@@ -66,6 +67,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- GPS 定位管理 ---
   StreamSubscription<Position>? _positionSubscription;
 
+  // --- Screen Recording ---
+  late ScreenRecorderService _screenRecorder;
+  Timer? _recordingStateTimer;
+
   @override
   void initState() {
     super.initState();
@@ -77,11 +82,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _screenRecorder = ScreenRecorderService();
     _initializeWidgets();
     // 註冊 OBD 數據更新監聽器 (事件驅動)
     ObdSppService().addListener(_handleUiUpdate);
     // 註冊 AppProvider 資料更新監聽器 (GPS/測速)
     context.read<AppProvider>().addListener(_handleUiUpdate);
+    // 監聽錄影狀態變化
+    _startRecordingStateMonitoring();
   }
 
   Future<void> _initializeWidgets() async {
@@ -112,6 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.notification,
+      Permission.microphone, // 螢幕錄影所需
     ];
 
     Map<Permission, PermissionStatus> statuses =
@@ -121,8 +130,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     bool hasDenied = statuses.values.any((s) => s.isDenied);
     if (hasDenied && mounted) {
       await _showPermissionExplanationDialog(
-        '需要基本權限',
-        '此 App 需要定位（偵測測速）、藍牙（連接 OBD）及通知功能才能正常運作。請授予權限以繼續。',
+        '需要權限',
+        '此 App 需要定位、藍牙、通知及錄音權限才能完整運作（錄影功能涉及麥克風）。請授予權限以繼續。',
         () async {
           statuses = await basePermissions.request();
         },
@@ -682,6 +691,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _wsUploadTimer?.cancel();
+    _recordingStateTimer?.cancel();
     // 移除 OBD 數據監聽器
     ObdSppService().removeListener(_handleUiUpdate);
     // 移除 AppProvider 數據監聽器
@@ -701,6 +711,14 @@ class _DashboardScreenState extends State<DashboardScreen>
       DeviceOrientation.portraitDown,
     ]);
     super.dispose();
+  }
+
+  void _startRecordingStateMonitoring() {
+    _recordingStateTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   // ──────────────────────────────────────────────
@@ -735,7 +753,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
 
-            // 狀態指示區塊（右下角時間旁邊）
+            // 狀態指示區塊（右側）
             Positioned(
               bottom: 24,
               right: 16,
@@ -743,6 +761,40 @@ class _DashboardScreenState extends State<DashboardScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  // 錄影指示燈 (整合至右下角並縮小)
+                  if (_screenRecorder.recordingState == RecordingState.recording)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'REC ${_screenRecorder.remainingSeconds}s',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   // OBD BLE 連線狀態
                   Consumer<AppProvider>(
                     builder: (context, provider, child) {

@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
 import '../services/tts_service.dart';
+import '../services/screen_recorder_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -36,6 +37,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isScanning = false;
 
   bool _scrollPending = false;
+
+  bool _isRecording = false;
+  int _remainingSeconds = 0;
+  Timer? _recordingCountdownTimer;
 
   @override
   void initState() {
@@ -95,6 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _logSub?.cancel();
     _volumeSub?.cancel();
     _scrollController.dispose();
+    _recordingCountdownTimer?.cancel();
     super.dispose();
   }
 
@@ -216,6 +222,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ObdSppService().connectToDevice(address);
   }
 
+  Future<void> _startScreenRecording() async {
+    if (_isRecording) return;
+
+    setState(() {
+      _isRecording = true;
+      _remainingSeconds = 60;
+    });
+
+    // 啟動倒數計時
+    _recordingCountdownTimer?.cancel();
+    _recordingCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() => _remainingSeconds--);
+      }
+      if (_remainingSeconds <= 0) {
+        timer.cancel();
+        _stopScreenRecording();
+      }
+    });
+
+    // 呼叫原生開始錄影
+    final result = await ScreenRecorderService().startRecording();
+    if (!result && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('錄影啟動失敗，請確認權限')),
+      );
+      setState(() => _isRecording = false);
+      _recordingCountdownTimer?.cancel();
+    } else if (result && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('錄影已開始，60 秒後自動停止')),
+      );
+    }
+  }
+
+  Future<void> _stopScreenRecording() async {
+    if (!_isRecording) return;
+
+    _recordingCountdownTimer?.cancel();
+    final result = await ScreenRecorderService().stopRecording();
+
+    if (mounted) {
+      setState(() => _isRecording = false);
+      if (result) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('錄影已保存至相簿')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('錄影停止失敗')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -231,6 +292,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.videocam, size: 24),
+                              SizedBox(width: 8),
+                              Text('螢幕錄影',
+                                  style: TextStyle(
+                                      fontSize: 16, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text('錄製 App 執行畫面 1 分鐘，1080P 30FPS，自動儲存至相簿'),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: _isRecording ? null : _startScreenRecording,
+                                icon: Icon(_isRecording ? Icons.stop_circle : Icons.circle),
+                                label: Text(_isRecording ? '錄影中...' : '開始錄影'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _isRecording ? Colors.redAccent : Colors.blueAccent,
+                                ),
+                              ),
+                              if (_isRecording) ...[
+                                const SizedBox(width: 16),
+                                Text(
+                                  '剩餘: $_remainingSeconds 秒',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.redAccent,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   Card(
                     child: SwitchListTile(
                       title: const Text('啟用速限辨識',
