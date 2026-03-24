@@ -47,8 +47,8 @@ class RoadTypeService {
   String? detectRoadType(double lat, double lng) {
     if (!_initialized) return null;
 
-    if (_isNearLandmarks(_highways, lat, lng, 300.0)) return 'highway';
-    if (_isNearLandmarks(_expressways, lat, lng, 200.0)) return 'expressway';
+    if (_isNearLandmarks(_highways, lat, lng, 600.0)) return 'highway';
+    if (_isNearLandmarks(_expressways, lat, lng, 600.0)) return 'expressway';
     return null;
   }
 

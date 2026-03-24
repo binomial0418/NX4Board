@@ -227,7 +227,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _isRecording = true;
-      _remainingSeconds = 60;
+      _remainingSeconds = 180;
     });
 
     // 啟動倒數計時
@@ -252,7 +252,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _recordingCountdownTimer?.cancel();
     } else if (result && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('錄影已開始，60 秒後自動停止')),
+        const SnackBar(content: Text('錄影已開始，180 秒後自動停止')),
       );
     }
   }
@@ -308,7 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          const Text('錄製 App 執行畫面 1 分鐘，1080P 30FPS，自動儲存至相簿'),
+                          const Text('錄製 App 執行畫面 3 分鐘，1080P 30FPS，自動儲存至相簿'),
                           const SizedBox(height: 12),
                           Row(
                             children: [
