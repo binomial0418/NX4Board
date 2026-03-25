@@ -7,6 +7,7 @@ APK_PATH="/Users/duckegg/code/flutter/NX4Board/build/app/outputs/flutter-apk/app
 TARGET_NAME="app-release.apk"
 RCLONE_BIN="/Users/duckegg/rclone"
 ADB_BIN="/Users/duckegg/Library/Android/sdk/platform-tools/adb"
+FLUTTER_BIN="/Users/duckegg/flutter/bin/flutter"
 
 # 參數處理
 ONLY_UPLOAD=false
@@ -41,7 +42,7 @@ if [ -f "$APK_PATH" ] || [ "$ONLY_UPLOAD" = false ]; then
         echo "編譯版本：$VERSION_NAME+$BUILD_NUMBER"
         echo "flutter build apk --release --target-platform android-arm64 --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER"
         echo "------------------------------------------------"
-        flutter build apk --release --target-platform android-arm64 --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
+        $FLUTTER_BIN build apk --release --target-platform android-arm64 --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
         
         # 編譯後再次確認檔案是否存在
         if [ ! -f "$APK_PATH" ]; then
