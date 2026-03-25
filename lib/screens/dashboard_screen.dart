@@ -512,6 +512,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         uploadData["temperature"] = provider.obdCoolant;
       if (obd.hasHevSoc && provider.obdHevSoc != null)
         uploadData["battery"] = provider.obdHevSoc;
+      uploadData["speed_limit"] = provider.roadSpeedLimit;
 
       if (uploadData.length > 2) {
         // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態
@@ -660,6 +661,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       uploadData["temperature"] = provider.obdCoolant;
     if (obd.hasHevSoc && provider.obdHevSoc != null)
       uploadData["battery"] = provider.obdHevSoc;
+    uploadData["speed_limit"] = provider.roadSpeedLimit;
 
     if (uploadData.length > 2) {
       // 發送前確認 WiFi 狀態

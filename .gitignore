@@ -13,3 +13,4 @@ deploy.sh
 uploadToG.py
 build_error.log
 PROGRESS.md
+CLAUDE.md

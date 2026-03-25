@@ -28,7 +28,7 @@ class SpeedLimitService {
   }
 
   /// 偵測附近速限
-  /// 優先順序：國道 (110) → 快速道路 (100) → 省道 CSV 牌面 (50m 內)
+  /// 優先順序：國道 (110) → 快速道路 (90) → 省道 CSV 牌面 (50m 內)
   /// [lat], [lng] 為目前的 GPS 座標
   /// 回傳偵測到的速限值並更新內部狀態；若無法判斷則回傳 null
   int? detectNearbyLimit(double lat, double lng) {
@@ -42,9 +42,9 @@ class SpeedLimitService {
 
     // 2. 判斷是否在快速道路上
     if (roadType == 'expressway') {
-      _currentLimit = 100;
-      print('🛣️ 快速道路偵測: 速限 100 km/h');
-      return 100;
+      _currentLimit = 90;
+      print('🛣️ 快速道路偵測: 速限 90 km/h');
+      return 90;
     }
 
     // 3. 省道：從 CSV 牌面資料取得速限
