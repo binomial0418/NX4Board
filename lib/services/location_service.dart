@@ -22,7 +22,6 @@ class LocationService {
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
         distanceFilter: 10, // Update every 10 meters
-        timeLimit: Duration(seconds: 30),
       ),
     );
   }

@@ -50,20 +50,20 @@ class SpeedLimitService {
     // 3. 省道：從 CSV 牌面資料取得速限
     if (!_initialized || _allSigns.isEmpty) return null;
 
-    // 效能優化：經緯度差值過濾 (±0.0005 度約為 55m)
+    // 效能優化：經緯度差值過濾 (±0.0015 度約為 165m)
     final candidates = _allSigns.where((s) =>
-      (s.lat - lat).abs() < 0.0005 && (s.lng - lng).abs() < 0.0005
+      (s.lat - lat).abs() < 0.0015 && (s.lng - lng).abs() < 0.0015
     ).toList();
 
     if (candidates.isEmpty) return null;
 
-    // 精確距離計算 (50 公尺內)
-    double minDistance = 50.1;
+    // 精確距離計算 (150 公尺內)
+    double minDistance = 150.1;
     int? detectedLimit;
 
     for (var sign in candidates) {
       double dist = Geolocator.distanceBetween(lat, lng, sign.lat, sign.lng);
-      if (dist < 50 && dist < minDistance) {
+      if (dist < 150 && dist < minDistance) {
         minDistance = dist;
         detectedLimit = sign.speedLimit;
       }

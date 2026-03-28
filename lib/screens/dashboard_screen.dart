@@ -67,6 +67,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- GPS 定位管理 ---
   StreamSubscription<Position>? _positionSubscription;
 
+  // --- 測速照相 WS 後送冷卻 (與 TTS 同樣以座標為 ID，45 秒內不重送) ---
+  final Map<String, DateTime> _cameraWsSentMap = {};
+  static const Duration _cameraWsCooldown = Duration(seconds: 45);
+
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
   Timer? _recordingStateTimer;
@@ -257,6 +261,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // GPS 定位追蹤
   // ──────────────────────────────────────────────
   void _startLocationTracking() {
+    _positionSubscription?.cancel();
     _positionSubscription = LocationService.getPositionStream().listen(
       (Position position) {
         if (mounted) {
@@ -265,7 +270,16 @@ class _DashboardScreenState extends State<DashboardScreen>
           ObdSppService().onGpsAltitudeChanged(position.altitude);
         }
       },
-      onError: (e) => print('Location stream error: $e'),
+      onError: (e) {
+        print('Location stream error: $e — 2 秒後自動重啟 GPS 串流');
+        _positionSubscription?.cancel();
+        _positionSubscription = null;
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && _isCharging == true) {
+            _startLocationTracking();
+          }
+        });
+      },
     );
   }
 
@@ -326,11 +340,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // 啟動/恢復 GPS
+    // 啟動/恢復 GPS（若串流已終止則重建）
     if (_positionSubscription == null) {
       _startLocationTracking();
     } else if (_positionSubscription!.isPaused) {
       _positionSubscription!.resume();
+    } else {
+      // 串流可能已因錯誤終止（done），強制重建
+      _startLocationTracking();
     }
 
     // 重連 OBD
@@ -389,9 +406,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _wsUploadTimer?.cancel();
 
-    // 暫停 GPS 定位以省電 (不再進行任何測速偵測)
-    _positionSubscription?.pause();
-    print('[電源] GPS 定位已暫停，停止一切測速偵測');
+    // 停止 GPS 定位以省電 (不再進行任何測速偵測)
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    print('[電源] GPS 定位已停止，停止一切測速偵測');
 
     // 斷開藍牙 OBD（關閉輪詢 + 釋放 SPP 連線）
     ObdSppService().handleDisconnect('power_disconnected');
@@ -599,6 +617,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 測速照相
     if (provider.nearestCameraInfo != null) {
       jsonMap["cameraInfo"] = provider.nearestCameraInfo;
+      // 偵測到測速照相時立即後送 WS
+      _sendCameraAlertViaWs(provider.nearestCameraInfo!);
     }
 
     jsonMap["limit"] = provider.currentSpeedLimit;
@@ -609,6 +629,52 @@ class _DashboardScreenState extends State<DashboardScreen>
       _webViewController?.evaluateJavascript(
           source:
               "if(window.updateDashboard) updateDashboard('$jsonString');");
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  // 測速照相偵測時立即後送 WS
+  // ──────────────────────────────────────────────
+  Future<void> _sendCameraAlertViaWs(Map<String, dynamic> camInfo) async {
+    if (!mounted || !_isWsConnected || _channel == null) return;
+
+    // 以座標為唯一 ID，遵循 45 秒冷卻機制
+    final String id = "${camInfo['lat']}_${camInfo['lon']}";
+    final now = DateTime.now();
+    if (_cameraWsSentMap.containsKey(id) &&
+        now.difference(_cameraWsSentMap[id]!) < _cameraWsCooldown) {
+      return; // 冷卻中，不重送
+    }
+    _cameraWsSentMap[id] = now;
+
+    final provider = context.read<AppProvider>();
+
+    // 速度來源：OBD 優先，GPS 備援
+    double displaySpeed = 0.0;
+    if (provider.obdSpeed != null) {
+      displaySpeed = provider.obdSpeed!.toDouble();
+    } else if (provider.currentPosition != null) {
+      final gpsSpeed = provider.currentPosition!.speed * 3.6;
+      displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
+    }
+
+    final Map<String, dynamic> alertData = {
+      "_type": "camera_alert",
+      "tid": "obd",
+      "speed": displaySpeed.round(),
+      "camera_limit": camInfo['limit'],
+      "speed_limit": provider.roadSpeedLimit,
+    };
+
+    final jsonString = jsonEncode(alertData);
+    try {
+      _channel!.sink.add(jsonString);
+      print('[WS-TX] 測速照相警報後送: $jsonString');
+      ObdSppService().logWsSend(jsonString);
+    } catch (e) {
+      print('[WS-TX] 測速照相後送錯誤: $e');
+      if (mounted) setState(() => _isWsConnected = false);
+      _scheduleReconnect();
     }
   }
 
