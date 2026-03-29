@@ -138,6 +138,7 @@ class CameraService {
 
       return {
         "name": nearestCam.address,
+        "address": nearestCam.address,
         "limit": nearestCam.limit,
         "dist_m": (minOverallDist * 1000).round(),
         "lat": nearestCam.latitude,

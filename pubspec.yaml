@@ -51,7 +51,7 @@ flutter:
   uses-material-design: true
   
   assets:
-    - refdata/省道速限圖資.csv
+    - assets/省道速限圖資.csv
     - assets/camera_data.csv
     - assets/cd.html
     - assets/tailwind.min.js
