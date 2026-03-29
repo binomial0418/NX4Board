@@ -501,7 +501,7 @@
                         <span id="time_v2"
                             class="text-[10rem] font-bold text-gray-300 tracking-wider leading-[0.85] inline-block val-rounded">11:07</span>
                         <div id="camera_alert_v2" class="hidden flex flex-col items-center mt-8">
-                            <span class="text-[5rem] font-black text-red-500 alert-pulse uppercase">測速照相</span>
+                            <span id="camera_type_label" class="text-[5rem] font-black text-red-500 alert-pulse uppercase">測速照相</span>
                             <span id="camera_limit_v2" class="text-[10rem] font-black text-white val-rounded">--</span>
                         </div>
                     </div>
@@ -632,7 +632,9 @@
             let alertStartTime = null;
             let minDisplayUntil = 0;
             let lastCameraLimit = null;
-            const ALERT_TIMEOUT_MS = 60000;
+            let isZoneAlert = false;
+            const ALERT_TIMEOUT_NORMAL_MS = 60000;
+            const ALERT_TIMEOUT_ZONE_MS = 300000;
 
             let currentView = 2;
             let dialAnimationActive = false;
@@ -1007,8 +1009,10 @@
                 if (hasCameraData && !alertStartTime) {
                     alertStartTime = now;
                     minDisplayUntil = now + 4000;
+                    isZoneAlert = !!(data.cameraInfo && data.cameraInfo.is_zone);
                 }
-                const isTimedOut = alertStartTime ? (now - alertStartTime > ALERT_TIMEOUT_MS) : false;
+                const alertTimeoutMs = isZoneAlert ? ALERT_TIMEOUT_ZONE_MS : ALERT_TIMEOUT_NORMAL_MS;
+                const isTimedOut = alertStartTime ? (now - alertStartTime > alertTimeoutMs) : false;
                 const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
 
                 // UI 2 Info Switch
@@ -1022,6 +1026,7 @@
                     cameraV2.classList.remove('hidden');
                     const camLimit = (data.cameraInfo && data.cameraInfo.limit) || lastCameraLimit || "--";
                     document.getElementById('camera_limit_v2').innerText = camLimit;
+                    document.getElementById('camera_type_label').innerText = isZoneAlert ? '區間' : '測速照相';
                     if (data.cameraInfo && data.cameraInfo.limit) lastCameraLimit = data.cameraInfo.limit;
                 } else {
                     timeV2.classList.remove('hidden');
@@ -1029,6 +1034,7 @@
                     cameraV2.classList.add('hidden');
                     alertStartTime = null;
                     lastCameraLimit = null;
+                    isZoneAlert = false;
                 }
 
                 // UI 1 Limit Wrapper

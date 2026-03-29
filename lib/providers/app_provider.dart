@@ -20,6 +20,9 @@ class AppProvider extends ChangeNotifier {
   bool _isLoading = true;
   String _status = 'Initializing...';
   Map<String, dynamic>? _nearestCameraInfo;
+  Map<String, dynamic>? _activeZoneCameraInfo;
+  DateTime? _zoneCameraActiveUntil;
+  static const Duration _zoneCameraDisplayDuration = Duration(minutes: 5);
 
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
@@ -162,11 +165,23 @@ class AppProvider extends ChangeNotifier {
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
       }
-      
-      // 觸發 TTS 語音報讀
+      if (camInfo['is_zone'] == true) {
+        _activeZoneCameraInfo = camInfo;
+        _zoneCameraActiveUntil = DateTime.now().add(_zoneCameraDisplayDuration);
+      } else {
+        _activeZoneCameraInfo = null;
+        _zoneCameraActiveUntil = null;
+      }
       TtsService().speakCameraAlert(camInfo, position.speed * 3.6);
     } else {
-      _nearestCameraInfo = null;
+      if (_zoneCameraActiveUntil != null &&
+          DateTime.now().isBefore(_zoneCameraActiveUntil!)) {
+        _nearestCameraInfo = _activeZoneCameraInfo;
+      } else {
+        _nearestCameraInfo = null;
+        _activeZoneCameraInfo = null;
+        _zoneCameraActiveUntil = null;
+      }
     }
 
     notifyListeners();

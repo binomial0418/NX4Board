@@ -72,13 +72,16 @@ class TtsService {
 
     _lastAlerts[id] = now;
 
-    String msg = "前有測速照相";
-    if (limit != null) {
-      msg += "，速限 $limit";
-    }
-    final String direct = camInfo['direct'] ?? '';
-    if (direct.isNotEmpty) {
-      msg += "，$direct";
+    final bool isZone = camInfo['is_zone'] == true;
+    String msg;
+    if (isZone) {
+      msg = "進入區間測速路段";
+      if (limit != null) msg += "，速限 $limit";
+    } else {
+      msg = "前有測速照相";
+      if (limit != null) msg += "，速限 $limit";
+      final String direct = camInfo['direct'] ?? '';
+      if (direct.isNotEmpty) msg += "，$direct";
     }
 
     speak(msg);

@@ -80,14 +80,12 @@ class CameraService {
     );
 
     double? userHeading;
-    String? userDir;
 
     // Threshold 5m to avoid drift noise
     if (moveDist >= 0.005) {
       userHeading = CameraAlgorithm.calculateBearing(
         first.latitude, first.longitude, last.latitude, last.longitude
       );
-      userDir = CameraAlgorithm.bearingToDirection(userHeading);
     }
 
     SpeedCamera? nearestCam;
@@ -108,17 +106,23 @@ class CameraService {
       bool passCheck = true;
       double? currentAngleDiff;
 
-      if (userHeading != null && userDir != null) {
+      if (userHeading != null) {
         final bearingToCam = CameraAlgorithm.calculateBearing(
           last.latitude, last.longitude, cam.latitude, cam.longitude
         );
-        
+
         currentAngleDiff = (bearingToCam - userHeading).abs();
         if (currentAngleDiff > 180) currentAngleDiff = 360 - currentAngleDiff;
 
-        // Strictly filter cam on sides or behind (> 80 deg)
+        // 幾何過濾：照相機必須在行進方向前方 80° 以內
         if (currentAngleDiff > 80) {
           passCheck = false;
+        }
+
+        // 語意過濾：照相機 direct 欄位與行進方向不符則排除
+        if (passCheck) {
+          final dirMatch = CameraAlgorithm.matchDirection(cam.direct, userHeading);
+          if (dirMatch == false) passCheck = false;
         }
       }
 
@@ -144,6 +148,7 @@ class CameraService {
         "lat": nearestCam.latitude,
         "lon": nearestCam.longitude,
         "direct": nearestCam.direct,
+        "is_zone": nearestCam.direct.contains('區間'),
         "message": msg,
         "debug_heading": userHeading,
         "debug_angle": finalAngleDiff,
@@ -192,57 +197,74 @@ class CameraAlgorithm {
     return 'NW';
   }
 
-  static bool matchDirection(String userDir, String camDirect, String address, double? userHeading) {
-    // Ported from camera_manager.py match_camera_direction
-    
-    // 0. Digital bearing check
-    final double? camBearing = double.tryParse(camDirect);
-    if (camBearing != null && userHeading != null) {
+  /// 方向比對結果：
+  ///   true  = 照相機方向與使用者行進方向相符 → 觸發警示
+  ///   false = 方向不符 → 略過
+  ///   null  = 方向模糊或無法判斷 → 僅以距離判斷（不過濾）
+  static bool? matchDirection(String camDirect, double? userHeading) {
+    final d = camDirect.trim();
+
+    // 1. 數字方位角
+    final camBearing = double.tryParse(d);
+    if (camBearing != null) {
+      if (userHeading == null) return null;
       double diff = (userHeading - camBearing).abs();
       if (diff > 180) diff = 360 - diff;
       return diff < 45;
     }
 
-    final String full = "${camDirect.toLowerCase()} ${address.toLowerCase()}";
+    // 2. 明確雙向 → 一律通過
+    if (d.contains('雙向') || d.contains('both')) return true;
 
-    // 0. Hard guards
-    if (address.contains('北向') && ['S', 'SE', 'SW'].contains(userDir)) return false;
-    if (address.contains('南向') && ['N', 'NE', 'NW'].contains(userDir)) return false;
-    if (address.contains('東向') && ['W', 'NW', 'SW'].contains(userDir)) return false;
-    if (address.contains('西向') && ['E', 'NE', 'SE'].contains(userDir)) return false;
+    // 3. 同一字串內含兩個方向（e.g. "南向60北向70", "南向北(區間) 北向南(區間)"）
+    if (RegExp(r'南向\d+北向|北向\d+南向').hasMatch(d)) return true;
+    if (d.contains('南向北') && d.contains('北向南')) return true;
 
-    // 1. Both directions
-    if (full.contains('雙向') || full.contains('both')) return true;
+    // 4. 軸向標記不含方向性 → 視為雙向
+    if (d == '南北向' || d == '南北' || d == '東西向') return true;
 
-    // 2. Complex directions
-    if (full.contains('北向南') || full.contains('北往南') || full.contains('北至南')) {
-      return ['S', 'SE', 'SW'].contains(userDir);
-    }
-    if (full.contains('南向北') || full.contains('南往北') || full.contains('南至北')) {
-      return ['N', 'NE', 'NW'].contains(userDir);
-    }
-    if (full.contains('東向西') || full.contains('東往西') || full.contains('東至西')) {
-      return ['W', 'NW', 'SW'].contains(userDir);
-    }
-    if (full.contains('西向東') || full.contains('西往東') || full.contains('西至東')) {
-      return ['E', 'NE', 'SE'].contains(userDir);
+    // 5. 模糊方向 → 略過方向判斷，僅看距離
+    if (d == '單向' || d == '多向') return null;
+    // "往X"：X 超過一個字（地名）才算模糊；單一基方位（往東/南/西/北）屬明確
+    if (d.startsWith('往') && !RegExp(r'^往[東南西北](?:方向|車道)?$').hasMatch(d)) return null;
+    // "X往Y"：往 的前一字不是基方位 → 跨區路線
+    if (!d.startsWith('往') && d.contains('往')) {
+      final idx = d.indexOf('往');
+      if (idx > 0 && !'東南西北'.contains(d[idx - 1])) return null;
     }
 
-    // 3. Simple keyword
-    if (full.contains('北向') || full.contains('北上') || full.contains('往北') || full.contains('north')) {
-      return ['N', 'NE', 'NW'].contains(userDir);
-    }
-    if (full.contains('南向') || full.contains('南下') || full.contains('往南') || full.contains('south')) {
-      return ['S', 'SE', 'SW'].contains(userDir);
-    }
-    if (full.contains('東向') || full.contains('東行') || full.contains('往東') || full.contains('east')) {
-      return ['E', 'NE', 'SE'].contains(userDir);
-    }
-    if (full.contains('西向') || full.contains('西行') || full.contains('往西') || full.contains('west')) {
-      return ['W', 'NW', 'SW'].contains(userDir);
+    // 6. 無法取得行進方向 → 略過
+    if (userHeading == null) return null;
+
+    bool check(double expected) {
+      double diff = (userHeading - expected).abs();
+      if (diff > 180) diff = 360 - diff;
+      return diff <= 60;
     }
 
-    return true; // Fallback
+    // 7. 斜向（先於基方位比對，避免子字串誤判）
+    if (d.contains('西南向東北') || d.contains('西南往東北')) return check(45);
+    if (d.contains('東北向西南') || d.contains('東北往西南')) return check(225);
+    if (d.contains('西北向東南') || d.contains('西北往東南')) return check(135);
+    if (d.contains('東南向西北') || d.contains('東南往西北')) return check(315);
+
+    // 8. 複合基方位（先於單純基方位，避免子字串誤判）
+    if (d.contains('北向南') || d.contains('北往南') || d.contains('北至南') ||
+        d.contains('南下')) { return check(180); }
+    if (d.contains('南向北') || d.contains('南往北') || d.contains('南至北') ||
+        d.contains('北上')) { return check(0); }
+    if (d.contains('東向西') || d.contains('東往西') || d.contains('東至西') ||
+        d.contains('由東向西')) { return check(270); }
+    if (d.contains('西向東') || d.contains('西往東') || d.contains('西至東')) return check(90);
+
+    // 9. 單純基方位
+    if (d.contains('往南') || d.contains('南向') || d.contains('南下方向')) return check(180);
+    if (d.contains('往北') || d.contains('北向') || d.contains('北上方向')) return check(0);
+    if (d.contains('往東') || d.contains('東向')) return check(90);
+    if (d.contains('往西') || d.contains('西向')) return check(270);
+
+    // 10. 無法識別 → 模糊，略過方向判斷
+    return null;
   }
 
   static double _toRadians(double degrees) => degrees * pi / 180;
