@@ -268,6 +268,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           final appProvider = context.read<AppProvider>();
           appProvider.updatePosition(position);
           ObdSppService().onGpsAltitudeChanged(position.altitude);
+          ObdSppService().onGpsSpeedChanged(position.speed);
         }
       },
       onError: (e) {

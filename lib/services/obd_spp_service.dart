@@ -122,6 +122,21 @@ class ObdSppService with ChangeNotifier {
   bool hasServiceDaysRemaining = false;
   bool hasTpms = false;
 
+  // ── GPS Speed Tracking ───────────────────────────────────────────────────
+  double? _lastGpsSpeedKmh;
+  DateTime? _lastGpsSpeedTime;
+
+  void onGpsSpeedChanged(double speedMps) {
+    if (speedMps >= 0) {
+      _lastGpsSpeedKmh = speedMps * 3.6;
+      _lastGpsSpeedTime = DateTime.now();
+      
+      speed = _lastGpsSpeedKmh!.round();
+      hasSpeed = true;
+      notifyListeners();
+    }
+  }
+
   // ── Polling Timers ────────────────────────────────────────────────────────
   Timer? _fastPollTimer;
   Timer? _slowPollTimer;
@@ -687,32 +702,25 @@ class ObdSppService with ChangeNotifier {
         if (idx41 == -1) return; // 無效回應
 
         // ─── 合併指令 010B0C0D：僅解析 MAP/RPM/Speed ───────────
-        // 使用完整標記 "410X" + 順序搜尋，避免數據字節中的 PID
-        // 碰撞導致 indexOf 錯位（例如 RPM≈832 時數據含 0x0D）
         if (lastCmd == '010B0C0D') {
-          int searchFrom = 0;
-
-          // MAP (410B) — 1 data byte (2 hex chars)
-          final int idx410B = sanitized.indexOf('410B', searchFrom);
-          if (idx410B != -1 && sanitized.length >= idx410B + 6) {
+          // MAP (0B)
+          final int idx0B = sanitized.indexOf('0B', idx41);
+          if (idx0B != -1 && sanitized.length >= idx0B + 4) {
             try {
-              final String hexMap =
-                  sanitized.substring(idx410B + 4, idx410B + 6);
+              final String hexMap = sanitized.substring(idx0B + 2, idx0B + 4);
               final int mapKpa = int.parse(hexMap, radix: 16);
               turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
               turbo = double.parse(turboBoostBar.toStringAsFixed(2));
               hasTurbo = true;
               _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
             } catch (_) {}
-            searchFrom = idx410B + 6; // 跳過 MAP 數據再搜尋下一個 PID
           }
 
-          // RPM (410C) — 2 data bytes (4 hex chars)
-          final int idx410C = sanitized.indexOf('410C', searchFrom);
-          if (idx410C != -1 && sanitized.length >= idx410C + 8) {
+          // RPM (0C)
+          final int idx0C = sanitized.indexOf('0C', idx41);
+          if (idx0C != -1 && sanitized.length >= idx0C + 6) {
             try {
-              final String hexRpm =
-                  sanitized.substring(idx410C + 4, idx410C + 8);
+              final String hexRpm = sanitized.substring(idx0C + 2, idx0C + 6);
               final int a = int.parse(hexRpm.substring(0, 2), radix: 16);
               final int b = int.parse(hexRpm.substring(2, 4), radix: 16);
               final int valRpm = ((a * 256) + b) ~/ 4;
@@ -722,20 +730,31 @@ class ObdSppService with ChangeNotifier {
                 _log('[Parser Result] RPM=$rpm');
               }
             } catch (_) {}
-            searchFrom = idx410C + 8; // 跳過 RPM 數據再搜尋下一個 PID
           }
 
-          // Speed (410D) — 1 data byte (2 hex chars)
-          final int idx410D = sanitized.indexOf('410D', searchFrom);
-          if (idx410D != -1 && sanitized.length >= idx410D + 6) {
+          // Speed (0D)
+          final int idx0D = sanitized.indexOf('0D', idx41);
+          if (idx0D != -1 && sanitized.length >= idx0D + 4) {
             try {
-              final String hexSpd =
-                  sanitized.substring(idx410D + 4, idx410D + 6);
+              final String hexSpd = sanitized.substring(idx0D + 2, idx0D + 4);
               final int valSpeed = int.parse(hexSpd, radix: 16);
               if (valSpeed <= 250) {
-                speed = valSpeed;
-                hasSpeed = true;
-                _log('[Parser Result] Speed=$speed');
+                bool hasRecentGps = _lastGpsSpeedTime != null && 
+                    DateTime.now().difference(_lastGpsSpeedTime!).inSeconds < 5;
+                
+                if (hasRecentGps) {
+                  double diff = (valSpeed - _lastGpsSpeedKmh!).abs();
+                  if (diff > 20) {
+                    _log('[Parser Result] OBD速度($valSpeed)與GPS差距過大，丟棄');
+                  }
+                  // 優先使用 GPS，因此不將 OBD 速度寫入 speed
+                  speed = _lastGpsSpeedKmh!.round();
+                  hasSpeed = true;
+                } else {
+                  speed = valSpeed;
+                  hasSpeed = true;
+                  _log('[Parser Result] Speed=$speed (OBD)');
+                }
               }
             } catch (_) {}
           }
