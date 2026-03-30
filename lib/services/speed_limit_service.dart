@@ -28,32 +28,18 @@ class SpeedLimitService {
   }
 
   /// 偵測附近速限
-  /// 優先順序：國道 (110) → 快速道路 (90) → 省道 CSV 牌面 (50m 內)
+  /// 優先順序：省道 CSV 牌面 (50m 內) → 國道 (110) → 快速道路 (90)
   /// [lat], [lng] 為目前的 GPS 座標
   /// 回傳偵測到的速限值並更新內部狀態；若無法判斷則回傳 null
   int? detectNearbyLimit(double lat, double lng) {
-    // 1. 判斷是否在國道上
-    final roadType = RoadTypeService().detectRoadType(lat, lng);
-    if (roadType == 'highway') {
-      _currentLimit = 110;
-      print('🛣️ 國道偵測: 速限 110 km/h');
-      return 110;
-    }
-
-    // 2. 判斷是否在快速道路上
-    if (roadType == 'expressway') {
-      _currentLimit = 90;
-      print('🛣️ 快速道路偵測: 速限 90 km/h');
-      return 90;
-    }
-
-    // 3. 省道：從 CSV 牌面資料取得速限
+    // 1. 省道：從 CSV 牌面資料取得速限
     if (!_initialized || _allSigns.isEmpty) return null;
 
     // 效能優化：經緯度差值過濾 (±0.0015 度約為 165m)
-    final candidates = _allSigns.where((s) =>
-      (s.lat - lat).abs() < 0.0015 && (s.lng - lng).abs() < 0.0015
-    ).toList();
+    final candidates = _allSigns
+        .where(
+            (s) => (s.lat - lat).abs() < 0.0015 && (s.lng - lng).abs() < 0.0015)
+        .toList();
 
     if (candidates.isEmpty) return null;
 
@@ -73,7 +59,20 @@ class SpeedLimitService {
       _currentLimit = detectedLimit;
       return detectedLimit;
     }
+    // 2. 判斷是否在國道上
+    final roadType = RoadTypeService().detectRoadType(lat, lng);
+    if (roadType == 'highway') {
+      _currentLimit = 110;
+      print('🛣️ 國道偵測: 速限 110 km/h');
+      return 110;
+    }
 
+    // 3. 判斷是否在快速道路上
+    if (roadType == 'expressway') {
+      _currentLimit = 90;
+      print('🛣️ 快速道路偵測: 速限 90 km/h');
+      return 90;
+    }
     return null;
   }
 }
