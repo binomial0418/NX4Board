@@ -557,8 +557,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
                                         color: _autoScroll
-                                            ? Colors.green.withOpacity(0.2)
-                                            : Colors.grey.withOpacity(0.2),
+                                            ? Colors.green.withValues(alpha: 0.2)
+                                            : Colors.grey.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(4),
                                         border: Border.all(
                                           color: _autoScroll
@@ -635,7 +635,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Text(
                         'Version $_appVersion',
                         style: TextStyle(
-                          color: Colors.grey.withOpacity(0.6),
+                          color: Colors.grey.withValues(alpha: 0.6),
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),

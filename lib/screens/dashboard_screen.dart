@@ -837,7 +837,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.8),
+                          color: Colors.red.withValues(alpha: 0.8),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
@@ -909,7 +909,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color = Colors.orangeAccent;
                       } else if (ocrEnabled && !isPowerOk) {
                         label = '電力暫停';
-                        color = Colors.amber.withOpacity(0.6);
+                        color = Colors.amber.withValues(alpha: 0.6);
                       }
 
                       return GestureDetector(
@@ -983,7 +983,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 color: Colors.transparent,
                 child: IconButton(
                   icon: const Icon(Icons.power_settings_new),
-                  color: Colors.redAccent.withOpacity(0.8),
+                  color: Colors.redAccent.withValues(alpha: 0.8),
                   iconSize: 32,
                   splashRadius: 28,
                   onPressed: () {
@@ -1023,10 +1023,10 @@ class _StatusBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: (isActive ? activeColor : inactiveColor).withOpacity(0.2),
+          color: (isActive ? activeColor : inactiveColor).withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: (isActive ? activeColor : inactiveColor).withOpacity(0.5),
+            color: (isActive ? activeColor : inactiveColor).withValues(alpha: 0.5),
             width: 1,
           ),
         ),
@@ -1042,7 +1042,7 @@ class _StatusBadge extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: (isActive ? activeColor : inactiveColor)
-                        .withOpacity(0.5),
+                        .withValues(alpha: 0.5),
                     blurRadius: 4,
                     spreadRadius: 1,
                   ),
@@ -1053,7 +1053,7 @@ class _StatusBadge extends StatelessWidget {
             Text(
               isActive ? activeLabel : inactiveLabel,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
+                color: Colors.white.withValues(alpha: 0.9),
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
