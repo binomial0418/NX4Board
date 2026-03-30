@@ -155,17 +155,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     // 3. 檢查是否有永久拒絕的情況
-    final allStatuses = await [
+    final allStatuses = await Future.wait([
       Permission.location,
       Permission.locationAlways,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.notification,
-    ].map((p) async => MapEntry(p, await p.status)).toList();
+    ].map((p) async => MapEntry(p, await p.status)));
 
     bool hasPermanentlyDenied = false;
     for (var entry in allStatuses) {
-      if ((await entry).value.isPermanentlyDenied) {
+      if (entry.value.isPermanentlyDenied) {
         hasPermanentlyDenied = true;
         break;
       }
