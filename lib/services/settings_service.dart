@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService {
@@ -50,7 +51,7 @@ class SettingsService {
       final result = await platform.invokeMethod<double>('getVolume');
       return result ?? 0.5;
     } catch (e) {
-      print('❌ getSystemVolume error: $e');
+      debugPrint('❌ getSystemVolume error: $e');
       return 0.5;
     }
   }
@@ -61,7 +62,7 @@ class SettingsService {
       final normalizedVolume = volume.clamp(0.0, 1.0);
       await platform.invokeMethod('setVolume', {'volume': normalizedVolume});
     } catch (e) {
-      print('❌ setSystemVolume error: $e');
+      debugPrint('❌ setSystemVolume error: $e');
     }
   }
 

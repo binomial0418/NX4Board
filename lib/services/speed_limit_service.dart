@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
 import '../models/speed_sign.dart';
 import 'csv_parser.dart';
 import 'road_type_service.dart';
@@ -21,9 +22,9 @@ class SpeedLimitService {
     try {
       _allSigns = await CsvParser.loadSpeedSigns();
       _initialized = true;
-      print('✅ SpeedLimitService initialized with ${_allSigns.length} signs');
+      debugPrint('✅ SpeedLimitService initialized with ${_allSigns.length} signs');
     } catch (e) {
-      print('❌ SpeedLimitService initialization failed: $e');
+      debugPrint('❌ SpeedLimitService initialization failed: $e');
     }
   }
 
@@ -63,14 +64,14 @@ class SpeedLimitService {
     final roadType = RoadTypeService().detectRoadType(lat, lng);
     if (roadType == 'highway') {
       _currentLimit = 110;
-      print('🛣️ 國道偵測: 速限 110 km/h');
+      debugPrint('🛣️ 國道偵測: 速限 110 km/h');
       return 110;
     }
 
     // 3. 判斷是否在快速道路上
     if (roadType == 'expressway') {
       _currentLimit = 90;
-      print('🛣️ 快速道路偵測: 速限 90 km/h');
+      debugPrint('🛣️ 快速道路偵測: 速限 90 km/h');
       return 90;
     }
     return null;

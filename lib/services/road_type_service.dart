@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -36,9 +37,9 @@ class RoadTypeService {
       _initialized = true;
       final hwPts = _highways.values.fold(0, (s, l) => s + l.length);
       final ewPts = _expressways.values.fold(0, (s, l) => s + l.length);
-      print('✅ RoadTypeService initialized: 國道 $hwPts pts, 快速道路 $ewPts pts');
+      debugPrint('✅ RoadTypeService initialized: 國道 $hwPts pts, 快速道路 $ewPts pts');
     } catch (e) {
-      print('❌ RoadTypeService init failed: $e');
+      debugPrint('❌ RoadTypeService init failed: $e');
     }
   }
 

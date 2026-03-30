@@ -121,7 +121,7 @@ class AppProvider extends ChangeNotifier {
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
-      print('🚩 SPEED SIGN DETECTED: $detectedLimit km/h');
+      debugPrint('🚩 SPEED SIGN DETECTED: $detectedLimit km/h');
     } else {
       _roadSpeedLimit = speedLimitService.currentLimit;
     }
@@ -147,7 +147,7 @@ class AppProvider extends ChangeNotifier {
 
     // ── 測速點偵測開關 ──
     if (!SettingsService().enableOcr) {
-      print('ℹ️ Speed camera detection skipped: enableOcr is FALSE');
+      debugPrint('ℹ️ Speed camera detection skipped: enableOcr is FALSE');
       _currentSpeedLimit = null;
       _nearestCameraInfo = null;
       notifyListeners();
@@ -160,7 +160,7 @@ class AppProvider extends ChangeNotifier {
     final camInfo = camService.checkNearbyCamera();
     
     if (camInfo != null) {
-      print('📸 CAMERA DETECTED: ${camInfo['name']}, Dist: ${camInfo['dist_m']}m');
+      debugPrint('📸 CAMERA DETECTED: ${camInfo['name']}, Dist: ${camInfo['dist_m']}m');
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
@@ -205,7 +205,7 @@ class AppProvider extends ChangeNotifier {
   Timer? _simulationTimer;
 
   void simulateSpeedCameraPath() {
-    print('🚀 AppProvider.simulateSpeedCameraPath called, current _isSimulating: $_isSimulating');
+    debugPrint('🚀 AppProvider.simulateSpeedCameraPath called, current _isSimulating: $_isSimulating');
     if (_isSimulating) {
       _isSimulating = false;
       _simulationTimer?.cancel();

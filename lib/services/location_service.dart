@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
 
 class LocationService {
   static Future<bool> requestLocationPermission() async {
@@ -31,7 +32,7 @@ class LocationService {
     try {
       return await Geolocator.getCurrentPosition();
     } catch (e) {
-      print('Error getting position: $e');
+      debugPrint('Error getting position: $e');
       return null;
     }
   }

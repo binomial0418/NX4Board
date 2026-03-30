@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:csv/csv.dart';
 import '../models/speed_sign.dart';
 
@@ -53,7 +54,7 @@ class CsvParser {
       
       return speedSigns;
     } catch (e) {
-      print('Error loading CSV: $e');
+      debugPrint('Error loading CSV: $e');
       return [];
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 enum RecordingState {
   idle,
@@ -37,7 +38,7 @@ class ScreenRecorderService {
       return result == true;
     } on PlatformException catch (e) {
       _recordingState = RecordingState.error;
-      print('Failed to start recording: ${e.message}');
+      debugPrint('Failed to start recording: ${e.message}');
       return false;
     }
   }
@@ -53,7 +54,7 @@ class ScreenRecorderService {
       }
       return false;
     } on PlatformException catch (e) {
-      print('Failed to stop recording: ${e.message}');
+      debugPrint('Failed to stop recording: ${e.message}');
       return false;
     }
   }

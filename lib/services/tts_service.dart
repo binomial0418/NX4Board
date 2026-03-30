@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'settings_service.dart';
@@ -41,7 +42,7 @@ class TtsService {
     });
 
     _isInitialized = true;
-    print('✅ TtsService Initialized');
+    debugPrint('✅ TtsService Initialized');
   }
 
   /// 處理音量變動回饋 (Debounce 1.5s)
@@ -101,7 +102,7 @@ class TtsService {
 
   void clearCooldown() {
     _lastAlerts.clear();
-    print('🧹 TtsService Cooldown Cleared');
+    debugPrint('🧹 TtsService Cooldown Cleared');
   }
 
   Future<void> stop() async {
