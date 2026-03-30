@@ -949,28 +949,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                   color: Colors.white70,
                   iconSize: 32,
                   splashRadius: 28,
-                  onPressed: () {
-                    Navigator.push(
+                  onPressed: () async {
+                    // 在 async gap 前先取好 provider，避免跨 async 使用 BuildContext
+                    final provider = context.read<AppProvider>();
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                           builder: (context) => const SettingsScreen()),
-                    ).then((_) async {
-                      // Settings changed, reconnect WebSocket if needed
-                      _channel?.sink.close();
-                      if (mounted) setState(() => _isWsConnected = false);
-                      _connectWebSocket();
+                    );
+                    // Settings changed, reconnect WebSocket if needed
+                    _channel?.sink.close();
+                    if (!mounted) return;
+                    setState(() => _isWsConnected = false);
+                    _connectWebSocket();
 
-                      // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
-                      if (mounted) {
-                        final provider = context.read<AppProvider>();
-                        if (provider.currentPosition != null) {
-                          provider.updatePosition(provider.currentPosition!);
-                        }
-                      }
+                    // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
+                    if (provider.currentPosition != null) {
+                      provider.updatePosition(provider.currentPosition!);
+                    }
 
-                      // 設定變更後立即觸發一次 UI 同步
-                      _handleUiUpdate();
-                    });
+                    // 設定變更後立即觸發一次 UI 同步
+                    _handleUiUpdate();
                   },
                 ),
               ),

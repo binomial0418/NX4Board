@@ -175,6 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await channel.sink.close();
         
     } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('發送失敗: $e')),
         );
@@ -207,6 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         debugPrint('Log shared successfully');
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('匯出失敗: $e')),
       );
