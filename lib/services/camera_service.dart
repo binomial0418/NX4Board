@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:csv/csv.dart';
 import 'package:geolocator/geolocator.dart';
@@ -59,6 +60,7 @@ class CameraService {
       }
       _isInitialized = true;
     } catch (e) {
+      debugPrint('CameraService init error: $e');
     }
   }
 
