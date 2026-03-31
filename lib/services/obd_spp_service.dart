@@ -924,7 +924,7 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
 
-    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 150), (_) {
+    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
       if (!_isConnected) return;
       // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
       sendCommand('010B0C0D');

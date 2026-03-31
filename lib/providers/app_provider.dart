@@ -90,8 +90,8 @@ class AppProvider extends ChangeNotifier {
         final wifiOk = await WifiService.isConnected();
         if (wifiOk != _isWifiConnected) {
           _isWifiConnected = wifiOk;
+          notifyListeners();
         }
-        notifyListeners();
       });
 
       notifyListeners();
@@ -142,8 +142,6 @@ class AppProvider extends ChangeNotifier {
       _currentSpeedLimit = null;
       _status = 'No speed signs nearby';
     }
-
-    notifyListeners();
 
     // ── 測速點偵測開關 ──
     if (!SettingsService().enableOcr) {

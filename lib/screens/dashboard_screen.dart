@@ -582,7 +582,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     // ── 節流控管 (Throttle) ──
     final now = DateTime.now();
     if (_lastUiUpdateTime != null &&
-        now.difference(_lastUiUpdateTime!) < const Duration(milliseconds: 50)) {
+        now.difference(_lastUiUpdateTime!) < const Duration(milliseconds: 200)) {
       return;
     }
     _lastUiUpdateTime = now;

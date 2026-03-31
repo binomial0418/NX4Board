@@ -21,7 +21,7 @@ class LocationService {
   static Stream<Position> getPositionStream() {
     return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best,
+        accuracy: LocationAccuracy.high,
         distanceFilter: 10, // Update every 10 meters
       ),
     );

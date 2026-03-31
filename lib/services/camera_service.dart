@@ -94,7 +94,15 @@ class CameraService {
     double minOverallDist = _searchRadiusKm;
     double? finalAngleDiff;
 
+    // 邊界框預篩（±0.01° ≈ 1.1km），避免對遠方相機做 haversine
+    const double bboxDeg = 0.01;
+    final refLat = last.latitude;
+    final refLon = last.longitude;
+
     for (var cam in _cameras) {
+      if ((cam.latitude - refLat).abs() > bboxDeg ||
+          (cam.longitude - refLon).abs() > bboxDeg) { continue; }
+
       // 1. Calculate min distance in whole trajectory (in case we just passed it)
       double minTrajectoryDist = double.infinity;
       for (var p in _trajectory) {
