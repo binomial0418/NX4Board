@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
 
 class LocationService {
   static Future<bool> requestLocationPermission() async {
@@ -20,9 +21,8 @@ class LocationService {
   static Stream<Position> getPositionStream() {
     return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best,
+        accuracy: LocationAccuracy.high,
         distanceFilter: 10, // Update every 10 meters
-        timeLimit: Duration(seconds: 30),
       ),
     );
   }
@@ -32,7 +32,7 @@ class LocationService {
     try {
       return await Geolocator.getCurrentPosition();
     } catch (e) {
-      print('Error getting position: $e');
+      debugPrint('Error getting position: $e');
       return null;
     }
   }

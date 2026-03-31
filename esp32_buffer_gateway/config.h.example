@@ -1,0 +1,19 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// --- Wi-Fi 接收模式 (WebSocket 待命) ---
+const char *ssid_recv = "YOUR_RECV_WIFI_SSID";
+const char *pass_recv = "YOUR_RECV_WIFI_PASSWORD";
+
+// --- Wi-Fi 傳送模式 (MQTT 上傳) ---
+const char *ssid_send = "YOUR_SEND_WIFI_SSID";
+const char *pass_send = "YOUR_SEND_WIFI_PASSWORD";
+
+// --- MQTT Broker ---
+const char *mqtt_server = "YOUR_MQTT_SERVER_IP";
+const int mqtt_port = 1883;
+const char *mqtt_user = "YOUR_MQTT_USERNAME";
+const char *mqtt_pass = "YOUR_MQTT_PASSWORD";
+const char *mqtt_topic = "your/topic/here";
+
+#endif

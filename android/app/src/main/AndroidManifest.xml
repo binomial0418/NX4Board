@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.speed_limit_app">
+    package="com.duckegg.nx4board">
 
     <!-- Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -13,6 +13,21 @@
     <!-- Internet (for ML Kit models if needed) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Microphone permission -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Bluetooth permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+    <!-- WiFi（wifi_iot：讀取/切換 SSID）-->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
     <!-- 螢幕常亮 (WakeLock) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -23,9 +38,15 @@
     <!-- 接收充電狀態廣播 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 螢幕錄影 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <application
-        android:label="Speed Limit Warning"
-        android:icon="@mipmap/ic_launcher"
+        android:label="NX4Board"
+        android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
@@ -44,7 +65,13 @@
         <!-- FlutterForegroundTask 前景服務 -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="camera|connectedDevice"
+            android:foregroundServiceType="camera|connectedDevice|mediaProjection"
+            android:exported="false" />
+
+        <!-- 螢幕錄影 Foreground Service -->
+        <service
+            android:name="com.duckegg.nx4board.ScreenRecordingService"
+            android:foregroundServiceType="mediaProjection|microphone"
             android:exported="false" />
 
         <meta-data
@@ -60,6 +87,9 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <package android:name="com.android.chrome" />
         <package android:name="com.android.browser" />

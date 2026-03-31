@@ -1,11 +1,12 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:csv/csv.dart';
 import '../models/speed_sign.dart';
 
 class CsvParser {
   static Future<List<SpeedSign>> loadSpeedSigns() async {
     try {
-      final csvData = await rootBundle.loadString('省道速限圖資.csv');
+      final csvData = await rootBundle.loadString('assets/省道速限圖資.csv');
       List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
       
       // Skip header row
@@ -53,7 +54,7 @@ class CsvParser {
       
       return speedSigns;
     } catch (e) {
-      print('Error loading CSV: $e');
+      debugPrint('Error loading CSV: $e');
       return [];
     }
   }
@@ -79,21 +80,20 @@ class CsvParser {
     double userLng,
     double radiusMeters,
   ) {
-    List<SpeedSign> nearby = [];
-    
+    // 邊界框預篩（±0.005° ≈ 555m），避免對遠方牌面呼叫 calculateDistance
+    final double bboxDeg = radiusMeters / 111000.0;
+
+    final List<MapEntry<SpeedSign, double>> candidates = [];
     for (var sign in allSigns) {
-      double distance = sign.calculateDistance(userLat, userLng);
-      if (distance <= radiusMeters) {
-        nearby.add(sign);
+      if ((sign.lat - userLat).abs() > bboxDeg ||
+          (sign.lng - userLng).abs() > bboxDeg) { continue; }
+      final double dist = sign.calculateDistance(userLat, userLng);
+      if (dist <= radiusMeters) {
+        candidates.add(MapEntry(sign, dist));
       }
     }
-    
-    // Sort by distance
-    nearby.sort((a, b) => 
-      a.calculateDistance(userLat, userLng)
-        .compareTo(b.calculateDistance(userLat, userLng))
-    );
-    
-    return nearby;
+
+    candidates.sort((a, b) => a.value.compareTo(b.value));
+    return candidates.map((e) => e.key).toList();
   }
 }
