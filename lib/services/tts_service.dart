@@ -11,9 +11,10 @@ class TtsService {
 
   final FlutterTts _flutterTts = FlutterTts();
   // volume_controller 使用 listener 回呼，不需要 StreamSubscription
-  
+
   // 防重複報讀：針對同一 ID (或座標 Hash) 在 45 秒內不重複
   final Map<String, DateTime> _lastAlerts = {};
+  final Map<String, DateTime> _speedingAlerts = {};
   static const Duration _duplicateCooldown = Duration(seconds: 45);
 
   // 音量回饋 Debounce
@@ -28,7 +29,7 @@ class TtsService {
     await _flutterTts.setLanguage("zh-TW");
     await _flutterTts.setSpeechRate(0.55);
     await _flutterTts.setPitch(1.0);
-    
+
     // 暫時移除複雜的 AudioContext 設定，避免 API 不相容導致編譯失敗
     // 待編譯成功後再評估特定版本的 Ducking 實作方式
 
@@ -48,16 +49,33 @@ class TtsService {
   /// 處理音量變動回饋 (Debounce 1.5s)
   void _handleVolumeChange(double volume) {
     final now = DateTime.now();
-    if (_lastVolumeFeedbackTime == null || 
+    if (_lastVolumeFeedbackTime == null ||
         now.difference(_lastVolumeFeedbackTime!) > _volumeFeedbackDebounce) {
       _lastVolumeFeedbackTime = now;
       speak("語音音量已更新");
     }
   }
 
+  /// 超速接近照相點警示（500m 內且超速）
+  /// 國語：速限 xx，台語：開慢一點
+  void speakSpeedingAlert(Map<String, dynamic> camInfo) {
+    final String id = "${camInfo['lat']}_${camInfo['lon']}_speeding";
+    final int? limit = camInfo['limit'];
+    final now = DateTime.now();
+
+    if (_speedingAlerts.containsKey(id) &&
+        now.difference(_speedingAlerts[id]!) < _duplicateCooldown) {
+      return;
+    }
+    _speedingAlerts[id] = now;
+
+    final String limitPart = limit != null ? '速限$limit，' : '';
+    speak('$limitPart再不減速會罰錢');
+  }
+
   /// 智慧報讀測速點
   void speakCameraAlert(Map<String, dynamic> camInfo, double currentSpeed) {
-    final String id = "${camInfo['lat']}_${camInfo['lon']}"; 
+    final String id = "${camInfo['lat']}_${camInfo['lon']}";
 
     // ignore: unused_local_variable
     final String address = camInfo['name'] ?? '未知地點';

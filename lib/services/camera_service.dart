@@ -124,6 +124,12 @@ class CameraService {
         currentAngleDiff = (bearingToCam - userHeading).abs();
         if (currentAngleDiff > 180) currentAngleDiff = 360 - currentAngleDiff;
 
+        // 已通過判斷：照相機在身後（>90°）且距最新位置 <150m → 視為剛通過，直接略過
+        final distFromLast = CameraAlgorithm.haversine(
+          last.latitude, last.longitude, cam.latitude, cam.longitude
+        );
+        if (currentAngleDiff > 90 && distFromLast < 0.15) continue;
+
         // 幾何過濾：照相機必須在行進方向前方 80° 以內
         if (currentAngleDiff > 80) {
           passCheck = false;

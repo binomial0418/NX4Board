@@ -665,6 +665,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       "speed": displaySpeed.round(),
       "camera_limit": camInfo['limit'],
       "speed_limit": provider.roadSpeedLimit,
+      "address": camInfo['address'],
     };
 
     final jsonString = jsonEncode(alertData);

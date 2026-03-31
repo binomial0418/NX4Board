@@ -22,7 +22,7 @@ class AppProvider extends ChangeNotifier {
   Map<String, dynamic>? _nearestCameraInfo;
   Map<String, dynamic>? _activeZoneCameraInfo;
   DateTime? _zoneCameraActiveUntil;
-  static const Duration _zoneCameraDisplayDuration = Duration(minutes: 5);
+  static const Duration _zoneCameraDisplayDuration = Duration(seconds: 60);
 
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
@@ -170,7 +170,15 @@ class AppProvider extends ChangeNotifier {
         _activeZoneCameraInfo = null;
         _zoneCameraActiveUntil = null;
       }
-      TtsService().speakCameraAlert(camInfo, position.speed * 3.6);
+      final double speedKmh = position.speed * 3.6;
+      TtsService().speakCameraAlert(camInfo, speedKmh);
+
+      // 距離 500m 內且超速 → 額外播報超速警示
+      final int distM = camInfo['dist_m'] ?? 9999;
+      final int? limit = camInfo['limit'];
+      if (distM <= 500 && limit != null && speedKmh > limit) {
+        TtsService().speakSpeedingAlert(camInfo);
+      }
     } else {
       if (_zoneCameraActiveUntil != null &&
           DateTime.now().isBefore(_zoneCameraActiveUntil!)) {

@@ -501,10 +501,6 @@
                     <div class="flex-1 flex flex-col justify-center items-center gap-4">
                         <span id="time_v2"
                             class="text-[10rem] font-bold text-gray-300 tracking-wider leading-[0.85] inline-block val-rounded">11:07</span>
-                        <div id="camera_alert_v2" class="hidden flex flex-col items-center mt-8">
-                            <span id="camera_type_label" class="text-[5rem] font-black text-red-500 alert-pulse uppercase">測速照相</span>
-                            <span id="camera_limit_v2" class="text-[10rem] font-black text-white val-rounded">--</span>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -562,10 +558,20 @@
                 <!-- 速限牌面偵測卡片 -->
                 <div id="card-speed-limit-v2"
                     class="data-card p-8 h-[31%] flex flex-col justify-center border-l-red-600">
-                    <p class="text-white text-[4rem] font-bold tracking-widest uppercase mt-6 mb-2">道路速限</p>
-                    <div class="flex justify-center items-center -mt-9">
-                        <span id="speed_limit_sign_v2"
-                            class="text-[14rem] font-bold text-white leading-none val-rounded -ml-8">40</span>
+                    <div id="speed-limit-content-v2">
+                        <p class="text-white text-[4rem] font-bold tracking-widest uppercase mt-6 mb-2">道路速限</p>
+                        <div class="flex justify-center items-center -mt-9">
+                            <span id="speed_limit_sign_v2"
+                                class="text-[14rem] font-bold text-white leading-none val-rounded -ml-8">40</span>
+                        </div>
+                    </div>
+                    <div id="camera_alert_v2" class="hidden flex flex-col justify-center h-full">
+                        <p id="camera_type_label"
+                            class="text-white text-[4rem] font-bold tracking-widest uppercase mt-6 mb-2 alert-pulse">測速照相</p>
+                        <div class="flex justify-center items-center -mt-9">
+                            <span id="camera_limit_v2"
+                                class="text-[14rem] font-bold text-white leading-none val-rounded -ml-8">--</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -632,8 +638,55 @@
             let minDisplayUntil = 0;
             let lastCameraLimit = null;
             let isZoneAlert = false;
+            let _lastHasCameraData = false;
             const ALERT_TIMEOUT_NORMAL_MS = 60000;
-            const ALERT_TIMEOUT_ZONE_MS = 300000;
+            const ALERT_TIMEOUT_ZONE_MS = 60000;
+
+            function applyCameraAlertUI(hasCameraData) {
+                const now = Date.now();
+                const alertTimeoutMs = isZoneAlert ? ALERT_TIMEOUT_ZONE_MS : ALERT_TIMEOUT_NORMAL_MS;
+                const isTimedOut = alertStartTime ? (now - alertStartTime > alertTimeoutMs) : false;
+                const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
+
+                const cameraV2 = document.getElementById('camera_alert_v2');
+                const speedLimitContentV2 = document.getElementById('speed-limit-content-v2');
+                const timeV1Wrapper = document.getElementById('time_wrapper_v1');
+
+                if (isCameraAlertActive) {
+                    if (timeV1Wrapper) timeV1Wrapper.classList.add('hidden');
+                    if (speedLimitContentV2) speedLimitContentV2.classList.add('hidden');
+                    cameraV2.classList.remove('hidden');
+                    document.getElementById('camera_limit_v2').innerText = lastCameraLimit || "--";
+                    document.getElementById('camera_type_label').innerText = isZoneAlert ? '區間' : '測速照相';
+                } else {
+                    if (timeV1Wrapper) timeV1Wrapper.classList.remove('hidden');
+                    if (speedLimitContentV2) speedLimitContentV2.classList.remove('hidden');
+                    cameraV2.classList.add('hidden');
+                    if (!hasCameraData) {
+                        alertStartTime = null;
+                        lastCameraLimit = null;
+                        isZoneAlert = false;
+                    }
+                }
+
+                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || isCameraAlertActive;
+                const wrapper = document.getElementById('limit_wrapper');
+                const centralGroup = document.getElementById('central_group');
+                if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
+                if (shouldShowLimit && document.getElementById('limit_value')) {
+                    document.getElementById('limit_value').innerText = (isCameraAlertActive ? lastCameraLimit : window._currentLimit) || "--";
+                }
+                if (centralGroup) {
+                    if (shouldShowLimit) {
+                        centralGroup.classList.remove('-translate-y-32');
+                    } else {
+                        centralGroup.classList.add('-translate-y-32');
+                    }
+                }
+            }
+
+            // 主動定時評估：即使 Flutter 沒有推新資料，逾時後仍能自動關閉警告
+            setInterval(() => { applyCameraAlertUI(_lastHasCameraData); }, 1000);
 
             let currentView = 2;
             let dialAnimationActive = false;
@@ -1005,54 +1058,15 @@
                 // --- 測速警示邏輯 ---
                 const now = Date.now();
                 const hasCameraData = (data.cameraInfo && data.cameraInfo !== null);
+                _lastHasCameraData = hasCameraData;
                 if (hasCameraData && !alertStartTime) {
                     alertStartTime = now;
                     minDisplayUntil = now + 4000;
                     isZoneAlert = !!(data.cameraInfo && data.cameraInfo.is_zone);
                 }
-                const alertTimeoutMs = isZoneAlert ? ALERT_TIMEOUT_ZONE_MS : ALERT_TIMEOUT_NORMAL_MS;
-                const isTimedOut = alertStartTime ? (now - alertStartTime > alertTimeoutMs) : false;
-                const isCameraAlertActive = (hasCameraData || now < minDisplayUntil) && !isTimedOut;
+                if (hasCameraData && data.cameraInfo.limit) lastCameraLimit = data.cameraInfo.limit;
 
-                // UI 2 Info Switch
-                const timeV2 = document.getElementById('time_v2');
-                const cameraV2 = document.getElementById('camera_alert_v2');
-                const timeV1Wrapper = document.getElementById('time_wrapper_v1');
-
-                if (isCameraAlertActive) {
-                    timeV2.classList.add('hidden');
-                    if (timeV1Wrapper) timeV1Wrapper.classList.add('hidden');
-                    cameraV2.classList.remove('hidden');
-                    const camLimit = (data.cameraInfo && data.cameraInfo.limit) || lastCameraLimit || "--";
-                    document.getElementById('camera_limit_v2').innerText = camLimit;
-                    document.getElementById('camera_type_label').innerText = isZoneAlert ? '區間' : '測速照相';
-                    if (data.cameraInfo && data.cameraInfo.limit) lastCameraLimit = data.cameraInfo.limit;
-                } else {
-                    timeV2.classList.remove('hidden');
-                    if (timeV1Wrapper) timeV1Wrapper.classList.remove('hidden');
-                    cameraV2.classList.add('hidden');
-                    alertStartTime = null;
-                    lastCameraLimit = null;
-                    isZoneAlert = false;
-                }
-
-                // UI 1 Limit Wrapper
-                const shouldShowLimit = (window._ocrEnabled && window._currentLimit) || isCameraAlertActive;
-                const wrapper = document.getElementById('limit_wrapper');
-                const centralGroup = document.getElementById('central_group');
-
-                if (wrapper) wrapper.style.display = shouldShowLimit ? 'flex' : 'none';
-                if (shouldShowLimit && document.getElementById('limit_value')) {
-                    document.getElementById('limit_value').innerText = (isCameraAlertActive ? lastCameraLimit : window._currentLimit) || "--";
-                }
-
-                if (centralGroup) {
-                    if (shouldShowLimit) {
-                        centralGroup.classList.remove('-translate-y-32');
-                    } else {
-                        centralGroup.classList.add('-translate-y-32');
-                    }
-                }
+                applyCameraAlertUI(hasCameraData);
 
                 // 速度紅圈連動
                 const speed = parseInt(document.getElementById('speed').innerText);
