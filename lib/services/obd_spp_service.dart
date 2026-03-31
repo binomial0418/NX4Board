@@ -130,10 +130,7 @@ class ObdSppService with ChangeNotifier {
     if (speedMps >= 0) {
       _lastGpsSpeedKmh = speedMps * 3.6;
       _lastGpsSpeedTime = DateTime.now();
-      
-      speed = _lastGpsSpeedKmh!.round();
-      hasSpeed = true;
-      notifyListeners();
+      // GPS speed is stored for OBD sanity check only; display speed comes from OBD
     }
   }
 
@@ -745,16 +742,12 @@ class ObdSppService with ChangeNotifier {
                 if (hasRecentGps) {
                   double diff = (valSpeed - _lastGpsSpeedKmh!).abs();
                   if (diff > 20) {
-                    _log('[Parser Result] OBD速度($valSpeed)與GPS差距過大，丟棄');
+                    _log('[Parser Result] OBD速度($valSpeed)與GPS差距過大($diff km/h)，仍採用OBD值');
                   }
-                  // 優先使用 GPS，因此不將 OBD 速度寫入 speed
-                  speed = _lastGpsSpeedKmh!.round();
-                  hasSpeed = true;
-                } else {
-                  speed = valSpeed;
-                  hasSpeed = true;
-                  _log('[Parser Result] Speed=$speed (OBD)');
                 }
+                speed = valSpeed;
+                hasSpeed = true;
+                _log('[Parser Result] Speed=$speed (OBD)');
               }
             } catch (_) {}
           }
