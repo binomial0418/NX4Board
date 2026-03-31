@@ -86,7 +86,7 @@ class AppProvider extends ChangeNotifier {
       await TtsService().init();
 
       // Poll OBD state to update UI globally
-      _obdStatusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      _obdStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
         final wifiOk = await WifiService.isConnected();
         if (wifiOk != _isWifiConnected) {
           _isWifiConnected = wifiOk;

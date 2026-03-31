@@ -783,8 +783,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _startRecordingStateMonitoring() {
-    _recordingStateTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) {
+    RecordingState lastState = _screenRecorder.recordingState;
+    _recordingStateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final current = _screenRecorder.recordingState;
+      if (current == RecordingState.recording || current != lastState) {
+        lastState = current;
         setState(() {});
       }
     });

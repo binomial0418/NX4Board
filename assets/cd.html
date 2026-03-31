@@ -93,17 +93,18 @@
             background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0) 100%);
             opacity: 0.1;
             position: absolute;
-            bottom: 100%;
+            top: 0;
+            transform: translateY(-100%);
             animation: scanline 6s linear infinite;
         }
 
         @keyframes scanline {
             0% {
-                bottom: 100%;
+                transform: translateY(-100%);
             }
 
             100% {
-                bottom: -100%;
+                transform: translateY(100vh);
             }
         }
 
@@ -624,8 +625,6 @@
                 const m = String(now.getMinutes()).padStart(2, '0');
                 document.getElementById('time').innerText = `${h}:${m}`;
             }
-            setInterval(updateClock, 1000);
-            updateClock();
 
             const CARD_HIGHLIGHT_DURATION = 420;
             const highlightTimers = {};
