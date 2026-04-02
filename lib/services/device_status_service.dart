@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'package:battery_info/battery_info_plugin.dart';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// 管理手機本身感測器資訊（電池溫度等）
 class DeviceStatusService {
@@ -8,12 +9,14 @@ class DeviceStatusService {
   static final DeviceStatusService _instance = DeviceStatusService._();
   factory DeviceStatusService() => _instance;
 
-  int? _batteryTemperature;
+  static const _channel = MethodChannel('com.duckegg.nx4board/device_info');
+
+  double? _batteryTemperature;
   Timer? _pollTimer;
   bool _initialized = false;
 
-  /// 電池溫度（°C），由 Android BatteryManager 回傳，已除以 10
-  int? get batteryTemperature => _batteryTemperature;
+  /// 電池溫度（°C），由 Android BatteryManager.EXTRA_TEMPERATURE 取得
+  double? get batteryTemperature => _batteryTemperature;
 
   Future<void> init() async {
     if (_initialized) return;
@@ -23,10 +26,12 @@ class DeviceStatusService {
   }
 
   Future<void> _fetch() async {
+    if (!Platform.isAndroid) return;
     try {
-      final info = await BatteryInfoPlugin().androidBatteryInfo;
-      if (info?.temperature != null) {
-        _batteryTemperature = info!.temperature;
+      final double? temp =
+          await _channel.invokeMethod<double>('getBatteryTemperature');
+      if (temp != null) {
+        _batteryTemperature = temp;
         debugPrint('[DeviceStatus] 電池溫度: $_batteryTemperature °C');
       }
     } catch (e) {

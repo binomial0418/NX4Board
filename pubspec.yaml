@@ -31,7 +31,6 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   web_socket_channel: ^3.0.3
   battery_plus: ^7.0.0
-  battery_info: ^1.1.1
   wakelock_plus: ^1.4.0
   flutter_foreground_task: ^9.2.1
   shared_preferences: ^2.5.4

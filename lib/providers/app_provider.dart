@@ -59,7 +59,7 @@ class AppProvider extends ChangeNotifier {
   List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;
   Stream<String> get maintenanceLogStream => _obdService.maintenanceLogStream;
   bool get isWifiConnected => _isWifiConnected;
-  int? get deviceBatteryTemp => DeviceStatusService().batteryTemperature;
+  double? get deviceBatteryTemp => DeviceStatusService().batteryTemperature;
 
   /// Initialize app - load CSV data
   Future<void> initialize() async {

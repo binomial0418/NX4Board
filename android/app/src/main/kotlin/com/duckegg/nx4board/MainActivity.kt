@@ -5,8 +5,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.media.projection.MediaProjectionManager
@@ -36,6 +38,7 @@ class MainActivity : FlutterActivity() {
     private val WIFI_CHANNEL   = "wifi"
     private val VOLUME_CHANNEL = "com.duckegg.nx4board/volume"
     private val VOLUME_EVENT_CHANNEL = "com.duckegg.nx4board/volumeEvents"
+    private val DEVICE_INFO_CHANNEL  = "com.duckegg.nx4board/device_info"
     private val SCREEN_RECORD_CHANNEL = "com.duckegg.nx4board/screenrecord"
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
@@ -185,6 +188,20 @@ class MainActivity : FlutterActivity() {
                 "getSSID"      -> handleGetSSID(result)
                 "openSettings" -> { /* 已由 Flutter 接管或待補 */ }
                 else           -> result.notImplemented()
+            }
+        }
+
+        // ── Device Info MethodChannel ────────────────────────────────────────
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, DEVICE_INFO_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getBatteryTemperature" -> {
+                    val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val raw = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                    result.success(if (raw >= 0) raw / 10.0 else null)
+                }
+                else -> result.notImplemented()
             }
         }
 
