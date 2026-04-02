@@ -70,7 +70,7 @@ class TtsService {
     _speedingAlerts[id] = now;
 
     final String limitPart = limit != null ? '速限$limit，' : '';
-    speak('$limitPart再不減速會罰錢');
+    speak('$limitPart泥再不減速就要噴錢錢摟');
   }
 
   /// 智慧報讀測速點

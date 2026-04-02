@@ -9,6 +9,7 @@ import '../services/settings_service.dart';
 import '../services/tts_service.dart';
 import '../services/speed_limit_service.dart';
 import '../services/road_type_service.dart';
+import '../services/device_status_service.dart';
 import 'dart:async';
 
 class AppProvider extends ChangeNotifier {
@@ -56,9 +57,9 @@ class AppProvider extends ChangeNotifier {
   int get serviceDistanceRemaining => _obdService.serviceDistanceRemaining;
   int get serviceDaysRemaining => _obdService.serviceDaysRemaining;
   List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;
-  List<String> get maintenanceLogHistoryHistory => _obdService.maintenanceLogHistory;
   Stream<String> get maintenanceLogStream => _obdService.maintenanceLogStream;
   bool get isWifiConnected => _isWifiConnected;
+  int? get deviceBatteryTemp => DeviceStatusService().batteryTemperature;
 
   /// Initialize app - load CSV data
   Future<void> initialize() async {
@@ -85,6 +86,9 @@ class AppProvider extends ChangeNotifier {
       // Initialize TTS Service
       await TtsService().init();
 
+      // Initialize Device Status Service (電池溫度等)
+      await DeviceStatusService().init();
+
       // Poll OBD state to update UI globally
       _obdStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
         final wifiOk = await WifiService.isConnected();
@@ -106,6 +110,7 @@ class AppProvider extends ChangeNotifier {
   void dispose() {
     _obdStatusTimer?.cancel();
     TtsService().dispose();
+    DeviceStatusService().dispose();
     super.dispose();
   }
 
@@ -156,9 +161,10 @@ class AppProvider extends ChangeNotifier {
     final camService = CameraService();
     camService.addPosition(position);
     final camInfo = camService.checkNearbyCamera();
-    
+
     if (camInfo != null) {
-      debugPrint('📸 CAMERA DETECTED: ${camInfo['name']}, Dist: ${camInfo['dist_m']}m');
+      debugPrint(
+          '📸 CAMERA DETECTED: ${camInfo['name']}, Dist: ${camInfo['dist_m']}m');
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
@@ -211,7 +217,8 @@ class AppProvider extends ChangeNotifier {
   Timer? _simulationTimer;
 
   void simulateSpeedCameraPath() {
-    debugPrint('🚀 AppProvider.simulateSpeedCameraPath called, current _isSimulating: $_isSimulating');
+    debugPrint(
+        '🚀 AppProvider.simulateSpeedCameraPath called, current _isSimulating: $_isSimulating');
     if (_isSimulating) {
       _isSimulating = false;
       _simulationTimer?.cancel();
@@ -227,12 +234,84 @@ class AppProvider extends ChangeNotifier {
 
     // 模擬座標序列：從北往南接近台中梧棲中華路一段 (24.236662, 120.548325)
     final List<Position> points = [
-      Position(latitude: 24.2458, longitude: 120.5525, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
-      Position(latitude: 24.2439, longitude: 120.5517, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
-      Position(latitude: 24.2419, longitude: 120.5506, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
-      Position(latitude: 24.2396, longitude: 120.5496, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
-      Position(latitude: 24.2389, longitude: 120.5494, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
-      Position(latitude: 24.2383, longitude: 120.5492, timestamp: DateTime.now(), accuracy: 1, altitude: 0, heading: 0, speed: 16.6, speedAccuracy: 1, floor: 0, isMocked: true, altitudeAccuracy: 0, headingAccuracy: 0),
+      Position(
+          latitude: 24.2458,
+          longitude: 120.5525,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
+      Position(
+          latitude: 24.2439,
+          longitude: 120.5517,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
+      Position(
+          latitude: 24.2419,
+          longitude: 120.5506,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
+      Position(
+          latitude: 24.2396,
+          longitude: 120.5496,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
+      Position(
+          latitude: 24.2389,
+          longitude: 120.5494,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
+      Position(
+          latitude: 24.2383,
+          longitude: 120.5492,
+          timestamp: DateTime.now(),
+          accuracy: 1,
+          altitude: 0,
+          heading: 0,
+          speed: 16.6,
+          speedAccuracy: 1,
+          floor: 0,
+          isMocked: true,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0),
     ];
 
     int index = 0;

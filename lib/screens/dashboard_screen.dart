@@ -532,6 +532,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (obd.hasHevSoc && provider.obdHevSoc != null)
         uploadData["battery"] = provider.obdHevSoc;
       uploadData["speed_limit"] = provider.roadSpeedLimit;
+      if (provider.deviceBatteryTemp != null) {
+        uploadData["device_temp"] = provider.deviceBatteryTemp;
+      }
 
       if (uploadData.length > 2) {
         // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態
@@ -582,7 +585,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     // ── 節流控管 (Throttle) ──
     final now = DateTime.now();
     if (_lastUiUpdateTime != null &&
-        now.difference(_lastUiUpdateTime!) < const Duration(milliseconds: 200)) {
+        now.difference(_lastUiUpdateTime!) <
+            const Duration(milliseconds: 200)) {
       return;
     }
     _lastUiUpdateTime = now;
@@ -628,8 +632,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (jsonMap.isNotEmpty) {
       final jsonString = jsonEncode(jsonMap);
       _webViewController?.evaluateJavascript(
-          source:
-              "if(window.updateDashboard) updateDashboard('$jsonString');");
+          source: "if(window.updateDashboard) updateDashboard('$jsonString');");
     }
   }
 
@@ -836,11 +839,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   // 錄影指示燈 (整合至右下角並縮小)
-                  if (_screenRecorder.recordingState == RecordingState.recording)
+                  if (_screenRecorder.recordingState ==
+                      RecordingState.recording)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.red.withValues(alpha: 0.8),
                           borderRadius: BorderRadius.circular(6),
@@ -1028,10 +1033,12 @@ class _StatusBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: (isActive ? activeColor : inactiveColor).withValues(alpha: 0.2),
+          color:
+              (isActive ? activeColor : inactiveColor).withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: (isActive ? activeColor : inactiveColor).withValues(alpha: 0.5),
+            color:
+                (isActive ? activeColor : inactiveColor).withValues(alpha: 0.5),
             width: 1,
           ),
         ),
