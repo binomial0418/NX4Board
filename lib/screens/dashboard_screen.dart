@@ -890,14 +890,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // WiFi 連線狀態 (原 WS 狀態)
+                  // WiFi 連線狀態 (Uplink)
                   Consumer<AppProvider>(
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
                         activeLabel: 'Uplink',
                         inactiveLabel: 'Uplink',
-                        activeColor: Colors.lightBlueAccent,
+                        activeColor: Colors.greenAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
                       );
