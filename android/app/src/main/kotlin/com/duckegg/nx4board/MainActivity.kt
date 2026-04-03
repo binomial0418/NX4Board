@@ -16,6 +16,7 @@ import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -200,6 +201,16 @@ class MainActivity : FlutterActivity() {
                     val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                     val raw = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
                     result.success(if (raw >= 0) raw / 10.0 else null)
+                }
+                "getThermalStatus" -> {
+                    // PowerManager.currentThermalStatus: Android 10+ (API 29)
+                    // 0=NONE, 1=LIGHT, 2=MODERATE, 3=SEVERE, 4=CRITICAL, 5=EMERGENCY, 6=SHUTDOWN
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        result.success(pm.currentThermalStatus)
+                    } else {
+                        result.success(0)
+                    }
                 }
                 else -> result.notImplemented()
             }
