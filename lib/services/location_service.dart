@@ -18,11 +18,11 @@ class LocationService {
 
   /// Start listening to position changes
   /// Returns a stream of Position updates
-  static Stream<Position> getPositionStream() {
+  static Stream<Position> getPositionStream({int distanceFilter = 10}) {
     return Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+      locationSettings: LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // Update every 10 meters
+        distanceFilter: distanceFilter,
       ),
     );
   }

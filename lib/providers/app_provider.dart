@@ -29,6 +29,7 @@ class AppProvider extends ChangeNotifier {
   final ObdSppService _obdService = ObdSppService();
   Timer? _obdStatusTimer;
   bool _isWifiConnected = false;
+  ThermalMode _lastThermalMode = ThermalMode.normal;
 
   // Getters
   List<SpeedSign> get allSpeedSigns => _allSpeedSigns;
@@ -60,6 +61,7 @@ class AppProvider extends ChangeNotifier {
   Stream<String> get maintenanceLogStream => _obdService.maintenanceLogStream;
   bool get isWifiConnected => _isWifiConnected;
   double? get deviceBatteryTemp => DeviceStatusService().batteryTemperature;
+  ThermalMode get thermalMode => DeviceStatusService().thermalMode;
 
   /// Initialize app - load CSV data
   Future<void> initialize() async {
@@ -91,11 +93,22 @@ class AppProvider extends ChangeNotifier {
 
       // Poll OBD state to update UI globally
       _obdStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+        bool changed = false;
+
         final wifiOk = await WifiService.isConnected();
         if (wifiOk != _isWifiConnected) {
           _isWifiConnected = wifiOk;
-          notifyListeners();
+          changed = true;
         }
+
+        final currentMode = DeviceStatusService().thermalMode;
+        if (currentMode != _lastThermalMode) {
+          _lastThermalMode = currentMode;
+          debugPrint('[AppProvider] 熱模式變更 → ${currentMode.name}');
+          changed = true;
+        }
+
+        if (changed) notifyListeners();
       });
 
       notifyListeners();

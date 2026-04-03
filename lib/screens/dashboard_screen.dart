@@ -12,6 +12,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import '../providers/app_provider.dart';
+import '../services/device_status_service.dart';
 import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../services/obd_spp_service.dart';
@@ -52,6 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- WebView & WebSocket ---
   InAppWebViewController? _webViewController;
   WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _wsSubscription;
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
   bool _isWsConnecting = false; // 防止重複連線
@@ -74,6 +76,16 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
   Timer? _recordingStateTimer;
+  RecordingState _lastRecordingState = RecordingState.idle;
+  int _lastRemainingSeconds = 0;
+
+  // --- 散熱管理 ---
+  // 記錄 GPS 串流目前使用的 distanceFilter，與 _thermalDistanceFilter 比對
+  // 即可判斷是否需重啟，不在 DashboardScreen 重複維護 ThermalMode 狀態
+  int _currentGpsDistanceFilter = 10;
+
+  // --- AppProvider 參考（dispose 時不可依賴 BuildContext）---
+  late AppProvider _appProvider;
 
   @override
   void initState() {
@@ -87,11 +99,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _screenRecorder = ScreenRecorderService();
+    _appProvider = context.read<AppProvider>();
     _initializeWidgets();
     // 註冊 OBD 數據更新監聽器 (事件驅動)
     ObdSppService().addListener(_handleUiUpdate);
     // 註冊 AppProvider 資料更新監聽器 (GPS/測速)
-    context.read<AppProvider>().addListener(_handleUiUpdate);
+    _appProvider.addListener(_handleUiUpdate);
     // 監聽錄影狀態變化
     _startRecordingStateMonitoring();
   }
@@ -260,9 +273,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // GPS 定位追蹤
   // ──────────────────────────────────────────────
-  void _startLocationTracking() {
+  void _startLocationTracking({int distanceFilter = 10}) {
+    _currentGpsDistanceFilter = distanceFilter;
     _positionSubscription?.cancel();
-    _positionSubscription = LocationService.getPositionStream().listen(
+    _positionSubscription =
+        LocationService.getPositionStream(distanceFilter: distanceFilter)
+            .listen(
       (Position position) {
         if (mounted) {
           final appProvider = context.read<AppProvider>();
@@ -277,11 +293,19 @@ class _DashboardScreenState extends State<DashboardScreen>
         _positionSubscription = null;
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted && _isCharging == true) {
-            _startLocationTracking();
+            _startLocationTracking(distanceFilter: _thermalDistanceFilter);
           }
         });
       },
     );
+  }
+
+  /// 以當前散熱等級對應的 distanceFilter 重啟 GPS 串流
+  void _restartLocationForThermal() {
+    if (_positionSubscription == null) return; // GPS 未運行，不需重啟
+    final filter = _thermalDistanceFilter;
+    debugPrint('[Thermal] GPS distanceFilter → ${filter}m');
+    _startLocationTracking(distanceFilter: filter);
   }
 
   // ──────────────────────────────────────────────
@@ -341,14 +365,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    // 啟動/恢復 GPS（若串流已終止則重建）
+    // 啟動/恢復 GPS（若串流已終止則重建，使用當前散熱等級對應的 distanceFilter）
     if (_positionSubscription == null) {
-      _startLocationTracking();
+      _startLocationTracking(distanceFilter: _thermalDistanceFilter);
     } else if (_positionSubscription!.isPaused) {
       _positionSubscription!.resume();
     } else {
       // 串流可能已因錯誤終止（done），強制重建
-      _startLocationTracking();
+      _startLocationTracking(distanceFilter: _thermalDistanceFilter);
     }
 
     // 重連 OBD
@@ -436,7 +460,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       final ip = SettingsService().wsIp;
       final port = SettingsService().wsPort;
 
-      // 先關閉舊 channel，防止 channel 洩漏
+      // 先取消舊訂閱、關閉舊 channel，防止 StreamSubscription 洩漏
+      _wsSubscription?.cancel();
+      _wsSubscription = null;
       _channel?.sink.close();
       _channel = null;
 
@@ -447,7 +473,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (mounted) setState(() => _isWsConnected = true);
       debugPrint('[WS] 已連接: ws://$ip:$port');
 
-      _channel!.stream.listen(
+      _wsSubscription = _channel!.stream.listen(
         (message) {
           // 收到伺服器下推的訊息，轉發到 WebView
           _webViewController?.evaluateJavascript(
@@ -571,8 +597,49 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // 同步 BLE 資料至 WebView
   // ──────────────────────────────────────────────
+  /// 速度來源：OBD 優先，GPS 備援（低於 1.5 m/s 視為靜止歸零）
+  double get _currentDisplaySpeed {
+    final provider = context.read<AppProvider>();
+    if (provider.obdSpeed != null) return provider.obdSpeed!.toDouble();
+    final position = provider.currentPosition;
+    if (position != null) {
+      final gpsSpeed = position.speed * 3.6;
+      return gpsSpeed > 1.5 ? gpsSpeed : 0.0;
+    }
+    return 0.0;
+  }
+
+  /// 根據散熱等級決定 WebView 更新節流間隔
+  Duration get _uiThrottleDuration {
+    switch (context.read<AppProvider>().thermalMode) {
+      case ThermalMode.hot:
+        return const Duration(milliseconds: 1000);
+      case ThermalMode.warm:
+        return const Duration(milliseconds: 500);
+      default:
+        return const Duration(milliseconds: 300);
+    }
+  }
+
+  /// 散熱等級對應的 GPS distanceFilter（公尺）
+  int get _thermalDistanceFilter {
+    switch (context.read<AppProvider>().thermalMode) {
+      case ThermalMode.hot:
+        return 30;
+      case ThermalMode.warm:
+        return 20;
+      default:
+        return 10;
+    }
+  }
+
   void _handleUiUpdate() {
     if (!mounted) return;
+
+    // ── 散熱模式變化偵測：distanceFilter 與目前 GPS 串流不同時重啟 ──
+    if (_isCharging == true && _thermalDistanceFilter != _currentGpsDistanceFilter) {
+      _restartLocationForThermal();
+    }
 
     final obd = ObdSppService();
     // 檢查是否有 WAKEUP 旗標，若有則發送動畫指令
@@ -582,11 +649,10 @@ class _DashboardScreenState extends State<DashboardScreen>
               "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');");
     }
 
-    // ── 節流控管 (Throttle) ──
+    // ── 節流控管 (Throttle)：依散熱等級動態調整 ──
     final now = DateTime.now();
     if (_lastUiUpdateTime != null &&
-        now.difference(_lastUiUpdateTime!) <
-            const Duration(milliseconds: 200)) {
+        now.difference(_lastUiUpdateTime!) < _uiThrottleDuration) {
       return;
     }
     _lastUiUpdateTime = now;
@@ -596,15 +662,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final Map<String, dynamic> jsonMap = {};
     jsonMap["enableOcr"] = SettingsService().enableOcr;
 
-    // --- 速度來源處理 (OBD 優先，GPS 備援) ---
-    double displaySpeed = 0.0;
-    if (provider.obdSpeed != null) {
-      displaySpeed = provider.obdSpeed!.toDouble();
-    } else if (provider.currentPosition != null) {
-      final gpsSpeed = provider.currentPosition!.speed * 3.6;
-      displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
-    }
-    jsonMap["speed"] = displaySpeed.round();
+    jsonMap["speed"] = _currentDisplaySpeed.round();
     jsonMap["rpm"] = provider.obdRpm;
     jsonMap["temperature"] = provider.obdCoolant;
     jsonMap["fl_pressure"] = provider.tpmsFl;
@@ -653,19 +711,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final provider = context.read<AppProvider>();
 
-    // 速度來源：OBD 優先，GPS 備援
-    double displaySpeed = 0.0;
-    if (provider.obdSpeed != null) {
-      displaySpeed = provider.obdSpeed!.toDouble();
-    } else if (provider.currentPosition != null) {
-      final gpsSpeed = provider.currentPosition!.speed * 3.6;
-      displaySpeed = gpsSpeed > 1.5 ? gpsSpeed : 0.0;
-    }
-
     final Map<String, dynamic> alertData = {
       "_type": "camera_alert",
       "tid": "obd",
-      "speed": displaySpeed.round(),
+      "speed": _currentDisplaySpeed.round(),
       "camera_limit": camInfo['limit'],
       "speed_limit": provider.roadSpeedLimit,
       "address": camInfo['address'],
@@ -761,6 +810,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void dispose() {
     _positionSubscription?.cancel();
     _batterySubscription?.cancel();
+    _wsSubscription?.cancel();
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _wsUploadTimer?.cancel();
@@ -768,9 +818,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 移除 OBD 數據監聽器
     ObdSppService().removeListener(_handleUiUpdate);
     // 移除 AppProvider 數據監聽器
-    if (mounted) {
-      context.read<AppProvider>().removeListener(_handleUiUpdate);
-    }
+    _appProvider.removeListener(_handleUiUpdate);
     _pulseController.dispose();
     _channel?.sink.close();
     // OBD 斷線（釋放藍牙連線與停止輪詢）
@@ -787,14 +835,31 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _startRecordingStateMonitoring() {
-    RecordingState lastState = _screenRecorder.recordingState;
-    _recordingStateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _lastRecordingState = _screenRecorder.recordingState;
+    _scheduleRecordingCheck();
+  }
+
+  void _scheduleRecordingCheck() {
+    _recordingStateTimer?.cancel();
+    final isRecording =
+        _screenRecorder.recordingState == RecordingState.recording;
+    // 錄影中每 1 秒更新倒數；非錄影時 5 秒檢查一次即可
+    final interval = isRecording
+        ? const Duration(seconds: 1)
+        : const Duration(seconds: 5);
+    _recordingStateTimer = Timer(interval, () {
       if (!mounted) return;
       final current = _screenRecorder.recordingState;
-      if (current == RecordingState.recording || current != lastState) {
-        lastState = current;
+      final remaining = _screenRecorder.remainingSeconds;
+      final stateChanged = current != _lastRecordingState;
+      final secondsChanged =
+          current == RecordingState.recording && remaining != _lastRemainingSeconds;
+      if (stateChanged || secondsChanged) {
+        _lastRecordingState = current;
+        _lastRemainingSeconds = remaining;
         setState(() {});
       }
+      _scheduleRecordingCheck();
     });
   }
 

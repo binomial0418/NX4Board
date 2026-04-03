@@ -12,7 +12,7 @@ class WifiService {
       final raw = await _channel.invokeMethod<String>('getSSID');
       final current = raw?.replaceAll('"', '').trim() ?? '';
       if (current == '<unknown ssid>' || current.isEmpty) return false;
-      return current.startsWith(_ssidPrefix);
+      return current.toLowerCase().startsWith(_ssidPrefix.toLowerCase());
     } catch (e) {
       debugPrint('[WiFi] isConnected error: $e');
       return false;
