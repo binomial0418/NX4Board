@@ -5,3 +5,16 @@ build/
 .packages
 pubspec.lock
 .DS_Store
+esp32_relay_gateway/config.h
+esp32_buffer_gateway/config.h
+speed_camera/
+assets/cd_bak0318.html
+deploy.sh
+uploadToG.py
+build_error.log
+PROGRESS.md
+CLAUDE.md
+app-release.apk
+devtools_options.yaml
+pr.md
+pr_diff.txt
