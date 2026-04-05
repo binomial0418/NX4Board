@@ -28,7 +28,6 @@ dependencies:
   cupertino_icons: ^1.0.2
   image: ^4.8.0
   package_info_plus: ^9.0.0
-  flutter_inappwebview: ^6.1.5
   web_socket_channel: ^3.0.3
   battery_plus: ^7.0.0
   wakelock_plus: ^1.4.0

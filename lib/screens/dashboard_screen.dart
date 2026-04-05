@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -19,6 +18,7 @@ import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
 import '../services/screen_recorder_service.dart';
 import 'settings_screen.dart';
+import '../widgets/native_dashboard.dart';
 
 // Foreground Task Handler（必須為 top-level function）
 @pragma('vm:entry-point')
@@ -50,14 +50,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  // --- WebView & WebSocket ---
-  InAppWebViewController? _webViewController;
+  // --- WebSocket ---
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _wsSubscription;
   Timer? _reconnectTimer;
   bool _isWsConnected = false; // WebSocket 連線狀態
   bool _isWsConnecting = false; // 防止重複連線
-  DateTime? _lastUiUpdateTime;
   Timer? _wsUploadTimer;
 
   // --- 電源管理 ---
@@ -394,10 +392,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _sendObdDataViaWsOnce();
         _handleUiUpdate(); // 強制刷一次 UI
 
-        // 傳送 WAKEUP 指令觸發圓盤動畫
-        _webViewController?.evaluateJavascript(
-            source:
-                "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');");
+        // Wakeup animation is handled by NativeDashboard's OBD listener
       }
     });
   }
@@ -475,10 +470,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       _wsSubscription = _channel!.stream.listen(
         (message) {
-          // 收到伺服器下推的訊息，轉發到 WebView
-          _webViewController?.evaluateJavascript(
-              source:
-                  "if(window.updateDashboard) updateDashboard('$message');");
+          // 伺服器下推訊息（保留供未來擴充）
+          debugPrint('[WS] server push: $message');
         },
         onDone: () {
           debugPrint('[WS] 連線中斷 (onDone)');
@@ -609,33 +602,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     return 0.0;
   }
 
-  /// 根據散熱等級與 RPM 決定 WebView 更新節流間隔（取兩者中較慢的）
-  Duration get _uiThrottleDuration {
-    int thermalMs;
-    switch (context.read<AppProvider>().thermalMode) {
-      case ThermalMode.hot:
-        thermalMs = 1000;
-        break;
-      case ThermalMode.warm:
-        thermalMs = 500;
-        break;
-      default:
-        thermalMs = 300;
-    }
-
-    final int? currentRpm = ObdSppService().rpm;
-    final int rpmMs;
-    if (currentRpm == null || currentRpm < 1000) {
-      rpmMs = 1000;
-    } else if (currentRpm <= 1800) {
-      rpmMs = 500;
-    } else {
-      rpmMs = 300;
-    }
-
-    return Duration(milliseconds: thermalMs > rpmMs ? thermalMs : rpmMs);
-  }
-
   /// 散熱等級對應的 GPS distanceFilter（公尺）
   int get _thermalDistanceFilter {
     switch (context.read<AppProvider>().thermalMode) {
@@ -656,56 +622,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       _restartLocationForThermal();
     }
 
-    final obd = ObdSppService();
-    // 檢查是否有 WAKEUP 旗標，若有則發送動畫指令
-    if (obd.shouldTriggerWakeup) {
-      _webViewController?.evaluateJavascript(
-          source:
-              "if(window.updateDashboard) updateDashboard('{\"type\":\"WAKEUP\"}');");
-    }
-
-    // ── 節流控管 (Throttle)：依散熱等級動態調整 ──
-    final now = DateTime.now();
-    if (_lastUiUpdateTime != null &&
-        now.difference(_lastUiUpdateTime!) < _uiThrottleDuration) {
-      return;
-    }
-    _lastUiUpdateTime = now;
-
+    // 偵測到測速照相時立即後送 WS
     final provider = context.read<AppProvider>();
-
-    final Map<String, dynamic> jsonMap = {};
-    jsonMap["enableOcr"] = SettingsService().enableOcr;
-
-    jsonMap["speed"] = _currentDisplaySpeed.round();
-    jsonMap["rpm"] = provider.obdRpm;
-    jsonMap["temperature"] = provider.obdCoolant;
-    jsonMap["fl_pressure"] = provider.tpmsFl;
-    jsonMap["fr_pressure"] = provider.tpmsFr;
-    jsonMap["rl_pressure"] = provider.tpmsRl;
-    jsonMap["rr_pressure"] = provider.tpmsRr;
-    jsonMap["battery"] = provider.obdHevSoc;
-    jsonMap["odometer"] = provider.obdOdometer;
-    jsonMap["odo"] = provider.obdOdometer;
-    jsonMap["fuelLevel"] = provider.obdFuel;
-    jsonMap["turbo"] = provider.obdTurbo;
-    jsonMap["serviceDistance"] = provider.serviceDistanceRemaining;
-    jsonMap["serviceDays"] = provider.serviceDaysRemaining;
-
-    // 測速照相
     if (provider.nearestCameraInfo != null) {
-      jsonMap["cameraInfo"] = provider.nearestCameraInfo;
-      // 偵測到測速照相時立即後送 WS
       _sendCameraAlertViaWs(provider.nearestCameraInfo!);
-    }
-
-    jsonMap["limit"] = provider.currentSpeedLimit;
-    jsonMap["road_limit"] = provider.roadSpeedLimit;
-
-    if (jsonMap.isNotEmpty) {
-      final jsonString = jsonEncode(jsonMap);
-      _webViewController?.evaluateJavascript(
-          source: "if(window.updateDashboard) updateDashboard('$jsonString');");
     }
   }
 
@@ -888,27 +808,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // 上層：全螢幕 Dashboard HTML
-            Positioned.fill(
-              child: InAppWebView(
-                initialFile: "assets/cd.html",
-                initialSettings: InAppWebViewSettings(
-                  transparentBackground: true,
-                  disableHorizontalScroll: true,
-                  disableVerticalScroll: true,
-                  supportZoom: false,
-                  allowFileAccessFromFileURLs: true,
-                  allowUniversalAccessFromFileURLs: true,
-                ),
-                onWebViewCreated: (controller) {
-                  _webViewController = controller;
-                },
-                onConsoleMessage: (controller, consoleMessage) {
-                  debugPrint(
-                      "WebView [${consoleMessage.messageLevel}]: ${consoleMessage.message}");
-                },
-              ),
-            ),
+            // 原生儀表板
+            const Positioned.fill(child: NativeDashboard()),
 
             // 狀態指示區塊（右側）
             Positioned(
