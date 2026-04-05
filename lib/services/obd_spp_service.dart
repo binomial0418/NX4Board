@@ -917,11 +917,7 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
 
-    _fastPollTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
-      if (!_isConnected) return;
-      // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
-      sendCommand('010B0C0D');
-    });
+    _scheduleFastPoll();
 
     // HEV SOC 每 5 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
     _slowPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -946,6 +942,24 @@ class ObdSppService with ChangeNotifier {
       sendCommand('ATSH7C6');
       sendCommand('22B002');
       sendCommand('ATSH7DF');
+    });
+  }
+
+  void _scheduleFastPoll() {
+    final int intervalMs;
+    final int? currentRpm = rpm;
+    if (currentRpm == null || currentRpm < 1000) {
+      intervalMs = 1000;
+    } else if (currentRpm <= 1800) {
+      intervalMs = 500;
+    } else {
+      intervalMs = 300;
+    }
+    _fastPollTimer = Timer(Duration(milliseconds: intervalMs), () {
+      if (!_isConnected) return;
+      // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
+      sendCommand('010B0C0D');
+      _scheduleFastPoll();
     });
   }
 }
