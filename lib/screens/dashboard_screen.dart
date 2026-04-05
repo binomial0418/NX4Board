@@ -609,16 +609,31 @@ class _DashboardScreenState extends State<DashboardScreen>
     return 0.0;
   }
 
-  /// 根據散熱等級決定 WebView 更新節流間隔
+  /// 根據散熱等級與 RPM 決定 WebView 更新節流間隔（取兩者中較慢的）
   Duration get _uiThrottleDuration {
+    int thermalMs;
     switch (context.read<AppProvider>().thermalMode) {
       case ThermalMode.hot:
-        return const Duration(milliseconds: 1000);
+        thermalMs = 1000;
+        break;
       case ThermalMode.warm:
-        return const Duration(milliseconds: 500);
+        thermalMs = 500;
+        break;
       default:
-        return const Duration(milliseconds: 300);
+        thermalMs = 300;
     }
+
+    final int? currentRpm = ObdSppService().rpm;
+    final int rpmMs;
+    if (currentRpm == null || currentRpm < 1000) {
+      rpmMs = 1000;
+    } else if (currentRpm <= 1800) {
+      rpmMs = 500;
+    } else {
+      rpmMs = 300;
+    }
+
+    return Duration(milliseconds: thermalMs > rpmMs ? thermalMs : rpmMs);
   }
 
   /// 散熱等級對應的 GPS distanceFilter（公尺）
