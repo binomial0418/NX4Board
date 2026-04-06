@@ -74,7 +74,9 @@ class _NativeDashboardState extends State<NativeDashboard>
     _timeStr = _fmtTime(DateTime.now());
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
-      (_) { if (mounted) setState(() => _timeStr = _fmtTime(DateTime.now())); },
+      (_) {
+        if (mounted) setState(() => _timeStr = _fmtTime(DateTime.now()));
+      },
     );
     _cameraCheckTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -203,7 +205,8 @@ class _NativeDashboardState extends State<NativeDashboard>
     // Card highlights
     _maybeHighlight('battery', provider.obdHevSoc, 'battery');
     _maybeHighlight('temp', provider.obdCoolant, 'temp');
-    _maybeHighlight('tpms',
+    _maybeHighlight(
+        'tpms',
         '${provider.tpmsFl}${provider.tpmsFr}${provider.tpmsRl}${provider.tpmsRr}',
         'tpms');
     _maybeHighlight('odo', provider.obdOdometer, 'odofuel');
@@ -591,7 +594,8 @@ class _NativeDashboardState extends State<NativeDashboard>
                 Positioned(
                   top: 40,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.orange.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(8),
@@ -611,7 +615,7 @@ class _NativeDashboardState extends State<NativeDashboard>
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 140),
+                padding: const EdgeInsets.only(top: 150),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -619,7 +623,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                     Text(
                       speedInt.toString(),
                       style: TextStyle(
-                        fontSize: bigSpeed ? 210 : 380,
+                        fontSize: bigSpeed ? 340 : 380,
                         fontWeight: FontWeight.w900,
                         color: isOverLimit
                             ? const Color(0xffffcccc)
@@ -649,16 +653,15 @@ class _NativeDashboardState extends State<NativeDashboard>
                                   ? 'EV'
                                   : rpm.toString(),
                           style: TextStyle(
-                            fontSize: 130,
+                            fontSize: 160,
                             fontWeight: FontWeight.bold,
                             color: isEv
                                 ? const Color(0xff4ade80) // green-400
                                 : rpm == null
                                     ? const Color(0xff6b7280)
                                     : const Color(0xff60a5fa), // blue-400
-                            fontStyle: isEv
-                                ? FontStyle.italic
-                                : FontStyle.normal,
+                            fontStyle:
+                                isEv ? FontStyle.italic : FontStyle.normal,
                             height: 1.0,
                           ),
                         ),
@@ -959,7 +962,7 @@ class _SpeedDialPainter extends CustomPainter {
   static const _maxSpeed = 180.0;
   // Arc: 270° starting at -225° (bottom-left, clockwise to bottom-right)
   static const _startAngle = -225 * math.pi / 180; // -5π/4
-  static const _sweepFull = 270 * math.pi / 180;   // 3π/2
+  static const _sweepFull = 270 * math.pi / 180; // 3π/2
 
   const _SpeedDialPainter({required this.speed});
 
