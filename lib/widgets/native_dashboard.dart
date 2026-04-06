@@ -695,7 +695,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(40, 8, 40, 32),
+      padding: const EdgeInsets.fromLTRB(80, 8, 370, 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -703,7 +703,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           Text(
             '$sign${turbo.toStringAsFixed(2)} BAR',
             style: const TextStyle(
-              fontSize: 72,
+              fontSize: 110,
               fontWeight: FontWeight.w900,
               color: Colors.white,
               height: 1.0,
@@ -713,7 +713,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           // Bar
           SizedBox(
             height: 60, // extra height for zero-line overflow
-            width: 920,
+            width: 750,
             child: CustomPaint(
               painter: _TurboBarPainter(
                 turbo: turbo,
@@ -724,7 +724,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           const SizedBox(height: 4),
           // Tick labels
           SizedBox(
-            width: 920,
+            width: 750,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
