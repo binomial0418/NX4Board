@@ -292,14 +292,17 @@ class _NativeDashboardState extends State<NativeDashboard>
               borderColor: const Color(0xfffb923c), // orange-400
               highlightCtrl: null,
               child: Center(
-                child: Text(
-                  _timeStr,
-                  style: const TextStyle(
-                    fontSize: 160,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xffd1d5db), // gray-300
-                    letterSpacing: 4,
-                    height: 0.85,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _timeStr,
+                    style: const TextStyle(
+                      fontSize: 200,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xffd1d5db), // gray-300
+                      letterSpacing: -2,
+                      height: 0.85,
+                    ),
                   ),
                 ),
               ),
@@ -762,14 +765,18 @@ class _NativeDashboardState extends State<NativeDashboard>
       textBaseline: TextBaseline.alphabetic,
       children: [
         Flexible(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 160,
-              fontWeight: FontWeight.w900,
-              color: valueColor,
-              height: 1.0,
-              letterSpacing: -2,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.bottomLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 200,
+                fontWeight: FontWeight.w900,
+                color: valueColor,
+                height: 1.0,
+                letterSpacing: -2,
+              ),
             ),
           ),
         ),
