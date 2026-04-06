@@ -59,7 +59,11 @@ class AppProvider extends ChangeNotifier {
       _isDemoEnabled ? ObdConnectionState.connected : _obdService.connectionState;
 
   int? get obdRpm => _isDemoEnabled ? _demoRpm.toInt() : _obdService.rpm;
-  int? get obdSpeed => _isDemoEnabled ? _demoSpeed.toInt() : _obdService.speed;
+  int? get obdSpeed {
+    final rawSpeed = _isDemoEnabled ? _demoSpeed.toInt() : _obdService.speed;
+    if (rawSpeed == null || rawSpeed <= 0) return rawSpeed;
+    return rawSpeed + 3;
+  }
   int? get obdCoolant => _isDemoEnabled ? _demoCoolant : _obdService.coolantTemp;
   double? get obdVoltage => _isDemoEnabled ? 14.2 : _obdService.voltage;
   double? get obdHevSoc => _isDemoEnabled ? _demoSoc : _obdService.hevSoc;
@@ -247,10 +251,10 @@ class AppProvider extends ChangeNotifier {
       final double speedKmh = position.speed * 3.6;
       TtsService().speakCameraAlert(camInfo, speedKmh);
 
-      // 距離 500m 內且超速 → 額外播報超速警示
+      // 距離 500m 內且超速 10km/h 以上 → 額外播報超速警示
       final int distM = camInfo['dist_m'] ?? 9999;
       final int? limit = camInfo['limit'];
-      if (distM <= 500 && limit != null && speedKmh > limit) {
+      if (distM <= 500 && limit != null && speedKmh > limit + 10) {
         TtsService().speakSpeedingAlert(camInfo);
       }
     } else {
