@@ -103,6 +103,7 @@ class AppProvider extends ChangeNotifier {
 
       // Initialize BLE Service
       await _obdService.init();
+      _obdService.addListener(_onObdServiceUpdated);
 
       // Initialize TTS Service
       await TtsService().init();
@@ -138,8 +139,13 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  void _onObdServiceUpdated() {
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    _obdService.removeListener(_onObdServiceUpdated);
     _obdStatusTimer?.cancel();
     _demoTimer?.cancel();
     TtsService().dispose();
