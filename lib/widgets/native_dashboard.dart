@@ -695,7 +695,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(80, 8, 370, 32),
+      padding: const EdgeInsets.fromLTRB(180, 8, 270, 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
