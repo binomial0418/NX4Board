@@ -369,16 +369,16 @@ class _NativeDashboardState extends State<NativeDashboard>
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      tpmsVal(p.tpmsFl),
+                      SizedBox(width: 180, child: tpmsVal(p.tpmsFl)),
                       tpmsVal(p.tpmsFr),
                     ],
                   ),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      tpmsVal(p.tpmsRl),
+                      SizedBox(width: 180, child: tpmsVal(p.tpmsRl)),
                       tpmsVal(p.tpmsRr),
                     ],
                   ),
