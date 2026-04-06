@@ -582,9 +582,33 @@ class _NativeDashboardState extends State<NativeDashboard>
                 padding: const EdgeInsets.fromLTRB(0, 0, 0, 20),
                 child: _AnimatedDial(speed: speed),
               ),
+
+              // Demo Mode Badge
+              if (p.isDemoEnabled)
+                Positioned(
+                  top: 40,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Text(
+                      'DEMO MODE',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                ),
+
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 60),
+                padding: const EdgeInsets.only(top: 80),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -592,13 +616,13 @@ class _NativeDashboardState extends State<NativeDashboard>
                     Text(
                       speedInt.toString(),
                       style: TextStyle(
-                        fontSize: bigSpeed ? 260 : 380,
+                        fontSize: bigSpeed ? 210 : 380,
                         fontWeight: FontWeight.w900,
                         color: isOverLimit
                             ? const Color(0xffffcccc)
                             : Colors.white,
                         height: 0.9,
-                        letterSpacing: -4,
+                        letterSpacing: bigSpeed ? -10 : -4,
                         shadows: isOverLimit
                             ? [
                                 Shadow(
@@ -612,7 +636,8 @@ class _NativeDashboardState extends State<NativeDashboard>
                     // RPM row
                     Row(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
                           rpm == null
@@ -740,7 +765,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           child: Text(
             value,
             style: TextStyle(
-              fontSize: 180,
+              fontSize: 160,
               fontWeight: FontWeight.w900,
               color: valueColor,
               height: 1.0,
