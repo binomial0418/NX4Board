@@ -946,16 +946,8 @@ class ObdSppService with ChangeNotifier {
   }
 
   void _scheduleFastPoll() {
-    final int intervalMs;
-    final int? currentRpm = rpm;
-    if (currentRpm == null || currentRpm < 1000) {
-      intervalMs = 1000;
-    } else if (currentRpm <= 1800) {
-      intervalMs = 500;
-    } else {
-      intervalMs = 300;
-    }
-    _fastPollTimer = Timer(Duration(milliseconds: intervalMs), () {
+    const int intervalMs = 300;
+    _fastPollTimer = Timer(const Duration(milliseconds: intervalMs), () {
       if (!_isConnected) return;
       // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
       sendCommand('010B0C0D');

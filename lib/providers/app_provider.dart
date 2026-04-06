@@ -11,6 +11,7 @@ import '../services/speed_limit_service.dart';
 import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
 import 'dart:async';
+import 'dart:math' as math;
 
 class AppProvider extends ChangeNotifier {
   List<SpeedSign> _allSpeedSigns = [];
@@ -31,6 +32,18 @@ class AppProvider extends ChangeNotifier {
   bool _isWifiConnected = false;
   ThermalMode _lastThermalMode = ThermalMode.normal;
 
+  // ── UI Demo Mode ────────────────────────────────────────────────────────
+  bool _isDemoEnabled = false;
+  Timer? _demoTimer;
+  double _demoSpeed = 0;
+  double _demoRpm = 0;
+  double _demoTurbo = 0;
+  double _demoSoc = 65.5;
+  int _demoCoolant = 88;
+  int _demoTicks = 0;
+
+  bool get isDemoEnabled => _isDemoEnabled;
+
   // Getters
   List<SpeedSign> get allSpeedSigns => _allSpeedSigns;
   Position? get currentPosition => _currentPosition;
@@ -41,20 +54,22 @@ class AppProvider extends ChangeNotifier {
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
 
-  // Obd getters
-  ObdConnectionState get obdConnectionState => _obdService.connectionState;
-  int? get obdRpm => _obdService.rpm;
-  int? get obdSpeed => _obdService.speed;
-  int? get obdCoolant => _obdService.coolantTemp;
-  double? get obdVoltage => _obdService.voltage;
-  double? get obdHevSoc => _obdService.hevSoc;
+  // Obd getters (Modified for Demo Mode)
+  ObdConnectionState get obdConnectionState =>
+      _isDemoEnabled ? ObdConnectionState.connected : _obdService.connectionState;
+
+  int? get obdRpm => _isDemoEnabled ? _demoRpm.toInt() : _obdService.rpm;
+  int? get obdSpeed => _isDemoEnabled ? _demoSpeed.toInt() : _obdService.speed;
+  int? get obdCoolant => _isDemoEnabled ? _demoCoolant : _obdService.coolantTemp;
+  double? get obdVoltage => _isDemoEnabled ? 14.2 : _obdService.voltage;
+  double? get obdHevSoc => _isDemoEnabled ? _demoSoc : _obdService.hevSoc;
   double? get obdOdometer => _obdService.odometer;
-  int? get obdFuel => _obdService.fuelLevel;
-  double? get obdTurbo => _obdService.turbo;
-  int? get tpmsFl => _obdService.tpmsFl?.floor();
-  int? get tpmsFr => _obdService.tpmsFr?.floor();
-  int? get tpmsRl => _obdService.tpmsRl?.floor();
-  int? get tpmsRr => _obdService.tpmsRr?.floor();
+  int? get obdFuel => _isDemoEnabled ? 75 : _obdService.fuelLevel;
+  double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
+  int? get tpmsFl => _isDemoEnabled ? 35 : _obdService.tpmsFl?.floor();
+  int? get tpmsFr => _isDemoEnabled ? 36 : _obdService.tpmsFr?.floor();
+  int? get tpmsRl => _isDemoEnabled ? 35 : _obdService.tpmsRl?.floor();
+  int? get tpmsRr => _isDemoEnabled ? 35 : _obdService.tpmsRr?.floor();
   int get serviceDistanceRemaining => _obdService.serviceDistanceRemaining;
   int get serviceDaysRemaining => _obdService.serviceDaysRemaining;
   List<String> get maintenanceLogHistory => _obdService.maintenanceLogHistory;
@@ -122,9 +137,49 @@ class AppProvider extends ChangeNotifier {
   @override
   void dispose() {
     _obdStatusTimer?.cancel();
+    _demoTimer?.cancel();
     TtsService().dispose();
     DeviceStatusService().dispose();
     super.dispose();
+  }
+
+  // ── Demo Mode Logic ──────────────────────────────────────────────────────
+  void toggleDemoMode() {
+    _isDemoEnabled = !_isDemoEnabled;
+    if (_isDemoEnabled) {
+      _startDemoTimer();
+      _status = 'Demo Mode: ON';
+    } else {
+      _demoTimer?.cancel();
+      _status = 'Demo Mode: OFF';
+    }
+    notifyListeners();
+  }
+
+  void _startDemoTimer() {
+    _demoTimer?.cancel();
+    _demoTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      _demoTicks++;
+      
+      // 模擬時速：正弦波 60 ~ 130
+      _demoSpeed = 95 + 35 * (math.sin(_demoTicks * 0.05));
+      
+      // 模擬轉速：與時速相關 + 抖動
+      _demoRpm = 1200 + (_demoSpeed * 15) + (math.sin(_demoTicks * 0.2) * 50);
+      
+      // 模擬增壓：-0.4 ~ 1.5
+      _demoTurbo = 0.5 + 1.0 * (math.sin(_demoTicks * 0.12));
+      
+      // 模擬電池：60.0 ~ 80.0
+      _demoSoc = 70.0 + 10.0 * (math.cos(_demoTicks * 0.02));
+      
+      // 模擬水溫：88 與 101 之間循環切換 (每 3 秒切換一次)
+      if (_demoTicks % 30 == 0) {
+        _demoCoolant = (_demoCoolant == 88) ? 101 : 88;
+      }
+
+      notifyListeners();
+    });
   }
 
   /// Update current position and find nearby speed signs

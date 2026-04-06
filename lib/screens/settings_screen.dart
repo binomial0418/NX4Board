@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
@@ -350,6 +352,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _enableOcr = val);
                         await SettingsService().setEnableOcr(val);
                       },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Consumer<AppProvider>(
+                      builder: (context, provider, child) => SwitchListTile(
+                        title: const Text('UI 模擬模式 (Demo Mode)',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: const Text('啟動後將使用模擬數據測試 UI 效果，離線狀態亦可預覽三位數時速。'),
+                        secondary: const Icon(Icons.speed, color: Colors.blueAccent),
+                        value: provider.isDemoEnabled,
+                        onChanged: (val) {
+                          provider.toggleDemoMode();
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
