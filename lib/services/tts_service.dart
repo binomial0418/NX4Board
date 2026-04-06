@@ -12,10 +12,10 @@ class TtsService {
   final FlutterTts _flutterTts = FlutterTts();
   // volume_controller 使用 listener 回呼，不需要 StreamSubscription
 
-  // 防重複報讀：針對同一 ID (或座標 Hash) 在 45 秒內不重複
+  // 防重複報讀：針對同一 ID (或座標 Hash) 延長至 10 分鐘不重複，確保單次通過只會警示一次
   final Map<String, DateTime> _lastAlerts = {};
   final Map<String, DateTime> _speedingAlerts = {};
-  static const Duration _duplicateCooldown = Duration(seconds: 45);
+  static const Duration _duplicateCooldown = Duration(minutes: 10);
 
   // 音量回饋 Debounce
   DateTime? _lastVolumeFeedbackTime;
