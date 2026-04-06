@@ -582,7 +582,7 @@ class _NativeDashboardState extends State<NativeDashboard>
             children: [
               // Arc dial (animated) — 最大化圓的大小，只留底部少量間距
               Padding(
-                padding: const EdgeInsets.fromLTRB(0, 0, 0, 20),
+                padding: const EdgeInsets.only(top: 60),
                 child: _AnimatedDial(speed: speed),
               ),
 
@@ -611,7 +611,7 @@ class _NativeDashboardState extends State<NativeDashboard>
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 80),
+                padding: const EdgeInsets.only(top: 140),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
