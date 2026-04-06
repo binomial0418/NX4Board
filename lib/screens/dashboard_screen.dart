@@ -618,7 +618,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
 
     // ── 散熱模式變化偵測：distanceFilter 與目前 GPS 串流不同時重啟 ──
-    if (_isCharging == true && _thermalDistanceFilter != _currentGpsDistanceFilter) {
+    if (_isCharging == true &&
+        _thermalDistanceFilter != _currentGpsDistanceFilter) {
       _restartLocationForThermal();
     }
 
@@ -779,16 +780,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isRecording =
         _screenRecorder.recordingState == RecordingState.recording;
     // 錄影中每 1 秒更新倒數；非錄影時 5 秒檢查一次即可
-    final interval = isRecording
-        ? const Duration(seconds: 1)
-        : const Duration(seconds: 5);
+    final interval =
+        isRecording ? const Duration(seconds: 1) : const Duration(seconds: 5);
     _recordingStateTimer = Timer(interval, () {
       if (!mounted) return;
       final current = _screenRecorder.recordingState;
       final remaining = _screenRecorder.remainingSeconds;
       final stateChanged = current != _lastRecordingState;
-      final secondsChanged =
-          current == RecordingState.recording && remaining != _lastRemainingSeconds;
+      final secondsChanged = current == RecordingState.recording &&
+          remaining != _lastRemainingSeconds;
       if (stateChanged || secondsChanged) {
         _lastRecordingState = current;
         _lastRemainingSeconds = remaining;
@@ -871,13 +871,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                     },
                   ),
                   const SizedBox(height: 10),
-                  // WiFi 連線狀態 (Uplink)
+                  // WiFi 連線狀態 (link)
                   Consumer<AppProvider>(
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
-                        activeLabel: 'Uplink',
-                        inactiveLabel: 'Uplink',
+                        activeLabel: 'Link',
+                        inactiveLabel: 'Link',
                         activeColor: Colors.greenAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -896,10 +896,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ocrEnabled ? Colors.greenAccent : Colors.grey;
 
                       if (provider.isSimulating) {
-                        label = '模擬測試中';
+                        label = '模擬中';
                         color = Colors.orangeAccent;
                       } else if (ocrEnabled && !isPowerOk) {
-                        label = '電力暫停';
+                        label = '暫停';
                         color = Colors.amber.withValues(alpha: 0.6);
                       }
 
