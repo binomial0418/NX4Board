@@ -703,11 +703,27 @@ class _NativeDashboardState extends State<NativeDashboard>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Value label
-          Text(
-            '$sign${turbo.toStringAsFixed(2)} BAR',
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$sign${turbo.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 110,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const TextSpan(
+                  text: ' BAR',
+                  style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
             style: const TextStyle(
-              fontSize: 110,
-              fontWeight: FontWeight.w900,
               color: Colors.white,
               height: 1.0,
             ),
