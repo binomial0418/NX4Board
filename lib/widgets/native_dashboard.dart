@@ -503,13 +503,16 @@ class _NativeDashboardState extends State<NativeDashboard>
               Expanded(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    _lastCameraLimit?.toString() ?? '--',
-                    style: const TextStyle(
-                      fontSize: 180,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      height: 1.0,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _lastCameraLimit?.toString() ?? '--',
+                      style: const TextStyle(
+                        fontSize: 220,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        height: 1.0,
+                      ),
                     ),
                   ),
                 ),
@@ -542,13 +545,16 @@ class _NativeDashboardState extends State<NativeDashboard>
             Expanded(
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(
-                  p.roadSpeedLimit.toString(),
-                  style: const TextStyle(
-                    fontSize: 180,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    height: 1.0,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    p.roadSpeedLimit.toString(),
+                    style: const TextStyle(
+                      fontSize: 220,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      height: 1.0,
+                    ),
                   ),
                 ),
               ),
