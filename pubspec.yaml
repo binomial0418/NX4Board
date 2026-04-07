@@ -1,9 +1,9 @@
 name: nx4board
-description: A Flutter app to detect and warn about speed limits using GPS and OCR.
+description: A Flutter app to show car info and get speed limits using GPS and open data.
 
 publish_to: 'none'
 
-version: 2.3.0+210
+version: 3.1.0+210
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
