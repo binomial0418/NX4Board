@@ -583,9 +583,8 @@ class _NativeDashboardState extends State<NativeDashboard>
 
     return Column(
       children: [
-        // ── 70%: Dial + text ──────────────────────────────────────────────
         Expanded(
-          flex: 7,
+          flex: 3,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -692,9 +691,8 @@ class _NativeDashboardState extends State<NativeDashboard>
             ],
           ),
         ),
-        // ── 30%: Turbo bar ────────────────────────────────────────────────
         Expanded(
-          flex: 3,
+          flex: 1,
           child: _buildTurboSection(turbo),
         ),
       ],
@@ -704,7 +702,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(180, 48, 270, 32),
+      padding: const EdgeInsets.fromLTRB(180, 10, 270, 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -753,7 +751,9 @@ class _NativeDashboardState extends State<NativeDashboard>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _tickLabel('-1'),
+                _tickLabel('-0.5'),
                 _tickLabel('0'),
+                _tickLabel('+0.5'),
                 _tickLabel('+1'),
               ],
             ),
@@ -1100,6 +1100,15 @@ class _TurboBarPainter extends CustomPainter {
         ),
         Paint()..color = const Color(0xff60a5fa), // blue-400
       );
+    }
+
+    // Tick marks
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.15)
+      ..strokeWidth = 2;
+    for (final fx in [0.0, 0.25, 0.75, 1.0]) {
+      final x = fx * size.width;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), tickPaint);
     }
 
     // Zero line (extends above and below the bar)
