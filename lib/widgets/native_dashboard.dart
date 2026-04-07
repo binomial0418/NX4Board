@@ -590,7 +590,7 @@ class _NativeDashboardState extends State<NativeDashboard>
             children: [
               // Arc dial (animated) — 最大化圓的大小，只留底部少量間距
               Padding(
-                padding: const EdgeInsets.only(top: 60),
+                padding: const EdgeInsets.only(top: 30),
                 child: _AnimatedDial(speed: speed),
               ),
 
@@ -992,7 +992,8 @@ class _SpeedDialPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = (math.min(size.width, size.height) / 2) - _strokeWidth / 2;
+    final radius =
+        (math.min(size.width, size.height) * 1.05 / 2) - _strokeWidth / 2;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
     // Background track
