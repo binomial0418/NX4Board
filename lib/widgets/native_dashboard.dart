@@ -170,10 +170,10 @@ class _NativeDashboardState extends State<NativeDashboard>
     return v;
   }
 
-  // Converts turbo value (range -1…+2) to 0.0–1.0 bar fraction
+  // Converts turbo value (range -1…+1) to 0.0–1.0 bar fraction
   double _turboFraction(double v) {
-    if (v >= 0) return 1 / 3 + (v.clamp(0, 2) / 2) * (2 / 3);
-    return 1 / 3 + (v.clamp(-1, 0)) * (1 / 3);
+    // Range -1 to +1, zero is at 0.5
+    return (v.clamp(-1.0, 1.0) + 1.0) / 2.0;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -704,7 +704,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(180, 8, 270, 32),
+      padding: const EdgeInsets.fromLTRB(180, 48, 270, 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -735,9 +735,8 @@ class _NativeDashboardState extends State<NativeDashboard>
             ),
           ),
           const SizedBox(height: 16),
-          // Bar
           SizedBox(
-            height: 60, // extra height for zero-line overflow
+            height: 30, // reduced height
             width: 750,
             child: CustomPaint(
               painter: _TurboBarPainter(
@@ -756,7 +755,6 @@ class _NativeDashboardState extends State<NativeDashboard>
                 _tickLabel('-1'),
                 _tickLabel('0'),
                 _tickLabel('+1'),
-                _tickLabel('+2'),
               ],
             ),
           ),
@@ -1048,10 +1046,10 @@ class _TurboBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barTop = 10.0;
-    final barBottom = size.height - 10.0;
+    final barTop = 5.0;
+    final barBottom = size.height - 5.0;
     final barH = barBottom - barTop;
-    final zeroX = size.width / 3;
+    final zeroX = size.width / 2; // ±1 range, center is 0
 
     // Background track
     final bgRRect = RRect.fromRectAndRadius(
@@ -1074,8 +1072,8 @@ class _TurboBarPainter extends CustomPainter {
 
     // Active bar
     if (turbo > 0) {
-      final fraction = (turbo / 2).clamp(0.0, 1.0);
-      final barW = fraction * (size.width * 2 / 3);
+      final fraction = (turbo / 1).clamp(0.0, 1.0);
+      final barW = fraction * (size.width / 2);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(zeroX, barTop, barW, barH),
@@ -1094,7 +1092,7 @@ class _TurboBarPainter extends CustomPainter {
       );
     } else if (turbo < 0) {
       final fraction = ((-turbo) / 1).clamp(0.0, 1.0);
-      final barW = fraction * (size.width / 3);
+      final barW = fraction * (size.width / 2);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(zeroX - barW, barTop, barW, barH),
