@@ -508,7 +508,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                     child: Text(
                       _lastCameraLimit?.toString() ?? '--',
                       style: const TextStyle(
-                        fontSize: 220,
+                        fontSize: 280, // increased from 220
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                         height: 1.0,
@@ -550,7 +550,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                   child: Text(
                     p.roadSpeedLimit.toString(),
                     style: const TextStyle(
-                      fontSize: 220,
+                      fontSize: 280, // increased from 220
                       fontWeight: FontWeight.w900,
                       color: Colors.white,
                       height: 1.0,
@@ -795,7 +795,7 @@ class _NativeDashboardState extends State<NativeDashboard>
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 200,
+                fontSize: 240, // increased from 200
                 fontWeight: FontWeight.w900,
                 color: valueColor,
                 height: 1.0,
@@ -827,7 +827,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           Text(
             label,
             style: const TextStyle(
-              fontSize: 56,
+              fontSize: 56, // reverted to 56 from 64
               fontWeight: FontWeight.bold,
               color: Colors.white,
               letterSpacing: 4,
@@ -1022,6 +1022,25 @@ class _SpeedDialPainter extends CustomPainter {
           ..strokeWidth = _strokeWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    // Speed ticks (40, 60, 100, 120)
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    const tickLen = 20.0;
+    for (final s in [40.0, 60.0, 100.0, 120.0]) {
+      final angle = _startAngle + (s / _maxSpeed) * _sweepFull;
+      final dx = math.cos(angle);
+      final dy = math.sin(angle);
+      canvas.drawLine(
+        Offset(center.dx + dx * (radius - tickLen / 2),
+            center.dy + dy * (radius - tickLen / 2)),
+        Offset(center.dx + dx * (radius + tickLen / 2),
+            center.dy + dy * (radius + tickLen / 2)),
+        tickPaint,
       );
     }
   }
