@@ -645,6 +645,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                             : null,
                       ),
                     ),
+                    SizedBox(height: bigSpeed ? 90 : 60),
                     // RPM row
                     Row(
                       mainAxisSize: MainAxisSize.min,
