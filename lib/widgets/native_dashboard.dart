@@ -170,10 +170,10 @@ class _NativeDashboardState extends State<NativeDashboard>
     return v;
   }
 
-  // Converts turbo value (range -1…+2) to 0.0–1.0 bar fraction
+  // Converts turbo value (range -1…+1) to 0.0–1.0 bar fraction
   double _turboFraction(double v) {
-    if (v >= 0) return 1 / 3 + (v.clamp(0, 2) / 2) * (2 / 3);
-    return 1 / 3 + (v.clamp(-1, 0)) * (1 / 3);
+    // Range -1 to +1, zero is at 0.5
+    return (v.clamp(-1.0, 1.0) + 1.0) / 2.0;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -508,7 +508,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                     child: Text(
                       _lastCameraLimit?.toString() ?? '--',
                       style: const TextStyle(
-                        fontSize: 220,
+                        fontSize: 280, // increased from 220
                         fontWeight: FontWeight.w900,
                         color: Colors.white,
                         height: 1.0,
@@ -550,7 +550,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                   child: Text(
                     p.roadSpeedLimit.toString(),
                     style: const TextStyle(
-                      fontSize: 220,
+                      fontSize: 280, // increased from 220
                       fontWeight: FontWeight.w900,
                       color: Colors.white,
                       height: 1.0,
@@ -583,15 +583,14 @@ class _NativeDashboardState extends State<NativeDashboard>
 
     return Column(
       children: [
-        // ── 70%: Dial + text ──────────────────────────────────────────────
         Expanded(
-          flex: 7,
+          flex: 3,
           child: Stack(
             alignment: Alignment.center,
             children: [
               // Arc dial (animated) — 最大化圓的大小，只留底部少量間距
               Padding(
-                padding: const EdgeInsets.only(top: 60),
+                padding: const EdgeInsets.only(top: 30),
                 child: _AnimatedDial(speed: speed),
               ),
 
@@ -646,6 +645,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                             : null,
                       ),
                     ),
+                    SizedBox(height: bigSpeed ? 90 : 60),
                     // RPM row
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -692,9 +692,8 @@ class _NativeDashboardState extends State<NativeDashboard>
             ],
           ),
         ),
-        // ── 30%: Turbo bar ────────────────────────────────────────────────
         Expanded(
-          flex: 3,
+          flex: 1,
           child: _buildTurboSection(turbo),
         ),
       ],
@@ -704,7 +703,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(180, 8, 270, 32),
+      padding: const EdgeInsets.fromLTRB(180, 10, 270, 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -735,9 +734,8 @@ class _NativeDashboardState extends State<NativeDashboard>
             ),
           ),
           const SizedBox(height: 16),
-          // Bar
           SizedBox(
-            height: 60, // extra height for zero-line overflow
+            height: 30, // reduced height
             width: 750,
             child: CustomPaint(
               painter: _TurboBarPainter(
@@ -754,9 +752,10 @@ class _NativeDashboardState extends State<NativeDashboard>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _tickLabel('-1'),
+                _tickLabel('-0.5'),
                 _tickLabel('0'),
+                _tickLabel('+0.5'),
                 _tickLabel('+1'),
-                _tickLabel('+2'),
               ],
             ),
           ),
@@ -796,7 +795,7 @@ class _NativeDashboardState extends State<NativeDashboard>
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 200,
+                fontSize: 240, // increased from 200
                 fontWeight: FontWeight.w900,
                 color: valueColor,
                 height: 1.0,
@@ -828,7 +827,7 @@ class _NativeDashboardState extends State<NativeDashboard>
           Text(
             label,
             style: const TextStyle(
-              fontSize: 56,
+              fontSize: 56, // reverted to 56 from 64
               fontWeight: FontWeight.bold,
               color: Colors.white,
               letterSpacing: 4,
@@ -993,7 +992,8 @@ class _SpeedDialPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = (math.min(size.width, size.height) / 2) - _strokeWidth / 2;
+    final radius =
+        (math.min(size.width, size.height) * 1.05 / 2) - _strokeWidth / 2;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
     // Background track
@@ -1024,6 +1024,25 @@ class _SpeedDialPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round,
       );
     }
+
+    // Speed ticks (40, 60, 100, 120)
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    const tickLen = 20.0;
+    for (final s in [40.0, 60.0, 100.0, 120.0]) {
+      final angle = _startAngle + (s / _maxSpeed) * _sweepFull;
+      final dx = math.cos(angle);
+      final dy = math.sin(angle);
+      canvas.drawLine(
+        Offset(center.dx + dx * (radius - tickLen / 2),
+            center.dy + dy * (radius - tickLen / 2)),
+        Offset(center.dx + dx * (radius + tickLen / 2),
+            center.dy + dy * (radius + tickLen / 2)),
+        tickPaint,
+      );
+    }
   }
 
   Color _speedColor(double s) {
@@ -1048,10 +1067,10 @@ class _TurboBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barTop = 10.0;
-    final barBottom = size.height - 10.0;
+    final barTop = 5.0;
+    final barBottom = size.height - 5.0;
     final barH = barBottom - barTop;
-    final zeroX = size.width / 3;
+    final zeroX = size.width / 2; // ±1 range, center is 0
 
     // Background track
     final bgRRect = RRect.fromRectAndRadius(
@@ -1074,8 +1093,8 @@ class _TurboBarPainter extends CustomPainter {
 
     // Active bar
     if (turbo > 0) {
-      final fraction = (turbo / 2).clamp(0.0, 1.0);
-      final barW = fraction * (size.width * 2 / 3);
+      final fraction = (turbo / 1).clamp(0.0, 1.0);
+      final barW = fraction * (size.width / 2);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(zeroX, barTop, barW, barH),
@@ -1094,7 +1113,7 @@ class _TurboBarPainter extends CustomPainter {
       );
     } else if (turbo < 0) {
       final fraction = ((-turbo) / 1).clamp(0.0, 1.0);
-      final barW = fraction * (size.width / 3);
+      final barW = fraction * (size.width / 2);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(zeroX - barW, barTop, barW, barH),
@@ -1102,6 +1121,15 @@ class _TurboBarPainter extends CustomPainter {
         ),
         Paint()..color = const Color(0xff60a5fa), // blue-400
       );
+    }
+
+    // Tick marks
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.15)
+      ..strokeWidth = 2;
+    for (final fx in [0.0, 0.25, 0.75, 1.0]) {
+      final x = fx * size.width;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), tickPaint);
     }
 
     // Zero line (extends above and below the bar)
