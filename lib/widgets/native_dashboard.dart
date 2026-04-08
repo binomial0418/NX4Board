@@ -590,14 +590,14 @@ class _NativeDashboardState extends State<NativeDashboard>
             children: [
               // Arc dial (animated) — 最大化圓的大小，只留底部少量間距
               Padding(
-                padding: const EdgeInsets.only(top: 30),
+                padding: const EdgeInsets.only(top: 50), // 從 70 回調至 50
                 child: _AnimatedDial(speed: speed),
               ),
 
               // Demo Mode Badge
               if (p.isDemoEnabled)
                 Positioned(
-                  top: 40,
+                  top: 60, // 從 80 回調至 60
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -620,7 +620,7 @@ class _NativeDashboardState extends State<NativeDashboard>
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 210), // 從 150 下移至 210
+                padding: const EdgeInsets.only(top: 230), // 從 250 回調至 230
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -703,7 +703,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(180, 10, 270, 32),
+      padding: const EdgeInsets.fromLTRB(180, 42, 270, 0), // 從 top 10/bottom 32 調整為 top 42/bottom 0
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -1035,7 +1035,7 @@ class _SpeedDialPainter extends CustomPainter {
     }
 
     // Speed ticks (Every 10 km/h: 0, 10, 20, 30, ...)
-    const double majorTickLen = 35.0;
+    const double majorTickLen = 30.0;
     const double minorTickLen = 15.0;
 
     for (double s = 0; s <= _maxSpeed; s += 10) {
