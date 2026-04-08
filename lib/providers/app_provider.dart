@@ -67,7 +67,7 @@ class AppProvider extends ChangeNotifier {
   int? get obdCoolant => _isDemoEnabled ? _demoCoolant : _obdService.coolantTemp;
   double? get obdVoltage => _isDemoEnabled ? 14.2 : _obdService.voltage;
   double? get obdHevSoc => _isDemoEnabled ? _demoSoc : _obdService.hevSoc;
-  double? get obdOdometer => _obdService.odometer;
+  double? get obdOdometer => _isDemoEnabled ? 33610.0 : _obdService.odometer;
   int? get obdFuel => _isDemoEnabled ? 75 : _obdService.fuelLevel;
   double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
   int? get tpmsFl => _isDemoEnabled ? 35 : _obdService.tpmsFl?.floor();
@@ -170,20 +170,31 @@ class AppProvider extends ChangeNotifier {
     _demoTimer?.cancel();
     _demoTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       _demoTicks++;
-      
-      // 模擬時速：正弦波 60 ~ 130
+
+      // 建立一個 10 秒（100 ticks）的大循環週期
+      final cyclePos = _demoTicks % 100;
+
+      // 1. 模擬轉速：前 20 步 (2秒) 設為 0 (觸發 EV)，之後在 1~1789 之間波動
+      if (cyclePos < 20) {
+        _demoRpm = 0;
+      } else {
+        // 利用正弦波在剩餘 80 步中產生 1.0 ~ 1789.0 的變化
+        // (cyclePos - 20) / 80 會從 0 變到 1
+        final wave = math.sin((cyclePos - 20) * (math.pi / 40)); // 半個正弦週期的話用 pi/80，這裡用 pi/40 跑完一個週期
+        _demoRpm = 895 + 894 * wave; 
+      }
+
+      // 2. 模擬時速：正弦波 60 ~ 130
       _demoSpeed = 95 + 35 * (math.sin(_demoTicks * 0.05));
-      
-      // 模擬轉速：與時速相關 + 抖動
-      _demoRpm = 1200 + (_demoSpeed * 15) + (math.sin(_demoTicks * 0.2) * 50);
-      
-      // 模擬增壓：-0.4 ~ 1.5
-      _demoTurbo = 0.5 + 1.0 * (math.sin(_demoTicks * 0.12));
-      
-      // 模擬電池：60.0 ~ 80.0
+
+      // 3. 模擬增壓：-0.4 ~ 0.7
+      // 範圍 1.1, 中心 0.15, 振幅 0.55
+      _demoTurbo = 0.15 + 0.55 * (math.sin(_demoTicks * 0.12));
+
+      // 4. 模擬電池：60.0 ~ 80.0
       _demoSoc = 70.0 + 10.0 * (math.cos(_demoTicks * 0.02));
-      
-      // 模擬水溫：88 與 101 之間循環切換 (每 3 秒切換一次)
+
+      // 5. 模擬水溫：88 與 101 之間循環切換 (每 3 秒切換一次)
       if (_demoTicks % 30 == 0) {
         _demoCoolant = (_demoCoolant == 88) ? 101 : 88;
       }
