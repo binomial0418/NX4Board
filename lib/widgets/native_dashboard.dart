@@ -1026,16 +1026,18 @@ class _SpeedDialPainter extends CustomPainter {
     }
 
     // Speed ticks (0, 20, 40, 60, 80, 100, 120, 140, 160, 180)
-    final tickPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.4)
-      ..strokeWidth = 8 // 刻度加粗 (3 -> 8)
-      ..strokeCap = StrokeCap.round;
-    const tickLen = 30.0; // 刻度稍微變長 (20 -> 30)
-
+    const tickLen = 30.0;
     for (double s = 0; s <= _maxSpeed; s += 20) {
       final angle = _startAngle + (s / _maxSpeed) * _sweepFull;
       final dx = math.cos(angle);
       final dy = math.sin(angle);
+
+      final isHighSpeed = s >= 120;
+      final isMidSpeed = s == 80 || s == 100;
+
+      final color = isHighSpeed
+          ? const Color(0xffef4444)
+          : (isMidSpeed ? const Color(0xfff59e0b) : Colors.white.withValues(alpha: 0.4));
 
       // Draw tick line
       canvas.drawLine(
@@ -1043,15 +1045,22 @@ class _SpeedDialPainter extends CustomPainter {
             center.dy + dy * (radius - tickLen / 2)),
         Offset(center.dx + dx * (radius + tickLen / 2),
             center.dy + dy * (radius + tickLen / 2)),
-        tickPaint,
+        Paint()
+          ..color = color
+          ..strokeWidth = 8
+          ..strokeCap = StrokeCap.round,
       );
 
       // Draw corresponding number
       final tp = TextPainter(
         text: TextSpan(
           text: s.toInt().toString(),
-          style: const TextStyle(
-            color: Colors.white70,
+          style: TextStyle(
+            color: isHighSpeed
+                ? const Color(0xffef4444)
+                : (isMidSpeed
+                    ? const Color(0xfff59e0b)
+                    : Colors.white.withValues(alpha: 0.7)),
             fontSize: 42,
             fontWeight: FontWeight.bold,
           ),
@@ -1060,7 +1069,7 @@ class _SpeedDialPainter extends CustomPainter {
       )..layout();
 
       // Position number inside the arc
-      final textDist = radius - tickLen - 30; // 距離圓心更近一點
+      final textDist = radius - tickLen - 30;
       final tx = center.dx + dx * textDist - (tp.width / 2);
       final ty = center.dy + dy * textDist - (tp.height / 2);
       tp.paint(canvas, Offset(tx, ty));
