@@ -516,7 +516,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
       final Map<String, dynamic> uploadData = {
-        "_type": "location",
+        "_type": "BVB-7980",
         "tid": "obd",
       };
 
@@ -648,7 +648,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final provider = context.read<AppProvider>();
 
     final Map<String, dynamic> alertData = {
-      "_type": "camera_alert",
+      "_type": "BVB-7980",
       "tid": "obd",
       "speed": _currentDisplaySpeed.round(),
       "camera_limit": camInfo['limit'],
@@ -684,7 +684,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final Map<String, dynamic> uploadData = {
-      "_type": "location",
+      "_type": "BVB-7980",
       "tid": "obd",
     };
 
