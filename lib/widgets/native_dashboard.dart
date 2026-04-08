@@ -987,7 +987,7 @@ class _SpeedDialPainter extends CustomPainter {
 
   const _SpeedDialPainter({required this.speed});
 
-  static const double _strokeWidth = 36;
+  static const double _strokeWidth = 12; // 線徑從 36 變細至 12
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1025,16 +1025,19 @@ class _SpeedDialPainter extends CustomPainter {
       );
     }
 
-    // Speed ticks (40, 60, 100, 120)
+    // Speed ticks (0, 20, 40, 60, 80, 100, 120, 140, 160, 180)
     final tickPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..strokeWidth = 3
+      ..color = Colors.white.withValues(alpha: 0.4)
+      ..strokeWidth = 8 // 刻度加粗 (3 -> 8)
       ..strokeCap = StrokeCap.round;
-    const tickLen = 20.0;
-    for (final s in [40.0, 60.0, 100.0, 120.0]) {
+    const tickLen = 30.0; // 刻度稍微變長 (20 -> 30)
+
+    for (double s = 0; s <= _maxSpeed; s += 20) {
       final angle = _startAngle + (s / _maxSpeed) * _sweepFull;
       final dx = math.cos(angle);
       final dy = math.sin(angle);
+
+      // Draw tick line
       canvas.drawLine(
         Offset(center.dx + dx * (radius - tickLen / 2),
             center.dy + dy * (radius - tickLen / 2)),
@@ -1042,6 +1045,25 @@ class _SpeedDialPainter extends CustomPainter {
             center.dy + dy * (radius + tickLen / 2)),
         tickPaint,
       );
+
+      // Draw corresponding number
+      final tp = TextPainter(
+        text: TextSpan(
+          text: s.toInt().toString(),
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 42,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      // Position number inside the arc
+      final textDist = radius - tickLen - 30; // 距離圓心更近一點
+      final tx = center.dx + dx * textDist - (tp.width / 2);
+      final ty = center.dy + dy * textDist - (tp.height / 2);
+      tp.paint(canvas, Offset(tx, ty));
     }
   }
 
