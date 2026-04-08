@@ -225,7 +225,7 @@ class AppProvider extends ChangeNotifier {
       shouldSendGps = true;
     } else {
       final int timeDiff = now.difference(_lastGpsSentTime!).inSeconds;
-      if (timeDiff >= 10 || headingDiff >= 30) {
+      if (timeDiff >= 10 || headingDiff >= 20) {
         shouldSendGps = true;
       }
     }

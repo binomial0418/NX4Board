@@ -80,7 +80,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- 散熱管理 ---
   // 記錄 GPS 串流目前使用的 distanceFilter，與 _thermalDistanceFilter 比對
   // 即可判斷是否需重啟，不在 DashboardScreen 重複維護 ThermalMode 狀態
-  int _currentGpsDistanceFilter = 10;
+  int _currentGpsDistanceFilter = 5;
 
   // --- AppProvider 參考（dispose 時不可依賴 BuildContext）---
   late AppProvider _appProvider;
@@ -284,7 +284,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // GPS 定位追蹤
   // ──────────────────────────────────────────────
-  void _startLocationTracking({int distanceFilter = 10}) {
+  void _startLocationTracking({int distanceFilter = 5}) {
     _currentGpsDistanceFilter = distanceFilter;
     _positionSubscription?.cancel();
     _positionSubscription =
@@ -626,11 +626,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   int get _thermalDistanceFilter {
     switch (context.read<AppProvider>().thermalMode) {
       case ThermalMode.hot:
-        return 30;
+        return 20; // 降低熱天位移門檻
       case ThermalMode.warm:
-        return 20;
-      default:
         return 10;
+      default:
+        return 5; // 正常模式 5m，確保護轉彎靈敏度
     }
   }
 
