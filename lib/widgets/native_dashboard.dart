@@ -1034,54 +1034,63 @@ class _SpeedDialPainter extends CustomPainter {
       );
     }
 
-    // Speed ticks (0, 20, 40, 60, 80, 100, 120, 140, 160, 180)
-    const tickLen = 30.0;
-    for (double s = 0; s <= _maxSpeed; s += 20) {
+    // Speed ticks (Every 10 km/h: 0, 10, 20, 30, ...)
+    const double majorTickLen = 35.0;
+    const double minorTickLen = 15.0;
+
+    for (double s = 0; s <= _maxSpeed; s += 10) {
       final angle = _startAngle + (s / _maxSpeed) * _sweepFull;
       final dx = math.cos(angle);
       final dy = math.sin(angle);
 
+      final isMajor = (s % 20 == 0);
       final isHighSpeed = s >= 120;
-      final isMidSpeed = s == 80 || s == 100;
+      final isMidSpeed = s >= 80 && s < 120;
 
       final color = isHighSpeed
           ? const Color(0xffef4444)
-          : (isMidSpeed ? const Color(0xfff59e0b) : Colors.white.withValues(alpha: 0.4));
+          : (isMidSpeed
+              ? const Color(0xfff59e0b)
+              : Colors.white.withValues(alpha: 0.4));
+
+      final currentTickLen = isMajor ? majorTickLen : minorTickLen;
 
       // Draw tick line
       canvas.drawLine(
-        Offset(center.dx + dx * (radius - tickLen / 2),
-            center.dy + dy * (radius - tickLen / 2)),
-        Offset(center.dx + dx * (radius + tickLen / 2),
-            center.dy + dy * (radius + tickLen / 2)),
+        Offset(center.dx + dx * (radius - currentTickLen / 2),
+            center.dy + dy * (radius - currentTickLen / 2)),
+        Offset(center.dx + dx * (radius + currentTickLen / 2),
+            center.dy + dy * (radius + currentTickLen / 2)),
         Paint()
           ..color = color
-          ..strokeWidth = 8
+          ..strokeWidth = isMajor ? 8 : 5 // 次刻度稍微細一點
           ..strokeCap = StrokeCap.round,
       );
 
-      // Draw corresponding number
-      final tp = TextPainter(
-        text: TextSpan(
-          text: s.toInt().toString(),
-          style: TextStyle(
-            color: isHighSpeed
-                ? const Color(0xffef4444)
-                : (isMidSpeed
-                    ? const Color(0xfff59e0b)
-                    : Colors.white.withValues(alpha: 0.7)),
-            fontSize: 42,
-            fontWeight: FontWeight.bold,
+      // Draw corresponding number only for major ticks
+      if (isMajor) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: s.toInt().toString(),
+            style: TextStyle(
+              color: isHighSpeed
+                  ? const Color(0xffef4444)
+                  : (isMidSpeed
+                      ? const Color(0xfff59e0b)
+                      : Colors.white.withValues(alpha: 0.7)),
+              fontSize: 42,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
+          textDirection: TextDirection.ltr,
+        )..layout();
 
-      // Position number inside the arc
-      final textDist = radius - tickLen - 30;
-      final tx = center.dx + dx * textDist - (tp.width / 2);
-      final ty = center.dy + dy * textDist - (tp.height / 2);
-      tp.paint(canvas, Offset(tx, ty));
+        // Position number inside the arc
+        final textDist = radius - majorTickLen - 30;
+        final tx = center.dx + dx * textDist - (tp.width / 2);
+        final ty = center.dy + dy * textDist - (tp.height / 2);
+        tp.paint(canvas, Offset(tx, ty));
+      }
     }
   }
 

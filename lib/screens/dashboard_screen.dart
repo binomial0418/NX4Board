@@ -862,8 +862,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ObdConnectionState.connected;
                       return _StatusBadge(
                         isActive: isObdConn,
-                        activeLabel: 'ECU',
-                        inactiveLabel: 'ECU',
+                        activeLabel: 'ECU ',
+                        inactiveLabel: 'ECU ',
                         activeColor: Colors.deepPurpleAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -876,8 +876,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
-                        activeLabel: 'WS',
-                        inactiveLabel: 'WS',
+                        activeLabel: 'Sync',
+                        inactiveLabel: 'Sync',
                         activeColor: Colors.greenAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -891,7 +891,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       bool ocrEnabled = SettingsService().enableOcr;
                       bool isPowerOk = _isCharging ?? true;
 
-                      String label = ocrEnabled ? '測速' : '測速';
+                      String label = ocrEnabled ? '測速 ' : '測速 ';
                       Color color =
                           ocrEnabled ? Colors.greenAccent : Colors.grey;
 
@@ -1028,23 +1028,6 @@ class _StatusBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: isActive ? activeColor : inactiveColor,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: (isActive ? activeColor : inactiveColor)
-                        .withValues(alpha: 0.5),
-                    blurRadius: 4,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
             Text(
               isActive ? activeLabel : inactiveLabel,
               style: TextStyle(
