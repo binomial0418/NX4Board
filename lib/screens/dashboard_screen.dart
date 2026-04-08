@@ -669,7 +669,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final Map<String, dynamic> alertData = {
       "_type": "BVB-7980",
-      "tid": "obd",
+      "tid": "camera-info",
       "speed": _currentDisplaySpeed.round(),
       "camera_limit": camInfo['limit'],
       "speed_limit": provider.roadSpeedLimit,

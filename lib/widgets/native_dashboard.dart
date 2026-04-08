@@ -659,8 +659,9 @@ class _NativeDashboardState extends State<NativeDashboard>
                                   ? 'EV'
                                   : rpm.toString(),
                           style: TextStyle(
-                            fontSize: 160,
-                            fontWeight: FontWeight.bold,
+                            fontSize: isEv ? 175 : 160,
+                            fontWeight:
+                                isEv ? FontWeight.w900 : FontWeight.bold,
                             color: isEv
                                 ? const Color(0xff4ade80) // green-400
                                 : rpm == null
@@ -668,6 +669,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                                     : const Color(0xff60a5fa), // blue-400
                             fontStyle:
                                 isEv ? FontStyle.italic : FontStyle.normal,
+                            letterSpacing: isEv ? 7.0 : 0.0,
                             height: 1.0,
                           ),
                         ),
@@ -703,7 +705,8 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildTurboSection(double turbo) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(180, 42, 270, 0), // 從 top 10/bottom 32 調整為 top 42/bottom 0
+      padding: const EdgeInsets.fromLTRB(
+          180, 42, 270, 0), // 從 top 10/bottom 32 調整為 top 42/bottom 0
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
