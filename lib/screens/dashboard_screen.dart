@@ -67,9 +67,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- GPS 定位管理 ---
   StreamSubscription<Position>? _positionSubscription;
 
-  // --- 測速照相 WS 後送冷卻 (與 TTS 同樣以座標為 ID，45 秒內不重送) ---
+  // --- 測速照相 WS 後送冷卻 (與 TTS 同樣以座標為 ID，300 秒內不重送) ---
   final Map<String, DateTime> _cameraWsSentMap = {};
-  static const Duration _cameraWsCooldown = Duration(seconds: 45);
+  static const Duration _cameraWsCooldown = Duration(seconds: 300);
 
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
@@ -656,7 +656,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _sendCameraAlertViaWs(Map<String, dynamic> camInfo) async {
     if (!mounted || !_isWsConnected || _channel == null) return;
 
-    // 以座標為唯一 ID，遵循 45 秒冷卻機制
+    // 以座標為唯一 ID，遵循 300 秒冷卻機制
     final String id = "${camInfo['lat']}_${camInfo['lon']}";
     final now = DateTime.now();
     if (_cameraWsSentMap.containsKey(id) &&
