@@ -620,7 +620,7 @@ class _NativeDashboardState extends State<NativeDashboard>
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 150),
+                padding: const EdgeInsets.only(top: 210), // 從 150 下移至 210
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -707,31 +707,40 @@ class _NativeDashboardState extends State<NativeDashboard>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Value label
-          Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: '$sign${turbo.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 110,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const TextSpan(
-                  text: ' BAR',
+          // Value label: Use symmetrical Row to align the decimal point to center
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Invisible dummy to balance the " BAR" suffix on the right
+              const Opacity(
+                opacity: 0,
+                child: Text(
+                  ' BAR',
                   style: TextStyle(
                     fontSize: 48,
                     fontWeight: FontWeight.w900,
-                    color: Colors.white70,
                   ),
                 ),
-              ],
-            ),
-            style: const TextStyle(
-              color: Colors.white,
-              height: 1.0,
-            ),
+              ),
+              Text(
+                '$sign${turbo.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 110,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  height: 1.0,
+                ),
+              ),
+              const Text(
+                ' BAR',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white70,
+                  height: 1.0,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           SizedBox(
