@@ -876,8 +876,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     builder: (context, provider, child) {
                       return _StatusBadge(
                         isActive: provider.isWifiConnected,
-                        activeLabel: 'Link',
-                        inactiveLabel: 'Link',
+                        activeLabel: 'WS',
+                        inactiveLabel: 'WS',
                         activeColor: Colors.greenAccent,
                         inactiveColor: Colors.redAccent,
                         pulseAnimation: _pulseAnimation,
@@ -929,58 +929,60 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
 
-            // 設定按鈕（右側浮動）
-            Positioned(
-              top: 16,
-              right: 64, // 在電源按鈕旁邊
-              child: Material(
-                color: Colors.transparent,
-                child: IconButton(
-                  icon: const Icon(Icons.settings),
-                  color: Colors.white70,
-                  iconSize: 32,
-                  splashRadius: 28,
-                  onPressed: () async {
-                    // 在 async gap 前先取好 provider，避免跨 async 使用 BuildContext
-                    final provider = context.read<AppProvider>();
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const SettingsScreen()),
-                    );
-                    // Settings changed, reconnect WebSocket if needed
-                    _channel?.sink.close();
-                    if (!mounted) return;
-                    setState(() => _isWsConnected = false);
-                    _connectWebSocket();
-
-                    // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
-                    if (provider.currentPosition != null) {
-                      provider.updatePosition(provider.currentPosition!);
-                    }
-
-                    // 設定變更後立即觸發一次 UI 同步
-                    _handleUiUpdate();
-                  },
-                ),
-              ),
-            ),
-
-            // 關閉程式按鈕（右上角浮動）
+            // 功能按鈕區塊（右上角垂直排列）
             Positioned(
               top: 16,
               right: 16,
-              child: Material(
-                color: Colors.transparent,
-                child: IconButton(
-                  icon: const Icon(Icons.power_settings_new),
-                  color: Colors.redAccent.withValues(alpha: 0.8),
-                  iconSize: 32,
-                  splashRadius: 28,
-                  onPressed: () {
-                    SystemNavigator.pop();
-                  },
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 關閉程式按鈕
+                  Material(
+                    color: Colors.transparent,
+                    child: IconButton(
+                      icon: const Icon(Icons.power_settings_new),
+                      color: Colors.redAccent.withValues(alpha: 0.8),
+                      iconSize: 32,
+                      splashRadius: 28,
+                      onPressed: () {
+                        SystemNavigator.pop();
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // 設定按鈕
+                  Material(
+                    color: Colors.transparent,
+                    child: IconButton(
+                      icon: const Icon(Icons.settings),
+                      color: Colors.white70,
+                      iconSize: 32,
+                      splashRadius: 28,
+                      onPressed: () async {
+                        // 在 async gap 前先取好 provider，避免跨 async 使用 BuildContext
+                        final provider = context.read<AppProvider>();
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const SettingsScreen()),
+                        );
+                        // Settings changed, reconnect WebSocket if needed
+                        _channel?.sink.close();
+                        if (!mounted) return;
+                        setState(() => _isWsConnected = false);
+                        _connectWebSocket();
+
+                        // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
+                        if (provider.currentPosition != null) {
+                          provider.updatePosition(provider.currentPosition!);
+                        }
+
+                        // 設定變更後立即觸發一次 UI 同步
+                        _handleUiUpdate();
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
