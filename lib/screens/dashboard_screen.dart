@@ -103,6 +103,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     ObdSppService().addListener(_handleUiUpdate);
     // 註冊 AppProvider 資料更新監聽器 (GPS/測速)
     _appProvider.addListener(_handleUiUpdate);
+    // 監聽並傳送標準格式 GPS 定位資料 (tid: gps)
+    _appProvider.gpsDataStream.listen((data) {
+      if (_isWsConnected && _channel != null) {
+        final jsonString = jsonEncode(data);
+        try {
+          _channel!.sink.add(jsonString);
+          debugPrint('[WS-TX] Standard GPS Upload: $jsonString');
+          ObdSppService().logWsSend(jsonString);
+        } catch (e) {
+          debugPrint('[WS-TX] Standard GPS Send error: $e');
+        }
+      }
+    });
     // 監聽錄影狀態變化
     _startRecordingStateMonitoring();
   }
@@ -520,6 +533,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         "tid": "obd",
       };
 
+      // 新增 GPS 資料
+      if (provider.currentPosition != null) {
+        uploadData["lat"] = provider.currentPosition!.latitude;
+        uploadData["lon"] = provider.currentPosition!.longitude;
+        uploadData["alt"] = provider.currentPosition!.altitude;
+      }
+
       final Map<String, dynamic> tires = {};
       final obd = ObdSppService();
       if (obd.hasTpms) {
@@ -687,6 +707,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       "_type": "BVB-7980",
       "tid": "obd",
     };
+
+    // 新增 GPS 資料
+    if (provider.currentPosition != null) {
+      uploadData["lat"] = provider.currentPosition!.latitude;
+      uploadData["lon"] = provider.currentPosition!.longitude;
+      uploadData["alt"] = provider.currentPosition!.altitude;
+    }
 
     final Map<String, dynamic> tires = {};
     final obd = ObdSppService();

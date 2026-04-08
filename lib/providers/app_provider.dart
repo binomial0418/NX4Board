@@ -12,6 +12,7 @@ import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:intl/intl.dart';
 
 class AppProvider extends ChangeNotifier {
   List<SpeedSign> _allSpeedSigns = [];
@@ -41,6 +42,12 @@ class AppProvider extends ChangeNotifier {
   double _demoSoc = 65.5;
   int _demoCoolant = 88;
   int _demoTicks = 0;
+  
+  // GPS upload tracking (Standardized tid: gps)
+  DateTime? _lastGpsSentTime;
+  double _lastGpsSentHeading = 0;
+  final _gpsDataController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get gpsDataStream => _gpsDataController.stream;
 
   bool get isDemoEnabled => _isDemoEnabled;
 
@@ -148,6 +155,7 @@ class AppProvider extends ChangeNotifier {
     _obdService.removeListener(_onObdServiceUpdated);
     _obdStatusTimer?.cancel();
     _demoTimer?.cancel();
+    _gpsDataController.close();
     TtsService().dispose();
     DeviceStatusService().dispose();
     super.dispose();
@@ -206,6 +214,44 @@ class AppProvider extends ChangeNotifier {
   /// Update current position and find nearby speed signs
   void updatePosition(Position position) {
     _currentPosition = position;
+    final now = DateTime.now();
+
+    // ── 檢查是否滿足標準 GPS 資料後送條件 (每 10s 或航向 > 30度) ──
+    double headingDiff = (position.heading - _lastGpsSentHeading).abs();
+    if (headingDiff > 180) headingDiff = 360 - headingDiff; // 處理 0/360 跨越
+
+    bool shouldSendGps = false;
+    if (_lastGpsSentTime == null) {
+      shouldSendGps = true;
+    } else {
+      final int timeDiff = now.difference(_lastGpsSentTime!).inSeconds;
+      if (timeDiff >= 10 || headingDiff >= 30) {
+        shouldSendGps = true;
+      }
+    }
+
+    if (shouldSendGps) {
+      _lastGpsSentTime = now;
+      _lastGpsSentHeading = position.heading;
+
+      // 依照需求格式組裝 JSON
+      final timestampSec = now.millisecondsSinceEpoch ~/ 1000;
+      final gpsTimeStr = DateFormat('HHmmss.00').format(position.timestamp.toLocal());
+      
+      final Map<String, dynamic> gpsPayload = {
+        "_type": "BVB-7980",
+        "tid": "gps",
+        "tst": timestampSec,
+        "lat": position.latitude,
+        "lon": position.longitude,
+        "acc": position.accuracy > 0 ? position.accuracy : 15.0,
+        "vel": double.parse((position.speed * 3.6).toStringAsFixed(2)),
+        "cog": double.parse(position.heading.toStringAsFixed(1)),
+        "satcnt": 10, // 套件無法取得，暫以需求範例值 10 提供
+        "gpstime": gpsTimeStr,
+      };
+      _gpsDataController.add(gpsPayload);
+    }
 
     // ── 道路速限牌面偵測 (SpeedLimitService) ──
     final speedLimitService = SpeedLimitService();
