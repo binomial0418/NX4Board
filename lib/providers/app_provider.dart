@@ -131,7 +131,6 @@ class AppProvider extends ChangeNotifier {
         final currentMode = DeviceStatusService().thermalMode;
         if (currentMode != _lastThermalMode) {
           _lastThermalMode = currentMode;
-          debugPrint('[AppProvider] 熱模式變更 → ${currentMode.name}');
           changed = true;
         }
 
@@ -261,7 +260,6 @@ class AppProvider extends ChangeNotifier {
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
-      debugPrint('🚩 SPEED SIGN DETECTED: $detectedLimit km/h');
     } else {
       _roadSpeedLimit = speedLimitService.currentLimit;
     }
@@ -285,7 +283,6 @@ class AppProvider extends ChangeNotifier {
 
     // ── 測速點偵測開關 ──
     if (!SettingsService().enableOcr) {
-      debugPrint('ℹ️ Speed camera detection skipped: enableOcr is FALSE');
       _currentSpeedLimit = null;
       _nearestCameraInfo = null;
       notifyListeners();
@@ -298,8 +295,6 @@ class AppProvider extends ChangeNotifier {
     final camInfo = camService.checkNearbyCamera();
 
     if (camInfo != null) {
-      debugPrint(
-          '📸 CAMERA DETECTED: ${camInfo['name']}, Dist: ${camInfo['dist_m']}m');
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
@@ -352,8 +347,6 @@ class AppProvider extends ChangeNotifier {
   Timer? _simulationTimer;
 
   void simulateSpeedCameraPath() {
-    debugPrint(
-        '🚀 AppProvider.simulateSpeedCameraPath called, current _isSimulating: $_isSimulating');
     if (_isSimulating) {
       _isSimulating = false;
       _simulationTimer?.cancel();
