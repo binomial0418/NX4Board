@@ -45,14 +45,13 @@ class ObdSppService with ChangeNotifier {
   void _log(String msg) {
     final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
     final String fullMsg = '[$timestamp] $msg';
-    debugPrint(fullMsg);
     _logHistory.add(fullMsg);
     if (_logHistory.length > 1000) _logHistory.removeAt(0);
     _logController.add(fullMsg);
   }
 
-  void logWsSend(String json) {
-    _log('[WS-TX] $json');
+  void logWsSend(String json, {String label = '[WS-TX]'}) {
+    _log('$label $json');
   }
 
   void _logMaintenance(String msg) {

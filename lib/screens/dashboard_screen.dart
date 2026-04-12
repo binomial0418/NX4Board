@@ -67,9 +67,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- GPS 定位管理 ---
   StreamSubscription<Position>? _positionSubscription;
 
-  // --- 測速照相 WS 後送冷卻 (與 TTS 同樣以座標為 ID，45 秒內不重送) ---
+  // --- 測速照相 WS 後送冷卻 (與 TTS 同樣以座標為 ID，300 秒內不重送) ---
   final Map<String, DateTime> _cameraWsSentMap = {};
-  static const Duration _cameraWsCooldown = Duration(seconds: 45);
+  static const Duration _cameraWsCooldown = Duration(seconds: 300);
 
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
@@ -80,7 +80,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- 散熱管理 ---
   // 記錄 GPS 串流目前使用的 distanceFilter，與 _thermalDistanceFilter 比對
   // 即可判斷是否需重啟，不在 DashboardScreen 重複維護 ThermalMode 狀態
-  int _currentGpsDistanceFilter = 10;
+  int _currentGpsDistanceFilter = 5;
 
   // --- AppProvider 參考（dispose 時不可依賴 BuildContext）---
   late AppProvider _appProvider;
@@ -109,10 +109,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         final jsonString = jsonEncode(data);
         try {
           _channel!.sink.add(jsonString);
-          debugPrint('[WS-TX] Standard GPS Upload: $jsonString');
-          ObdSppService().logWsSend(jsonString);
+          debugPrint('[WS-TX-GPS] Standard GPS Upload: $jsonString');
+          ObdSppService().logWsSend(jsonString, label: '[WS-TX-GPS]');
         } catch (e) {
-          debugPrint('[WS-TX] Standard GPS Send error: $e');
+          debugPrint('[WS-TX-GPS] Standard GPS Send error: $e');
+          if (mounted) setState(() => _isWsConnected = false);
+          _scheduleReconnect();
         }
       }
     });
@@ -284,7 +286,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // GPS 定位追蹤
   // ──────────────────────────────────────────────
-  void _startLocationTracking({int distanceFilter = 10}) {
+  void _startLocationTracking({int distanceFilter = 5}) {
     _currentGpsDistanceFilter = distanceFilter;
     _positionSubscription?.cancel();
     _positionSubscription =
@@ -299,7 +301,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       },
       onError: (e) {
-        debugPrint('Location stream error: $e — 2 秒後自動重啟 GPS 串流');
         _positionSubscription?.cancel();
         _positionSubscription = null;
         Future.delayed(const Duration(seconds: 2), () {
@@ -313,9 +314,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   /// 以當前散熱等級對應的 distanceFilter 重啟 GPS 串流
   void _restartLocationForThermal() {
-    if (_positionSubscription == null) return; // GPS 未運行，不需重啟
+    // 不管 _positionSubscription 是否為 null：充電中散熱模式改變時一律重建串流
+    // （若訂閱因熱壓錯誤已被歸 null，此處可主動恢復，不依賴 error handler 的 2 秒 delay）
     final filter = _thermalDistanceFilter;
-    debugPrint('[Thermal] GPS distanceFilter → ${filter}m');
     _startLocationTracking(distanceFilter: filter);
   }
 
@@ -327,8 +328,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       final initialState = await _battery.batteryState;
       _handleBatteryStateChange(initialState);
-    } catch (e) {
-      debugPrint('Battery initial state error: $e');
+    } catch (_) {
+      // ignore
     }
 
     // 監聽後續狀態變化
@@ -336,7 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       (BatteryState state) {
         _handleBatteryStateChange(state);
       },
-      onError: (e) => debugPrint('Battery stream error: $e'),
+      onError: (_) {},
     );
   }
 
@@ -348,10 +349,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_isCharging == null) {
       _isCharging = charging;
       if (charging) {
-        debugPrint('[電源] 初始狀態：已連接外部電源');
         _wakeUp();
       } else {
-        debugPrint('[電源] 初始狀態：無外部電源，立即進入睡眠');
         _enterSleepMode();
       }
       return;
@@ -360,13 +359,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     // ── 狀態切換處理 ──
     if (charging && !_isCharging!) {
       _isCharging = true;
-      debugPrint('[電源] 偵測到外部電源連接，喚醒系統資源');
       _sleepCountdownTimer?.cancel();
       _sleepCountdownTimer = null;
       _wakeUp();
     } else if (!charging && _isCharging!) {
       _isCharging = false;
-      debugPrint('[電源] 偵測到外部電源中斷，10 秒後進入深度睡眠');
       _startSleepCountdown();
     }
   }
@@ -389,7 +386,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 重連 OBD
     final obdService = ObdSppService();
     if (obdService.connectionState == ObdConnectionState.disconnected) {
-      debugPrint('[電源] 重新連接 OBD 藍牙');
       obdService.init();
     }
 
@@ -415,7 +411,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     int countdown = 10;
     _sleepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       countdown--;
-      debugPrint('[電源] 進入睡眠倒數：$countdown 秒');
       if (countdown <= 0) {
         timer.cancel();
         _enterSleepMode();
@@ -424,7 +419,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _enterSleepMode() async {
-    debugPrint('[電源] 進入深度睡眠模式，關閉背景高耗電資源');
 
     // 關閉螢幕常亮與沉浸模式
     WakelockPlus.disable();
@@ -442,14 +436,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     // 停止 GPS 定位以省電 (不再進行任何測速偵測)
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    debugPrint('[電源] GPS 定位已停止，停止一切測速偵測');
 
     // 斷開藍牙 OBD（關閉輪詢 + 釋放 SPP 連線）
     ObdSppService().handleDisconnect('power_disconnected');
-    debugPrint('[電源] OBD 藍牙已斷線');
 
     if (mounted) setState(() {});
-    debugPrint('[電源] 系統資源已釋放，進入深度睡眠');
   }
 
   // ──────────────────────────────────────────────
@@ -533,11 +524,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         "tid": "obd",
       };
 
-      // 新增 GPS 資料
       if (provider.currentPosition != null) {
         uploadData["lat"] = provider.currentPosition!.latitude;
         uploadData["lon"] = provider.currentPosition!.longitude;
-        uploadData["alt"] = provider.currentPosition!.altitude;
       }
 
       final Map<String, dynamic> tires = {};
@@ -555,40 +544,30 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (obd.hasFuel && provider.obdFuel != null)
         uploadData["fuel"] = provider.obdFuel;
 
-      // 新增：保養維護資訊
-      if (obd.hasServiceDistanceRemaining)
-        uploadData["serviceDistance"] = provider.serviceDistanceRemaining;
-      if (obd.hasServiceDaysRemaining)
-        uploadData["serviceDays"] = provider.serviceDaysRemaining;
-
-      // 同時保留儀表板需要的原始屬性
-      if (obd.hasSpeed && provider.obdSpeed != null)
+      if (obd.hasSpeed && provider.obdSpeed != null) {
         uploadData["speed"] = provider.obdSpeed;
-      if (obd.hasRpm && provider.obdRpm != null)
-        uploadData["rpm"] = provider.obdRpm;
-      if (obd.hasCoolant && provider.obdCoolant != null)
-        uploadData["temperature"] = provider.obdCoolant;
-      if (obd.hasHevSoc && provider.obdHevSoc != null)
-        uploadData["battery"] = provider.obdHevSoc;
+      }
       uploadData["speed_limit"] = provider.roadSpeedLimit;
       if (provider.deviceBatteryTemp != null) {
         uploadData["device_temp"] = provider.deviceBatteryTemp;
       }
 
-      if (uploadData.length > 2) {
-        // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態
-        final wifiOk = await WifiService.isConnected();
-        if (!wifiOk) {
-          debugPrint('[WS-TX] WiFi 未連線，取消本次上傳');
-          return;
+      if (uploadData.length > 2 || provider.isDemoEnabled) {
+        // 除了 _type, tid 之外還有其他資料 — 發送前確認 WiFi 狀態 (Demo Model 跳過)
+        if (!provider.isDemoEnabled) {
+          final wifiOk = await WifiService.isConnected();
+          if (!wifiOk) {
+            debugPrint('[WS-TX-OBD] WiFi 未連線，取消本次上傳');
+            return;
+          }
         }
         final jsonString = jsonEncode(uploadData);
         try {
           _channel!.sink.add(jsonString);
-          debugPrint('[WS-TX] Uploaded to Relay: $jsonString');
-          ObdSppService().logWsSend(jsonString);
+          debugPrint('[WS-TX-OBD] Uploaded to Relay: $jsonString');
+          ObdSppService().logWsSend(jsonString, label: '[WS-TX-OBD]');
         } catch (e) {
-          debugPrint('[WS-TX] Send error: $e');
+          debugPrint('[WS-TX-OBD] Send error: $e');
           // 發送失敗視為斷線，立即觸發重連
           if (mounted) setState(() => _isWsConnected = false);
           _scheduleReconnect();
@@ -626,11 +605,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   int get _thermalDistanceFilter {
     switch (context.read<AppProvider>().thermalMode) {
       case ThermalMode.hot:
-        return 30;
+        return 20; // 降低熱天位移門檻
       case ThermalMode.warm:
-        return 20;
-      default:
         return 10;
+      default:
+        return 5; // 正常模式 5m，確保護轉彎靈敏度
     }
   }
 
@@ -656,7 +635,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _sendCameraAlertViaWs(Map<String, dynamic> camInfo) async {
     if (!mounted || !_isWsConnected || _channel == null) return;
 
-    // 以座標為唯一 ID，遵循 45 秒冷卻機制
+    // 以座標為唯一 ID，遵循 300 秒冷卻機制
     final String id = "${camInfo['lat']}_${camInfo['lon']}";
     final now = DateTime.now();
     if (_cameraWsSentMap.containsKey(id) &&
@@ -679,10 +658,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     final jsonString = jsonEncode(alertData);
     try {
       _channel!.sink.add(jsonString);
-      debugPrint('[WS-TX] 測速照相警報後送: $jsonString');
-      ObdSppService().logWsSend(jsonString);
+      debugPrint('[WS-TX-speedlimit] 測速照相警報後送: $jsonString');
+      ObdSppService().logWsSend(jsonString, label: '[WS-TX-speedlimit]');
     } catch (e) {
-      debugPrint('[WS-TX] 測速照相後送錯誤: $e');
+      debugPrint('[WS-TX-speedlimit] 測速照相後送錯誤: $e');
       if (mounted) setState(() => _isWsConnected = false);
       _scheduleReconnect();
     }
@@ -708,11 +687,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       "tid": "obd",
     };
 
-    // 新增 GPS 資料
     if (provider.currentPosition != null) {
       uploadData["lat"] = provider.currentPosition!.latitude;
       uploadData["lon"] = provider.currentPosition!.longitude;
-      uploadData["alt"] = provider.currentPosition!.altitude;
     }
 
     final Map<String, dynamic> tires = {};
@@ -730,36 +707,27 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (obd.hasFuel && provider.obdFuel != null)
       uploadData["fuel"] = provider.obdFuel;
 
-    // 新增：保養維護資訊
-    if (obd.hasServiceDistanceRemaining)
-      uploadData["serviceDistance"] = provider.serviceDistanceRemaining;
-    if (obd.hasServiceDaysRemaining)
-      uploadData["serviceDays"] = provider.serviceDaysRemaining;
-
-    if (obd.hasSpeed && provider.obdSpeed != null)
+    if (obd.hasSpeed && provider.obdSpeed != null) {
       uploadData["speed"] = provider.obdSpeed;
-    if (obd.hasRpm && provider.obdRpm != null)
-      uploadData["rpm"] = provider.obdRpm;
-    if (obd.hasCoolant && provider.obdCoolant != null)
-      uploadData["temperature"] = provider.obdCoolant;
-    if (obd.hasHevSoc && provider.obdHevSoc != null)
-      uploadData["battery"] = provider.obdHevSoc;
+    }
     uploadData["speed_limit"] = provider.roadSpeedLimit;
 
-    if (uploadData.length > 2) {
-      // 發送前確認 WiFi 狀態
-      final wifiOk = await WifiService.isConnected();
-      if (!wifiOk) {
-        debugPrint('[WS-TX] WiFi 未連線，取消立即傳送');
-        return;
+    if (uploadData.length > 2 || provider.isDemoEnabled) {
+      // 發送前確認 WiFi 狀態 (Demo Mode 跳過)
+      if (!provider.isDemoEnabled) {
+        final wifiOk = await WifiService.isConnected();
+        if (!wifiOk) {
+          debugPrint('[WS-TX-OBD] WiFi 未連線，取消立即傳送');
+          return;
+        }
       }
       final jsonString = jsonEncode(uploadData);
       try {
         _channel!.sink.add(jsonString);
-        debugPrint('[WS-TX] 輪詢後立即傳送: $jsonString');
-        ObdSppService().logWsSend(jsonString);
+        debugPrint('[WS-TX-OBD] 輪詢後立即傳送: $jsonString');
+        ObdSppService().logWsSend(jsonString, label: '[WS-TX-OBD]');
       } catch (e) {
-        debugPrint('[WS-TX] 立即傳送錯誤: $e');
+        debugPrint('[WS-TX-OBD] 立即傳送錯誤: $e');
         if (mounted) setState(() => _isWsConnected = false);
         _scheduleReconnect();
       }

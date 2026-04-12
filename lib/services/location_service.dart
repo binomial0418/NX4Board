@@ -19,12 +19,34 @@ class LocationService {
   /// Start listening to position changes
   /// Returns a stream of Position updates
   static Stream<Position> getPositionStream({int distanceFilter = 10}) {
-    return Geolocator.getPositionStream(
-      locationSettings: LocationSettings(
-        accuracy: LocationAccuracy.high,
+    LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.best,
         distanceFilter: distanceFilter,
-      ),
-    );
+        intervalDuration: const Duration(seconds: 2), // 至少每 2 秒更新一次
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "NX4Board 正在追蹤行車位置",
+          notificationTitle: "行車定位服務",
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS || 
+               defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: distanceFilter,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: distanceFilter,
+      );
+    }
+
+    return Geolocator.getPositionStream(locationSettings: locationSettings);
   }
 
   /// Get current position once

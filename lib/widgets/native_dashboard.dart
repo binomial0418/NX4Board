@@ -230,16 +230,50 @@ class _NativeDashboardState extends State<NativeDashboard>
         child: SizedBox(
           width: 2400,
           height: 1080,
-          child: Row(
+          child: Stack(
+            alignment: Alignment.topCenter,
             children: [
-              SizedBox(width: 600, child: _buildP1(provider)),
-              SizedBox(width: 600, child: _buildP2(provider)),
-              SizedBox(
-                width: 1200,
-                child: _buildP3(provider, dialSpeed, turbo),
+              Row(
+                children: [
+                  SizedBox(width: 600, child: _buildP1(provider)),
+                  SizedBox(width: 600, child: _buildP2(provider)),
+                  SizedBox(
+                    width: 1200,
+                    child: _buildP3(provider, dialSpeed, turbo),
+                  ),
+                ],
               ),
+              if (provider.isDemoEnabled)
+                Positioned(
+                  top: 30,
+                  child: _buildDemoBadge(),
+                ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helpers: Demo Badge
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Widget _buildDemoBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: const Text(
+        'DEMO MODE',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 32,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 2,
         ),
       ),
     );
@@ -590,37 +624,14 @@ class _NativeDashboardState extends State<NativeDashboard>
             children: [
               // Arc dial (animated) — 最大化圓的大小，只留底部少量間距
               Padding(
-                padding: const EdgeInsets.only(top: 50), // 從 70 回調至 50
+                padding: const EdgeInsets.only(top: 95), // 再度下移 20 單位 (累計下移 45)
                 child: _AnimatedDial(speed: speed),
               ),
 
-              // Demo Mode Badge
-              if (p.isDemoEnabled)
-                Positioned(
-                  top: 60, // 從 80 回調至 60
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.8),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Text(
-                      'DEMO MODE',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                  ),
-                ),
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
-                padding: const EdgeInsets.only(top: 230), // 從 250 回調至 230
+                padding: const EdgeInsets.only(top: 275), // 同步下移 20 單位
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -645,7 +656,7 @@ class _NativeDashboardState extends State<NativeDashboard>
                             : null,
                       ),
                     ),
-                    SizedBox(height: bigSpeed ? 90 : 60),
+                    SizedBox(height: bigSpeed ? 45 : 15), // 補償回調的 20 單位，維持轉速位置
                     // RPM row
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1005,7 +1016,7 @@ class _SpeedDialPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius =
-        (math.min(size.width, size.height) * 1.05 / 2) - _strokeWidth / 2;
+        (math.min(size.width, size.height) * 1.18 / 2) - _strokeWidth / 2;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
     // Background track
@@ -1060,10 +1071,10 @@ class _SpeedDialPainter extends CustomPainter {
 
       // Draw tick line
       canvas.drawLine(
-        Offset(center.dx + dx * (radius - currentTickLen / 2),
-            center.dy + dy * (radius - currentTickLen / 2)),
-        Offset(center.dx + dx * (radius + currentTickLen / 2),
-            center.dy + dy * (radius + currentTickLen / 2)),
+        Offset(center.dx + dx * (radius - currentTickLen),
+            center.dy + dy * (radius - currentTickLen)),
+        Offset(center.dx + dx * radius,
+            center.dy + dy * radius),
         Paint()
           ..color = color
           ..strokeWidth = isMajor ? 8 : 5 // 次刻度稍微細一點
@@ -1089,7 +1100,7 @@ class _SpeedDialPainter extends CustomPainter {
         )..layout();
 
         // Position number inside the arc
-        final textDist = radius - majorTickLen - 30;
+        final textDist = radius - majorTickLen - 37; // 因圓周調至 1.18，同步微調偏移量
         final tx = center.dx + dx * textDist - (tp.width / 2);
         final ty = center.dy + dy * textDist - (tp.height / 2);
         tp.paint(canvas, Offset(tx, ty));
