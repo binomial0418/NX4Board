@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:csv/csv.dart';
 import 'package:geolocator/geolocator.dart';
+import 'road_type_service.dart' show RoadType;
 
 class SpeedCamera {
   final String address;
@@ -10,6 +11,7 @@ class SpeedCamera {
   final double latitude;
   final String direct;
   final int? limit;
+  final RoadType roadType;
 
   SpeedCamera({
     required this.address,
@@ -17,21 +19,48 @@ class SpeedCamera {
     required this.latitude,
     required this.direct,
     this.limit,
+    this.roadType = RoadType.none,
   });
 
   factory SpeedCamera.fromCsv(List<dynamic> row) {
     // CSV Format: CityName(0), RegionName(1), Address(2), DeptNm(3), BranchNm(4), Longitude(5), Latitude(6), direct(7), limit(8)
+    final String cityName = row[0]?.toString() ?? '';
+    final String address  = row[2]?.toString() ?? '未知地點';
     final double lon = double.tryParse(row[5]?.toString() ?? '') ?? 0.0;
     final double lat = double.tryParse(row[6]?.toString() ?? '') ?? 0.0;
     final int? lim = int.tryParse(row[8]?.toString() ?? '');
-    
+
     return SpeedCamera(
-      address: row[2]?.toString() ?? '未知地點',
+      address: address,
       longitude: lon,
       latitude: lat,
       direct: row[7]?.toString() ?? '',
       limit: lim,
+      roadType: _classifyCamera(cityName, address),
     );
+  }
+
+  /// 依城市名稱與地址關鍵字判斷相機所在道路類型
+  static RoadType _classifyCamera(String cityName, String address) {
+    // 國道：CityName 欄位含「國道」最可靠；地址備援（含「國道」別名）
+    if (cityName.contains('國道') ||
+        address.contains('國道') ||
+        address.contains('中山高') ||
+        address.contains('福爾摩沙高速') ||
+        address.contains('福高')) {
+      return RoadType.highway;
+    }
+    // 快速道路：
+    //   1. 地址含明確關鍵字
+    //   2. 符合台灣快速公路編號：台/臺 61-68, 72-78, 82-88 線
+    //      （6x: 61,62,64,65,66,68；7x: 72,74,76,78；8x: 82,84,86,88）
+    if (address.contains('快速道路') ||
+        address.contains('快速公路') ||
+        address.contains('快速路') ||
+        RegExp(r'[台臺](?:6[1-8]|7[2-8]|8[2-8])線').hasMatch(address)) {
+      return RoadType.expressway;
+    }
+    return RoadType.none;
   }
 }
 
@@ -43,7 +72,12 @@ class CameraService {
   List<SpeedCamera> _cameras = [];
   final List<Position> _trajectory = [];
   static const int _maxTrajectorySize = 5;
-  static const double _searchRadiusKm = 1.0;
+
+  // 搜尋半徑依道路類型動態調整：
+  //   省道/市區：1.0km（50 km/h → 72 秒預警）
+  //   快速道路/國道：2.0km（100 km/h → 72 秒預警）
+  static const double _radiusNormal = 1.0;
+  static const double _radiusHighSpeed = 2.0;
 
   bool _isInitialized = false;
 
@@ -52,17 +86,23 @@ class CameraService {
     try {
       final String csvData = await rootBundle.loadString('assets/camera_data.csv');
       final List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
-      
+
       // Skip header and sub-header (row 0 and 1)
       for (int i = 2; i < rows.length; i++) {
         if (rows[i].length < 9) continue;
         _cameras.add(SpeedCamera.fromCsv(rows[i]));
       }
       _isInitialized = true;
+
+      final hwCount = _cameras.where((c) => c.roadType == RoadType.highway).length;
+      final ewCount = _cameras.where((c) => c.roadType == RoadType.expressway).length;
+      debugPrint('✅ CameraService: ${_cameras.length} cameras (國道 $hwCount, 快速 $ewCount, 其他 ${_cameras.length - hwCount - ewCount})');
     } catch (e) {
       debugPrint('CameraService init error: $e');
     }
   }
+
+  List<Position> get trajectory => List.unmodifiable(_trajectory);
 
   void addPosition(Position pos) {
     _trajectory.add(pos);
@@ -71,12 +111,15 @@ class CameraService {
     }
   }
 
-  Map<String, dynamic>? checkNearbyCamera() {
+  /// 偵測附近測速照相
+  /// [currentRoadType] 由 RoadTypeService 提供，用於過濾同道路類型的相機
+  /// 並動態調整搜尋半徑（國道/快速道路 2km，其他 1km）
+  Map<String, dynamic>? checkNearbyCamera({RoadType currentRoadType = RoadType.none}) {
     if (_trajectory.length < 2) return null;
 
     final first = _trajectory.first;
     final last = _trajectory.last;
-    
+
     final double moveDist = CameraAlgorithm.haversine(
       first.latitude, first.longitude, last.latitude, last.longitude
     );
@@ -91,15 +134,23 @@ class CameraService {
     }
 
     SpeedCamera? nearestCam;
-    double minOverallDist = _searchRadiusKm;
+    final double searchRadiusKm = (currentRoadType != RoadType.none)
+        ? _radiusHighSpeed
+        : _radiusNormal;
+    double minOverallDist = searchRadiusKm;
     double? finalAngleDiff;
 
-    // 邊界框預篩（±0.01° ≈ 1.1km），避免對遠方相機做 haversine
-    const double bboxDeg = 0.01;
+    // 邊界框預篩：半徑 / 111km per degree，國道/快速道路加倍
+    final double bboxDeg = searchRadiusKm / 111.0;
     final refLat = last.latitude;
     final refLon = last.longitude;
 
     for (var cam in _cameras) {
+      // 非對稱過濾策略：
+      //   確認在高速路（highway/expressway）→ 只掃同類，排除平面誤報
+      //   路型為 none（含剛上匝道的切換過渡期）→ 全掃，避免入口處漏報
+      if (currentRoadType != RoadType.none && cam.roadType != currentRoadType) continue;
+
       if ((cam.latitude - refLat).abs() > bboxDeg ||
           (cam.longitude - refLon).abs() > bboxDeg) { continue; }
 

@@ -42,7 +42,11 @@ class AppProvider extends ChangeNotifier {
   double _demoSoc = 65.5;
   int _demoCoolant = 88;
   int _demoTicks = 0;
-  
+
+  // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
+  bool get isOnHighway => RoadTypeService().isOnHighway;
+  bool get isOnExpressway => RoadTypeService().isOnExpressway;
+
   // GPS upload tracking (Standardized tid: gps)
   DateTime? _lastGpsSentTime;
   double _lastGpsSentHeading = 0;
@@ -62,8 +66,9 @@ class AppProvider extends ChangeNotifier {
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
 
   // Obd getters (Modified for Demo Mode)
-  ObdConnectionState get obdConnectionState =>
-      _isDemoEnabled ? ObdConnectionState.connected : _obdService.connectionState;
+  ObdConnectionState get obdConnectionState => _isDemoEnabled
+      ? ObdConnectionState.connected
+      : _obdService.connectionState;
 
   int? get obdRpm => _isDemoEnabled ? _demoRpm.toInt() : _obdService.rpm;
   int? get obdSpeed {
@@ -71,7 +76,9 @@ class AppProvider extends ChangeNotifier {
     if (rawSpeed == null || rawSpeed <= 0) return rawSpeed;
     return rawSpeed + 3;
   }
-  int? get obdCoolant => _isDemoEnabled ? _demoCoolant : _obdService.coolantTemp;
+
+  int? get obdCoolant =>
+      _isDemoEnabled ? _demoCoolant : _obdService.coolantTemp;
   double? get obdVoltage => _isDemoEnabled ? 14.2 : _obdService.voltage;
   double? get obdHevSoc => _isDemoEnabled ? _demoSoc : _obdService.hevSoc;
   double? get obdOdometer => _isDemoEnabled ? 33610.0 : _obdService.odometer;
@@ -187,8 +194,9 @@ class AppProvider extends ChangeNotifier {
       } else {
         // 利用正弦波在剩餘 80 步中產生 1.0 ~ 1789.0 的變化
         // (cyclePos - 20) / 80 會從 0 變到 1
-        final wave = math.sin((cyclePos - 20) * (math.pi / 40)); // 半個正弦週期的話用 pi/80，這裡用 pi/40 跑完一個週期
-        _demoRpm = 895 + 894 * wave; 
+        final wave = math.sin((cyclePos - 20) *
+            (math.pi / 40)); // 半個正弦週期的話用 pi/80，這裡用 pi/40 跑完一個週期
+        _demoRpm = 895 + 894 * wave;
       }
 
       // 2. 模擬時速：正弦波 60 ~ 130
@@ -235,8 +243,9 @@ class AppProvider extends ChangeNotifier {
 
       // 依照需求格式組裝 JSON
       final timestampSec = now.millisecondsSinceEpoch ~/ 1000;
-      final gpsTimeStr = DateFormat('HHmmss.00').format(position.timestamp.toLocal());
-      
+      final gpsTimeStr =
+          DateFormat('HHmmss.00').format(position.timestamp.toLocal());
+
       final Map<String, dynamic> gpsPayload = {
         "_type": "BVB-7980",
         "tid": "gps",
@@ -252,11 +261,19 @@ class AppProvider extends ChangeNotifier {
       _gpsDataController.add(gpsPayload);
     }
 
-    // ── 道路速限牌面偵測 (SpeedLimitService) ──
+    // ── 加入軌跡（測速照相與國道偵測共用） ──
+    final camService = CameraService();
+    camService.addPosition(position);
+
+    // ── 更新國道/快速道路旗標（快取 + 滑動分數，封裝於 RoadTypeService） ──
+    RoadTypeService().addPosition(position.latitude, position.longitude);
+
+    // ── 道路速限牌面偵測，傳入路型旗標避免重複查表 ──
     final speedLimitService = SpeedLimitService();
     final detectedLimit = speedLimitService.detectNearbyLimit(
       position.latitude,
       position.longitude,
+      roadType: RoadTypeService().currentRoadType,
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
@@ -290,9 +307,9 @@ class AppProvider extends ChangeNotifier {
     }
 
     // ── 測速照相偵測 ──
-    final camService = CameraService();
-    camService.addPosition(position);
-    final camInfo = camService.checkNearbyCamera();
+    final camInfo = camService.checkNearbyCamera(
+      currentRoadType: RoadTypeService().currentRoadType,
+    );
 
     if (camInfo != null) {
       _nearestCameraInfo = camInfo;
@@ -307,12 +324,23 @@ class AppProvider extends ChangeNotifier {
         _zoneCameraActiveUntil = null;
       }
       final double speedKmh = position.speed * 3.6;
-      TtsService().speakCameraAlert(camInfo, speedKmh);
-
-      // 距離 500m 內且超速 10km/h 以上 → 額外播報超速警示
       final int distM = camInfo['dist_m'] ?? 9999;
       final int? limit = camInfo['limit'];
-      if (distM <= 500 && limit != null && speedKmh > limit + 10) {
+      final bool isZone = camInfo['is_zone'] == true;
+
+      // 提示距離門檻：
+      //   區間測速        → 100m
+      //   平面道路固定測速  → 500m
+      //   國道/快速道路    → 1000m
+      final bool isNormalRoad =
+          RoadTypeService().currentRoadType == RoadType.none;
+      final int alertThresholdM = isZone ? 100 : (isNormalRoad ? 500 : 1000);
+      if (distM <= alertThresholdM) {
+        TtsService().speakCameraAlert(camInfo, speedKmh);
+      }
+
+      // 距離 300m 內且超速 10km/h 以上 → 額外播報超速警示（區間測速不適用）
+      if (!isZone && distM <= 300 && limit != null && speedKmh > limit + 10) {
         TtsService().speakSpeedingAlert(camInfo);
       }
     } else {
