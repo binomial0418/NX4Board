@@ -302,7 +302,9 @@ class AppProvider extends ChangeNotifier {
     }
 
     // ── 測速照相偵測 ──
-    final camInfo = camService.checkNearbyCamera();
+    final camInfo = camService.checkNearbyCamera(
+      currentRoadType: RoadTypeService().currentRoadType,
+    );
 
     if (camInfo != null) {
       _nearestCameraInfo = camInfo;
