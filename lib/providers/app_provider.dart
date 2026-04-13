@@ -43,6 +43,10 @@ class AppProvider extends ChangeNotifier {
   int _demoCoolant = 88;
   int _demoTicks = 0;
   
+  // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
+  bool get isOnHighway => RoadTypeService().isOnHighway;
+  bool get isOnExpressway => RoadTypeService().isOnExpressway;
+
   // GPS upload tracking (Standardized tid: gps)
   DateTime? _lastGpsSentTime;
   double _lastGpsSentHeading = 0;
@@ -236,7 +240,7 @@ class AppProvider extends ChangeNotifier {
       // 依照需求格式組裝 JSON
       final timestampSec = now.millisecondsSinceEpoch ~/ 1000;
       final gpsTimeStr = DateFormat('HHmmss.00').format(position.timestamp.toLocal());
-      
+
       final Map<String, dynamic> gpsPayload = {
         "_type": "BVB-7980",
         "tid": "gps",
@@ -252,11 +256,19 @@ class AppProvider extends ChangeNotifier {
       _gpsDataController.add(gpsPayload);
     }
 
-    // ── 道路速限牌面偵測 (SpeedLimitService) ──
+    // ── 加入軌跡（測速照相與國道偵測共用） ──
+    final camService = CameraService();
+    camService.addPosition(position);
+
+    // ── 更新國道/快速道路旗標（快取 + 滑動分數，封裝於 RoadTypeService） ──
+    RoadTypeService().addPosition(position.latitude, position.longitude);
+
+    // ── 道路速限牌面偵測，傳入路型旗標避免重複查表 ──
     final speedLimitService = SpeedLimitService();
     final detectedLimit = speedLimitService.detectNearbyLimit(
       position.latitude,
       position.longitude,
+      roadType: RoadTypeService().currentRoadType,
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
@@ -290,8 +302,6 @@ class AppProvider extends ChangeNotifier {
     }
 
     // ── 測速照相偵測 ──
-    final camService = CameraService();
-    camService.addPosition(position);
     final camInfo = camService.checkNearbyCamera();
 
     if (camInfo != null) {

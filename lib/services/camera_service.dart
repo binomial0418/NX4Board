@@ -64,6 +64,8 @@ class CameraService {
     }
   }
 
+  List<Position> get trajectory => List.unmodifiable(_trajectory);
+
   void addPosition(Position pos) {
     _trajectory.add(pos);
     if (_trajectory.length > _maxTrajectorySize) {
