@@ -959,12 +959,18 @@ class ObdSppService with ChangeNotifier {
       sendCommand('ATSH7DF');
     });
 
-    // 倒車狀態每 1 秒：Header 302，PID 22BC04
-    _reversePollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    // 倒車狀態：速度 > 20 時每 5 秒，≤ 20 時每 2 秒（遞迴自調整）
+    _scheduleReversePoll();
+  }
+
+  void _scheduleReversePoll() {
+    final int intervalMs = (speed != null && speed! > 20) ? 5000 : 2000;
+    _reversePollTimer = Timer(Duration(milliseconds: intervalMs), () {
       if (!_isConnected) return;
       sendCommand('ATSH302');
       sendCommand('22BC04');
       sendCommand('ATSH7DF');
+      _scheduleReversePoll();
     });
   }
 
