@@ -41,6 +41,7 @@ class AppProvider extends ChangeNotifier {
   double _demoTurbo = 0;
   double _demoSoc = 65.5;
   int _demoCoolant = 88;
+  bool _demoIsReversing = false;
   int _demoTicks = 0;
 
   // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
@@ -84,6 +85,7 @@ class AppProvider extends ChangeNotifier {
   double? get obdOdometer => _isDemoEnabled ? 33610.0 : _obdService.odometer;
   int? get obdFuel => _isDemoEnabled ? 75 : _obdService.fuelLevel;
   double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
+  bool get isReversing => _isDemoEnabled ? _demoIsReversing : _obdService.isReversing;
   int? get tpmsFl => _isDemoEnabled ? 35 : _obdService.tpmsFl?.floor();
   int? get tpmsFr => _isDemoEnabled ? 36 : _obdService.tpmsFr?.floor();
   int? get tpmsRl => _isDemoEnabled ? 35 : _obdService.tpmsRl?.floor();
@@ -212,6 +214,11 @@ class AppProvider extends ChangeNotifier {
       // 5. 模擬水溫：88 與 101 之間循環切換 (每 3 秒切換一次)
       if (_demoTicks % 30 == 0) {
         _demoCoolant = (_demoCoolant == 88) ? 101 : 88;
+      }
+
+      // 6. 模擬倒車：每 2 秒切換一次
+      if (_demoTicks % 20 == 0) {
+        _demoIsReversing = !_demoIsReversing;
       }
 
       notifyListeners();

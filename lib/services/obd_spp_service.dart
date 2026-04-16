@@ -95,6 +95,8 @@ class ObdSppService with ChangeNotifier {
   int serviceDistanceRemaining = 0;
   int serviceDaysRemaining = 0;
 
+  bool isReversing = false;
+
   // TPMS (FL, FR, RL, RR)
   double? tpmsFl;
   double? tpmsFr;
@@ -120,6 +122,7 @@ class ObdSppService with ChangeNotifier {
   bool hasServiceDistanceRemaining = false;
   bool hasServiceDaysRemaining = false;
   bool hasTpms = false;
+  bool hasReversing = false;
 
   // ── GPS Speed Tracking ───────────────────────────────────────────────────
   double? _lastGpsSpeedKmh;
@@ -138,6 +141,7 @@ class ObdSppService with ChangeNotifier {
   Timer? _slowPollTimer;
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
+  Timer? _reversePollTimer;
   
   // ── Moving Window Buffers ────────────────────────────────────────────────
   final List<int> _fuelBuffer = [];
@@ -387,6 +391,8 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer = null;
     _longPollTimer?.cancel();
     _longPollTimer = null;
+    _reversePollTimer?.cancel();
+    _reversePollTimer = null;
 
     // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
@@ -619,6 +625,8 @@ class ObdSppService with ChangeNotifier {
     hasServiceDistanceRemaining = false;
     hasServiceDaysRemaining = false;
     hasTpms = false;
+    isReversing = false;
+    hasReversing = false;
     _fuelBuffer.clear();
   }
 
@@ -811,7 +819,14 @@ class ObdSppService with ChangeNotifier {
           final int payloadStart = index + signature.length;
           final String data = sanitized.substring(payloadStart);
 
-          if (pid == 'C00B') {
+          if (pid == 'BC04') {
+            if (data.length >= 10) {
+              final int rawByte = int.parse(data.substring(8, 10), radix: 16);
+              isReversing = rawByte != 0;
+              hasReversing = true;
+              _log('[Parser Result] Reversing=$isReversing (raw=$rawByte)');
+            }
+          } else if (pid == 'C00B') {
             if (data.length >= 42) {
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
               tpmsFr = int.parse(data.substring(18, 20), radix: 16) / 5.0;
@@ -915,6 +930,7 @@ class ObdSppService with ChangeNotifier {
     _slowPollTimer?.cancel();
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
+    _reversePollTimer?.cancel();
 
     _scheduleFastPoll();
 
@@ -940,6 +956,14 @@ class ObdSppService with ChangeNotifier {
       if (!_isConnected) return;
       sendCommand('ATSH7C6');
       sendCommand('22B002');
+      sendCommand('ATSH7DF');
+    });
+
+    // 倒車狀態每 1 秒：Header 302，PID 22BC04
+    _reversePollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_isConnected) return;
+      sendCommand('ATSH302');
+      sendCommand('22BC04');
       sendCommand('ATSH7DF');
     });
   }

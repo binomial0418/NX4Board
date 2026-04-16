@@ -215,9 +215,11 @@ class _NativeDashboardState extends State<NativeDashboard>
 
     final speed = _displaySpeed(provider);
     final turbo = _processTurbo(provider.obdTurbo, provider.obdRpm);
+    final isReversing = provider.isReversing;
 
     // Wakeup: sine-sweep overrides displayed speed for dial + text
-    double dialSpeed = speed;
+    // Reversing: freeze dial at 0
+    double dialSpeed = isReversing ? 0 : speed;
     if (_wakeupActive) {
       dialSpeed = math.sin(_wakeupCtrl.value * math.pi) * 180;
     }
@@ -606,6 +608,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   Widget _buildP3(AppProvider p, double speed, double turbo) {
     final rpm = p.obdRpm;
     final isEv = rpm == 0;
+    final isReversing = p.isReversing;
     final speedInt = speed.round();
     final bigSpeed = speedInt > 99;
 
@@ -635,18 +638,20 @@ class _NativeDashboardState extends State<NativeDashboard>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Speed number：3位數縮小字型確保不超出圓
+                    // Speed number：3位數縮小字型確保不超出圓；倒車時顯示 R
                     Text(
-                      speedInt.toString(),
+                      isReversing ? 'R' : speedInt.toString(),
                       style: TextStyle(
-                        fontSize: bigSpeed ? 340 : 380,
+                        fontSize: isReversing ? 380 : (bigSpeed ? 340 : 380),
                         fontWeight: FontWeight.w900,
-                        color: isOverLimit
-                            ? const Color(0xffffcccc)
-                            : Colors.white,
+                        color: isReversing
+                            ? const Color(0xfffbbf24) // amber-400
+                            : (isOverLimit
+                                ? const Color(0xffffcccc)
+                                : Colors.white),
                         height: 0.9,
                         letterSpacing: bigSpeed ? -10 : -4,
-                        shadows: isOverLimit
+                        shadows: isOverLimit && !isReversing
                             ? [
                                 Shadow(
                                   color: Colors.red.withValues(alpha: 0.9),
