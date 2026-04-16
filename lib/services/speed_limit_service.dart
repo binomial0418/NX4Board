@@ -16,6 +16,10 @@ class SpeedLimitService {
   int _currentLimit = 40;
   int get currentLimit => _currentLimit;
 
+  // 最後一次速限來源：true = 省道牌面，false = 路型（國道/快速道路）
+  bool _lastDetectedFromSign = false;
+  bool get lastDetectedFromSign => _lastDetectedFromSign;
+
   /// 初始化：從 CSV 載入所有牌面資料
   Future<void> init() async {
     if (_initialized) return;
@@ -58,6 +62,7 @@ class SpeedLimitService {
 
       if (detectedLimit != null) {
         _currentLimit = detectedLimit;
+        _lastDetectedFromSign = true;
         return detectedLimit;
       }
     }
@@ -65,12 +70,14 @@ class SpeedLimitService {
     // 2. 以路型旗標判斷速限
     if (roadType == RoadType.highway) {
       _currentLimit = 110;
+      _lastDetectedFromSign = false;
       debugPrint('🛣️ 國道偵測: 速限 110 km/h');
       return 110;
     }
 
     if (roadType == RoadType.expressway) {
       _currentLimit = 90;
+      _lastDetectedFromSign = false;
       debugPrint('🛣️ 快速道路偵測: 速限 90 km/h');
       return 90;
     }

@@ -277,9 +277,11 @@ class AppProvider extends ChangeNotifier {
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
-    } else {
-      _roadSpeedLimit = speedLimitService.currentLimit;
+    } else if (!speedLimitService.lastDetectedFromSign) {
+      // 上次來源為路型（國道/快速道路），現已離開且無牌面 → 退回預設 40
+      _roadSpeedLimit = 40;
     }
+    // 上次來源為省道牌面 → 保留最後牌面值，不更動
 
     // Find nearby signs within 500m (Legacy logic, keep for backward compatibility or other indicators)
     _nearbySpeedSigns = CsvParser.findNearby(
