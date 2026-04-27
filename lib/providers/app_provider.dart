@@ -262,7 +262,7 @@ class AppProvider extends ChangeNotifier {
         "acc": position.accuracy > 0 ? position.accuracy : 15.0,
         "vel": double.parse((position.speed * 3.6).toStringAsFixed(2)),
         "cog": double.parse(position.heading.toStringAsFixed(1)),
-        "satcnt": 10, // 套件無法取得，暫以需求範例值 10 提供
+        "satcnt": DeviceStatusService().satelliteCount,
         "gpstime": gpsTimeStr,
       };
       _gpsDataController.add(gpsPayload);

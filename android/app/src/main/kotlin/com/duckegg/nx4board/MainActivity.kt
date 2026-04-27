@@ -14,9 +14,9 @@ import android.media.MediaRecorder
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.net.wifi.WifiManager
-import android.os.Build
-import android.os.Environment
-import android.os.PowerManager
+import android.location.GnssStatus
+import android.location.LocationManager
+import android.os.*
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -78,6 +78,10 @@ class MainActivity : FlutterActivity() {
 
     // ── EventSink for data push ───────────────────────────────────────────────
     private var eventSink: EventChannel.EventSink? = null
+
+    // ── GNSS Status Tracking ──────────────────────────────────────────────────
+    private var satelliteCount = 0
+    private var gnssStatusCallback: Any? = null // Using Any? for backward compatibility check
 
 
     // =========================================================================
@@ -212,9 +216,15 @@ class MainActivity : FlutterActivity() {
                         result.success(0)
                     }
                 }
+                "getGpsSatelliteCount" -> {
+                    result.success(satelliteCount)
+                }
                 else -> result.notImplemented()
             }
         }
+
+        // Initialize GNSS Callback
+        setupGnssCallback()
 
         // ── Screen Recording MethodChannel ──────────────────────────────────
         MethodChannel(
@@ -537,12 +547,41 @@ class MainActivity : FlutterActivity() {
     // 生命週期
     // =========================================================================
 
+    private fun setupGnssCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val callback = object : GnssStatus.Callback() {
+                override fun onSatelliteStatusChanged(status: GnssStatus) {
+                    var count = 0
+                    for (i in 0 until status.satelliteCount) {
+                        if (status.usedInFix(i)) {
+                            count++
+                        }
+                    }
+                    satelliteCount = count
+                }
+            }
+            gnssStatusCallback = callback
+            try {
+                locationManager.registerGnssStatusCallback(callback, Handler(Looper.getMainLooper()))
+            } catch (e: SecurityException) {
+                // Ignore if permission not yet granted; geolocator handles permission requests
+            }
+        }
+    }
+
     override fun onDestroy() {
         disconnect()
         volumeCheckTimer?.cancel()
         volumeCheckTimer = null
         connectExecutor.shutdownNow()
         writeExecutor.shutdownNow()
+        // Unregister GNSS Callback
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusCallback != null) {
+            val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            locationManager.unregisterGnssStatusCallback(gnssStatusCallback as GnssStatus.Callback)
+        }
+
         super.onDestroy()
     }
 }

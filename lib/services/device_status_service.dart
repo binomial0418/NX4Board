@@ -21,6 +21,7 @@ class DeviceStatusService {
   // Android PowerManager thermal status:
   // 0=NONE, 1=LIGHT, 2=MODERATE, 3=SEVERE, 4=CRITICAL, 5=EMERGENCY, 6=SHUTDOWN
   int _thermalStatus = 0;
+  int _satelliteCount = 0;
   Timer? _pollTimer;
   bool _initialized = false;
 
@@ -29,6 +30,9 @@ class DeviceStatusService {
 
   /// Android PowerManager 熱狀態原始值（0–6）
   int get thermalStatus => _thermalStatus;
+
+  /// GPS 衛星數量 (僅 Android)
+  int get satelliteCount => _satelliteCount;
 
   /// 綜合散熱等級：Android 熱 API 優先，電池溫度備援
   ThermalMode get thermalMode {
@@ -45,7 +49,8 @@ class DeviceStatusService {
     if (_initialized) return;
     _initialized = true;
     await _fetch();
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetch());
+    // 衛星數量與溫度每 10 秒更新一次
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetch());
   }
 
   Future<void> _fetch() async {
@@ -63,6 +68,13 @@ class DeviceStatusService {
       if (status != null) _thermalStatus = status;
     } catch (e) {
       debugPrint('[DeviceStatus] 無法取得 Thermal Status: $e');
+    }
+    try {
+      final int? count =
+          await _channel.invokeMethod<int>('getGpsSatelliteCount');
+      if (count != null) _satelliteCount = count;
+    } catch (e) {
+      debugPrint('[DeviceStatus] 無法取得衛星數量: $e');
     }
     debugPrint(
         '[DeviceStatus] 電池溫度: $_batteryTemperature°C, '
