@@ -97,6 +97,10 @@ class ObdSppService with ChangeNotifier {
 
   bool isReversing = false;
 
+  // 大燈狀態（OBD.csv: IGMP_Headlights_Low_Beam / High_Beam，PID 22BC09）
+  bool isLowBeamOn = false;
+  bool isHighBeamOn = false;
+
   // TPMS (FL, FR, RL, RR)
   double? tpmsFl;
   double? tpmsFr;
@@ -123,6 +127,7 @@ class ObdSppService with ChangeNotifier {
   bool hasServiceDaysRemaining = false;
   bool hasTpms = false;
   bool hasReversing = false;
+  bool hasHeadlights = false;
 
   // ── GPS Speed Tracking ───────────────────────────────────────────────────
   double? _lastGpsSpeedKmh;
@@ -142,6 +147,7 @@ class ObdSppService with ChangeNotifier {
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
   Timer? _reversePollTimer;
+  Timer? _headlightPollTimer;
   
   // ── Moving Window Buffers ────────────────────────────────────────────────
   final List<int> _fuelBuffer = [];
@@ -393,6 +399,8 @@ class ObdSppService with ChangeNotifier {
     _longPollTimer = null;
     _reversePollTimer?.cancel();
     _reversePollTimer = null;
+    _headlightPollTimer?.cancel();
+    _headlightPollTimer = null;
 
     // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
@@ -627,6 +635,9 @@ class ObdSppService with ChangeNotifier {
     hasTpms = false;
     isReversing = false;
     hasReversing = false;
+    isLowBeamOn = false;
+    isHighBeamOn = false;
+    hasHeadlights = false;
     _fuelBuffer.clear();
   }
 
@@ -826,6 +837,18 @@ class ObdSppService with ChangeNotifier {
               hasReversing = true;
               _log('[Parser Result] Reversing=$isReversing (raw=$rawByte)');
             }
+          } else if (pid == 'BC09') {
+            // OBD.csv: High_Beam = G/12、Low_Beam = H/12
+            // G = data[6] (substring 12..14)、H = data[7] (substring 14..16)
+            if (data.length >= 16) {
+              final int g = int.parse(data.substring(12, 14), radix: 16);
+              final int h = int.parse(data.substring(14, 16), radix: 16);
+              isHighBeamOn = (g / 12.0) >= 0.5;
+              isLowBeamOn = (h / 12.0) >= 0.5;
+              hasHeadlights = true;
+              _log(
+                  '[Parser Result] Headlights Low=$isLowBeamOn High=$isHighBeamOn (G=$g H=$h)');
+            }
           } else if (pid == 'C00B') {
             if (data.length >= 42) {
               tpmsFl = int.parse(data.substring(8, 10), radix: 16) / 5.0;
@@ -931,6 +954,7 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
     _reversePollTimer?.cancel();
+    _headlightPollTimer?.cancel();
 
     _scheduleFastPoll();
 
@@ -961,6 +985,15 @@ class ObdSppService with ChangeNotifier {
 
     // 倒車狀態：速度 > 20 時每 5 秒，≤ 20 時每 2 秒（遞迴自調整）
     _scheduleReversePoll();
+
+    // 大燈狀態：每 3 秒一次（用於 ESP32 儀表的日/夜亮度切換，不需高頻）
+    _headlightPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!_isConnected) return;
+      // 與 22BC04 同為 IGMP 模組，沿用相同的請求 Header
+      sendCommand('ATSH302');
+      sendCommand('22BC09');
+      sendCommand('ATSH7DF');
+    });
   }
 
   void _scheduleReversePoll() {

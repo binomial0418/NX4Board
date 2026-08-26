@@ -693,7 +693,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
   ///  "fuel":50,"speed_limit":90,
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
-  ///  "camera":{"active":true,"limit":90}}
+  ///  "camera":{"active":true,"limit":90},
+  ///  "lights":{"low":true,"high":false},"brightness":40}
   /// ```
   void _sendEsp32DashData() {
     if (!mounted) return;
@@ -730,6 +731,15 @@ class _DashboardScreenState extends State<DashboardScreen>
         "active": camInfo != null,
         "limit": camInfo?['limit'] ?? 0,
       },
+      "lights": {
+        "low": provider.isLowBeamOn,
+        "high": provider.isHighBeamOn,
+      },
+      // 螢幕亮度由手機端依大燈狀態決定，ESP32 只負責套用
+      "brightness": SettingsService().esp32BrightnessFor(
+        lowBeam: provider.isLowBeamOn,
+        highBeam: provider.isHighBeamOn,
+      ),
     };
 
     try {

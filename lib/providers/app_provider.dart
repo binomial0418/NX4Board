@@ -42,6 +42,8 @@ class AppProvider extends ChangeNotifier {
   double _demoSoc = 65.5;
   int _demoCoolant = 88;
   bool _demoIsReversing = false;
+  bool _demoIsLowBeamOn = false;
+  bool _demoIsHighBeamOn = false;
   int _demoTicks = 0;
 
   // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
@@ -86,6 +88,12 @@ class AppProvider extends ChangeNotifier {
   int? get obdFuel => _isDemoEnabled ? 75 : _obdService.fuelLevel;
   double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
   bool get isReversing => _isDemoEnabled ? _demoIsReversing : _obdService.isReversing;
+
+  // 大燈狀態（供 ESP32 儀表依日/夜切換螢幕亮度）
+  bool get isLowBeamOn =>
+      _isDemoEnabled ? _demoIsLowBeamOn : _obdService.isLowBeamOn;
+  bool get isHighBeamOn =>
+      _isDemoEnabled ? _demoIsHighBeamOn : _obdService.isHighBeamOn;
   int? get tpmsFl => _isDemoEnabled ? 35 : _obdService.tpmsFl?.floor();
   int? get tpmsFr => _isDemoEnabled ? 36 : _obdService.tpmsFr?.floor();
   int? get tpmsRl => _isDemoEnabled ? 35 : _obdService.tpmsRl?.floor();
@@ -219,6 +227,18 @@ class AppProvider extends ChangeNotifier {
       // 6. 模擬倒車：每 2 秒切換一次
       if (_demoTicks % 20 == 0) {
         _demoIsReversing = !_demoIsReversing;
+      }
+
+      // 7. 模擬大燈：每 6 秒依 關 → 近燈 → 遠燈 循環，驗證亮度切換
+      if (_demoTicks % 60 == 0) {
+        if (!_demoIsLowBeamOn && !_demoIsHighBeamOn) {
+          _demoIsLowBeamOn = true;
+        } else if (_demoIsLowBeamOn && !_demoIsHighBeamOn) {
+          _demoIsHighBeamOn = true;
+        } else {
+          _demoIsLowBeamOn = false;
+          _demoIsHighBeamOn = false;
+        }
       }
 
       notifyListeners();

@@ -58,6 +58,8 @@ static lv_obj_t *s_status_title;
 static lv_obj_t *s_status_ip;
 static lv_obj_t *s_status_dot;
 static lv_obj_t *s_status_link;
+static lv_obj_t *s_status_lights;
+static lv_obj_t *s_status_brightness;
 
 static lv_obj_t *s_limit_sign;
 static lv_obj_t *s_limit_label;
@@ -166,6 +168,13 @@ static void build_status_bar(void) {
 
   s_status_title = make_label(bar, "NX4BOARD", &lv_font_montserrat_18, C_ACCENT);
   lv_obj_align(s_status_title, LV_ALIGN_LEFT_MID, PAD, 0);
+
+  // 大燈狀態與亮度採固定座標，避免文字長度變動時互相推擠
+  s_status_lights = make_label(bar, "", &lv_font_montserrat_18, C_AMBER);
+  lv_obj_align(s_status_lights, LV_ALIGN_LEFT_MID, 150, 0);
+
+  s_status_brightness = make_label(bar, "BRT --", &lv_font_montserrat_16, C_MUTED);
+  lv_obj_align(s_status_brightness, LV_ALIGN_LEFT_MID, 230, 0);
 
   s_status_dot = lv_obj_create(bar);
   lv_obj_set_size(s_status_dot, 12, 12);
@@ -431,6 +440,20 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     }
   }
 
+  // 大燈狀態
+  if (force || data->low_beam != p->low_beam ||
+      data->high_beam != p->high_beam) {
+    if (data->high_beam) {
+      lv_label_set_text(s_status_lights, "HIGH BEAM");
+      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(0x3B82F6), 0);
+    } else if (data->low_beam) {
+      lv_label_set_text(s_status_lights, "LIGHTS");
+      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_AMBER), 0);
+    } else {
+      lv_label_set_text(s_status_lights, "");
+    }
+  }
+
   // 胎壓
   update_tire(0, data->tire_fl, p->tire_fl, force);
   update_tire(1, data->tire_fr, p->tire_fr, force);
@@ -460,6 +483,10 @@ void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
   lv_obj_align(s_status_dot, LV_ALIGN_RIGHT_MID, -PAD, 0);
   lv_obj_align_to(s_status_link, s_status_dot, LV_ALIGN_OUT_LEFT_MID, -8, 0);
   lv_obj_align_to(s_status_ip, s_status_link, LV_ALIGN_OUT_LEFT_MID, -20, 0);
+}
+
+void ui_dashboard_set_brightness(int percent) {
+  lv_label_set_text_fmt(s_status_brightness, "BRT %d%%", percent);
 }
 
 void ui_dashboard_set_stale(bool stale) {

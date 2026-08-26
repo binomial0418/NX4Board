@@ -11,8 +11,14 @@
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
 //   "fuel": 50, "speed_limit": 90,
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
-//   "camera": {"active": true, "limit": 90}
+//   "camera": {"active": true, "limit": 90},
+//   "lights": {"low": true, "high": false},
+//   "brightness": 40
 // }
+//
+// brightness 為螢幕背光百分比（0-100），由手機端依 OBD 大燈狀態決定。
+// 設定頁的「測試」按鈕會額外帶 "brightness_hold_ms"，在該時間內忽略後續
+// 儀表推送的 brightness，方便實機確認亮度。
 //
 // 編譯上傳請使用 ./build.sh（arduino-cli），詳見 README.md。
 // ─────────────────────────────────────────────────────────────────────────
@@ -54,6 +60,10 @@ static bool g_dash_dirty = false;
 static uint32_t g_last_data_ms = 0;
 static bool g_client_linked = false;
 
+// 背光：只有數值變動時才呼叫 LEDC，避免每筆推送都重設 duty
+static int g_brightness = 100;
+static uint32_t g_brightness_hold_until = 0;
+
 // ─────────────────────────────────────────────────────────────────────────
 // LVGL 顯示驅動（沿用原廠 Demo 寫法）
 // ─────────────────────────────────────────────────────────────────────────
@@ -92,6 +102,18 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
 // ─────────────────────────────────────────────────────────────────────────
 // WebSocket
 // ─────────────────────────────────────────────────────────────────────────
+/// 套用螢幕背光（JD9165 驅動以 GPIO23 的 LEDC PWM 控制，10-bit）
+static void applyBrightness(int percent) {
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  if (percent == g_brightness) return;
+
+  g_brightness = percent;
+  lcd.example_bsp_set_lcd_backlight((uint32_t)percent);
+  ui_dashboard_set_brightness(percent);
+  Serial.printf("[BRT] 螢幕亮度 -> %d%%\n", percent);
+}
+
 static void handleDashPayload(uint8_t *payload, size_t length) {
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
@@ -127,6 +149,24 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!camera.isNull()) {
     g_dash.camera_active = camera["active"] | false;
     g_dash.camera_limit = camera["limit"] | 0;
+  }
+
+  JsonObjectConst lights = doc["lights"];
+  if (!lights.isNull()) {
+    g_dash.low_beam = lights["low"] | false;
+    g_dash.high_beam = lights["high"] | false;
+  }
+
+  // 亮度：帶 brightness_hold_ms 的（設定頁測試按鈕）優先，並在該期間
+  // 忽略儀表推送的亮度，否則 200ms 一次的推送會馬上把測試值蓋掉
+  if (doc["brightness"].is<int>()) {
+    uint32_t hold = doc["brightness_hold_ms"] | 0;
+    if (hold > 0) {
+      g_brightness_hold_until = millis() + hold;
+      applyBrightness(doc["brightness"].as<int>());
+    } else if (millis() >= g_brightness_hold_until) {
+      applyBrightness(doc["brightness"].as<int>());
+    }
   }
 
   g_dash_dirty = true;
@@ -260,6 +300,7 @@ void setup() {
 
   ui_dashboard_create();
   ui_dashboard_update(&g_dash);
+  ui_dashboard_set_brightness(g_brightness);
   ui_dashboard_set_stale(true);
 
   startWifi();

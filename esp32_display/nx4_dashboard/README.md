@@ -45,7 +45,9 @@
   "fuel": 50,
   "speed_limit": 90,
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
-  "camera": { "active": true, "limit": 90 }
+  "camera": { "active": true, "limit": 90 },
+  "lights": { "low": true, "high": false },
+  "brightness": 40
 }
 ```
 
@@ -61,8 +63,31 @@
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
 | `camera.limit` | int | 該測速照相的速限 km/h |
+| `lights.low` | bool | 近燈（大燈）是否開啟 |
+| `lights.high` | bool | 遠燈是否開啟 |
+| `brightness` | int | 螢幕背光 0–100 %，由手機端依大燈狀態決定 |
+| `brightness_hold_ms` | int | 選用。設定頁「測試」按鈕專用，見下方 |
 
 缺少的欄位會沿用上一次的值，避免畫面跳動。
+
+### 螢幕亮度
+
+手機端以 OBD **PID 22BC09**（IGMP 模組，`OBD.csv` 的
+`IGMP_Headlights_Low_Beam` = `H/12`、`IGMP_Headlights_High_Beam` = `G/12`）
+每 3 秒讀取一次大燈狀態，再依 App 設定換算出 `brightness` 一併推送：
+
+| 大燈狀態 | 使用的設定 | 預設 |
+|---|---|---|
+| 遠燈開啟 | 遠燈亮度 | 25 % |
+| 近燈開啟（遠燈關） | 近燈亮度 | 40 % |
+| 皆關閉 | 大燈關閉亮度 | 100 % |
+
+ESP32 收到後以 `lcd.example_bsp_set_lcd_backlight()` 套用（JD9165 驅動以
+GPIO23 的 LEDC PWM 控制背光，10-bit），數值未變動時不會重設 duty。
+
+App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hold_ms: 5000`
+的封包；ESP32 在這 5 秒內會忽略儀表推送裡的 `brightness`，否則每 200 ms
+一次的推送會立刻把測試值蓋掉。
 
 ---
 
@@ -70,7 +95,7 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ NX4BOARD                          192.168.4.2   LINKED  ●          │ 40px
+│ NX4BOARD  LIGHTS  BRT 40%          192.168.4.2   LINKED  ●          │ 40px
 ├──────────────┬──────────────────────────────────┬──────────────────┤
 │  ╭────────╮  │                                  │ COOLANT       C  │
 │  │   90   │  │              75                  │ 88  ▁▁▁▁▁▁▁▁    │
@@ -95,6 +120,7 @@
 - **油量**：≤ 15% 轉紅
 - **胎壓**：< 28 psi 紅色（過低）、> 40 psi 琥珀色（過高）
 - **測速照相**：紅色面板以 500 ms 週期閃爍
+- **狀態列大燈**：近燈亮起顯示琥珀色 `LIGHTS`、遠燈顯示藍色 `HIGH BEAM`
 - **逾時**（預設 5 秒未收到資料）：所有數值淡出至 40% 不透明度
 
 ### 效能設計
@@ -221,3 +247,4 @@ PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600
 | 數值全部灰掉 | 超過 `DATA_TIMEOUT_MS`（預設 5 秒）沒收到推送，多半是手機端斷線或未在充電狀態 |
 | `JSON 解析失敗` | 檢查是否誤把第一通道（`BVB-7980`）的 IP/Port 填成 ESP32 的 |
 | 畫面撕裂 | 於 `nx4_dashboard.ino` 將 `disp_drv.full_refresh` 改為 `true` |
+| 亮度不會隨大燈變化 | 序列監視器看有無 `[BRT] 螢幕亮度 -> N%`；沒有代表手機端沒讀到 22BC09（App 日誌搜尋 `Headlights`），可能該車的 IGMP 請求 Header 不是 `ATSH302` |

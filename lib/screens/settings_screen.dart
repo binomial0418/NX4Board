@@ -30,6 +30,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _esp32PortController = TextEditingController();
   bool _esp32Enabled = false;
 
+  // ESP32 螢幕亮度（依大燈狀態切換）
+  int _brightnessDay = 100;
+  int _brightnessLow = 40;
+  int _brightnessHigh = 25;
+
   bool _enableOcr = true;
   double _ttsVolume = 1.0;
   String _appVersion = 'Loading...';
@@ -57,6 +62,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _esp32IpController.text = SettingsService().esp32Ip;
     _esp32PortController.text = SettingsService().esp32Port;
     _esp32Enabled = SettingsService().esp32Enabled;
+    _brightnessDay = SettingsService().esp32BrightnessDay;
+    _brightnessLow = SettingsService().esp32BrightnessLowBeam;
+    _brightnessHigh = SettingsService().esp32BrightnessHighBeam;
     _enableOcr = SettingsService().enableOcr;
     _ttsVolume = SettingsService().ttsVolume;
 
@@ -199,6 +207,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     SettingsService().setEsp32Ip(_esp32IpController.text.trim());
     SettingsService().setEsp32Port(_esp32PortController.text.trim());
     SettingsService().setEsp32Enabled(_esp32Enabled);
+    SettingsService().setEsp32BrightnessDay(_brightnessDay);
+    SettingsService().setEsp32BrightnessLowBeam(_brightnessLow);
+    SettingsService().setEsp32BrightnessHighBeam(_brightnessHigh);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('ESP32 儀表設定已儲存')),
     );
@@ -247,6 +258,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(content: Text('ESP32 發送失敗: $e')),
       );
     }
+  }
+
+  /// 立即把指定亮度推送到 ESP32 供實機確認。
+  ///
+  /// 帶上 brightness_hold_ms，讓 ESP32 在該期間忽略儀表資料裡的亮度欄位，
+  /// 否則儀表畫面每 200ms 的推送會立刻把測試值蓋掉。
+  Future<void> _sendBrightnessTest(int percent) async {
+    final ip = _esp32IpController.text.trim();
+    final port = _esp32PortController.text.trim();
+
+    if (ip.isEmpty || port.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先輸入 ESP32 IP 與 Port')),
+      );
+      return;
+    }
+
+    try {
+      final channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+      channel.sink.add(jsonEncode({
+        "_type": "esp32_dash",
+        "brightness": percent,
+        "brightness_hold_ms": 5000,
+      }));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已送出亮度 $percent%（保持 5 秒）')),
+      );
+
+      await Future.delayed(const Duration(seconds: 1));
+      await channel.sink.close();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('亮度發送失敗: $e')),
+      );
+    }
+  }
+
+  /// 單列亮度設定：說明文字 + 滑桿 + 百分比 + 測試按鈕
+  Widget _buildBrightnessRow({
+    required IconData icon,
+    required String label,
+    required int value,
+    required ValueChanged<int> onChanged,
+    required Future<void> Function(int) onSave,
+  }) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 108,
+          child: Row(
+            children: [
+              Icon(icon, size: 18),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(label, style: const TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.toDouble(),
+            min: 0,
+            max: 100,
+            divisions: 20,
+            label: '$value%',
+            onChanged: (v) => onChanged(v.round()),
+            onChangeEnd: (v) async => await onSave(v.round()),
+          ),
+        ),
+        SizedBox(
+          width: 44,
+          child: Text('$value%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton(
+          onPressed: () => _sendBrightnessTest(value),
+          child: const Text('測試'),
+        ),
+      ],
+    );
   }
 
   Future<void> _exportLogs() async {
@@ -606,6 +704,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ],
                               ),
                             ],
+                          ),
+                          const Divider(height: 24),
+                          // ── 螢幕亮度：依 OBD 大燈狀態自動切換 ──────────
+                          const Text('螢幕亮度 (依大燈狀態切換)',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.bold)),
+                          const Text(
+                            'OBD PID 22BC09 讀取近燈/遠燈，遠燈優先於近燈；'
+                            '按「測試」立即推送該亮度至 ESP32 並保持 5 秒',
+                            style:
+                                TextStyle(fontSize: 12, color: Colors.black54),
+                          ),
+                          const SizedBox(height: 4),
+                          _buildBrightnessRow(
+                            icon: Icons.wb_sunny_outlined,
+                            label: '大燈關閉',
+                            value: _brightnessDay,
+                            onChanged: (v) =>
+                                setState(() => _brightnessDay = v),
+                            onSave: SettingsService().setEsp32BrightnessDay,
+                          ),
+                          _buildBrightnessRow(
+                            icon: Icons.light_mode_outlined,
+                            label: '近燈開啟',
+                            value: _brightnessLow,
+                            onChanged: (v) =>
+                                setState(() => _brightnessLow = v),
+                            onSave: SettingsService().setEsp32BrightnessLowBeam,
+                          ),
+                          _buildBrightnessRow(
+                            icon: Icons.highlight_outlined,
+                            label: '遠燈開啟',
+                            value: _brightnessHigh,
+                            onChanged: (v) =>
+                                setState(() => _brightnessHigh = v),
+                            onSave:
+                                SettingsService().setEsp32BrightnessHighBeam,
                           ),
                         ],
                       ),

@@ -29,6 +29,8 @@ typedef struct {
   int tire_rr;
   bool camera_active;  // 前方有測速照相
   int camera_limit;    // 該測速照相的速限 km/h
+  bool low_beam;       // 近燈（大燈）開啟
+  bool high_beam;      // 遠燈開啟
 } nx4_dash_data_t;
 
 /// 以合理預設值（全部歸零 / 無警示）初始化資料結構
@@ -45,6 +47,9 @@ void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked);
 
 /// 資料逾時 / 手機斷線時將主要數值淡出，避免誤讀舊值
 void ui_dashboard_set_stale(bool stale);
+
+/// 更新狀態列上的螢幕亮度顯示（實際背光由 .ino 呼叫 LCD 驅動套用）
+void ui_dashboard_set_brightness(int percent);
 
 #ifdef __cplusplus
 }

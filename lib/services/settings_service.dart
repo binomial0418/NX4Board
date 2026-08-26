@@ -30,6 +30,25 @@ class SettingsService {
 
   /// 第二通道推送最小間隔（毫秒），避免高頻更新塞爆 ESP32
   int get esp32PushIntervalMs => _prefs?.getInt('esp32_push_interval_ms') ?? 200;
+
+  // ── ESP32 螢幕亮度（依大燈狀態切換，單位 %）────────────────────────────
+  /// 大燈關閉（日間）亮度
+  int get esp32BrightnessDay => _prefs?.getInt('esp32_brightness_day') ?? 100;
+
+  /// 近燈（大燈）開啟時亮度
+  int get esp32BrightnessLowBeam =>
+      _prefs?.getInt('esp32_brightness_low') ?? 40;
+
+  /// 遠燈開啟時亮度
+  int get esp32BrightnessHighBeam =>
+      _prefs?.getInt('esp32_brightness_high') ?? 25;
+
+  /// 依目前大燈狀態換算出應套用的亮度百分比
+  int esp32BrightnessFor({required bool lowBeam, required bool highBeam}) {
+    if (highBeam) return esp32BrightnessHighBeam;
+    if (lowBeam) return esp32BrightnessLowBeam;
+    return esp32BrightnessDay;
+  }
   double get ttsVolume => _prefs?.getDouble('tts_volume') ?? 1.0;
 
   Future<void> init() async {
@@ -62,6 +81,18 @@ class SettingsService {
 
   Future<void> setEsp32PushIntervalMs(int ms) async {
     await _prefs?.setInt('esp32_push_interval_ms', ms);
+  }
+
+  Future<void> setEsp32BrightnessDay(int percent) async {
+    await _prefs?.setInt('esp32_brightness_day', percent.clamp(0, 100));
+  }
+
+  Future<void> setEsp32BrightnessLowBeam(int percent) async {
+    await _prefs?.setInt('esp32_brightness_low', percent.clamp(0, 100));
+  }
+
+  Future<void> setEsp32BrightnessHighBeam(int percent) async {
+    await _prefs?.setInt('esp32_brightness_high', percent.clamp(0, 100));
   }
 
   Future<void> setEnableOcr(bool value) async {
