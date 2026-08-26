@@ -17,6 +17,19 @@ class SettingsService {
   String get wsPort => _prefs?.getString('ws_port') ?? '81';
   String get obdMac => _prefs?.getString('obd_mac') ?? '';
   bool get enableOcr => _prefs?.getBool('enable_ocr') ?? true;
+
+  // ── ESP32 儀表顯示器 (第二通道 WebSocket) ──────────────────────────────
+  /// ESP32-P4 顯示器的 WebSocket Server IP
+  String get esp32Ip => _prefs?.getString('esp32_ip') ?? '192.168.4.2';
+
+  /// ESP32-P4 顯示器的 WebSocket Server Port
+  String get esp32Port => _prefs?.getString('esp32_port') ?? '8080';
+
+  /// 是否啟用 ESP32 儀表即時推送（第二通道）
+  bool get esp32Enabled => _prefs?.getBool('esp32_enabled') ?? false;
+
+  /// 第二通道推送最小間隔（毫秒），避免高頻更新塞爆 ESP32
+  int get esp32PushIntervalMs => _prefs?.getInt('esp32_push_interval_ms') ?? 200;
   double get ttsVolume => _prefs?.getDouble('tts_volume') ?? 1.0;
 
   Future<void> init() async {
@@ -33,6 +46,22 @@ class SettingsService {
 
   Future<void> setObdMac(String mac) async {
     await _prefs?.setString('obd_mac', mac);
+  }
+
+  Future<void> setEsp32Ip(String ip) async {
+    await _prefs?.setString('esp32_ip', ip);
+  }
+
+  Future<void> setEsp32Port(String port) async {
+    await _prefs?.setString('esp32_port', port);
+  }
+
+  Future<void> setEsp32Enabled(bool value) async {
+    await _prefs?.setBool('esp32_enabled', value);
+  }
+
+  Future<void> setEsp32PushIntervalMs(int ms) async {
+    await _prefs?.setInt('esp32_push_interval_ms', ms);
   }
 
   Future<void> setEnableOcr(bool value) async {

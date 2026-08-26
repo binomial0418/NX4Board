@@ -25,6 +25,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _ipController = TextEditingController();
   final _portController = TextEditingController();
 
+  // ESP32-P4 儀表顯示器（第二通道）
+  final _esp32IpController = TextEditingController();
+  final _esp32PortController = TextEditingController();
+  bool _esp32Enabled = false;
+
   bool _enableOcr = true;
   double _ttsVolume = 1.0;
   String _appVersion = 'Loading...';
@@ -49,6 +54,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _ipController.text = SettingsService().wsIp;
     _portController.text = SettingsService().wsPort;
+    _esp32IpController.text = SettingsService().esp32Ip;
+    _esp32PortController.text = SettingsService().esp32Port;
+    _esp32Enabled = SettingsService().esp32Enabled;
     _enableOcr = SettingsService().enableOcr;
     _ttsVolume = SettingsService().ttsVolume;
 
@@ -99,6 +107,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _ipController.dispose();
     _portController.dispose();
+    _esp32IpController.dispose();
+    _esp32PortController.dispose();
     _logSub?.cancel();
     _volumeSub?.cancel();
     _scrollController.dispose();
@@ -181,6 +191,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('發送失敗: $e')),
         );
+    }
+  }
+
+  // ── ESP32-P4 儀表顯示器（第二通道）─────────────────────────────────────
+  void _saveEsp32Settings() {
+    SettingsService().setEsp32Ip(_esp32IpController.text.trim());
+    SettingsService().setEsp32Port(_esp32PortController.text.trim());
+    SettingsService().setEsp32Enabled(_esp32Enabled);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('ESP32 儀表設定已儲存')),
+    );
+  }
+
+  Future<void> _sendTestEsp32Data() async {
+    final ip = _esp32IpController.text.trim();
+    final port = _esp32PortController.text.trim();
+
+    if (ip.isEmpty || port.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先輸入 ESP32 IP 與 Port')),
+      );
+      return;
+    }
+
+    try {
+      final channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+
+      // 與 dashboard_screen 的 _sendEsp32DashData() 相同的協定格式
+      const testData = {
+        "_type": "esp32_dash",
+        "speed": 75,
+        "rpm": 1750,
+        "coolant": 88,
+        "soc": 65.5,
+        "fuel": 50,
+        "speed_limit": 90,
+        "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
+        "camera": {"active": true, "limit": 90},
+      };
+
+      final jsonString = jsonEncode(testData);
+      channel.sink.add(jsonString);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ESP32 測試資料已發送: $jsonString')),
+      );
+
+      await Future.delayed(const Duration(seconds: 1));
+      await channel.sink.close();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ESP32 發送失敗: $e')),
+      );
     }
   }
 
@@ -463,6 +528,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         backgroundColor: Colors.blue[100]),
                                     onPressed: _sendTestWsData,
                                     child: const Text('WS Test'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // ── ESP32-P4 儀表顯示器（第二通道，高頻即時推送）──────────
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('ESP32-P4 儀表顯示器 (第二通道)',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold)),
+                          const Text(
+                            '獨立於上方 MQTT 後送通道，OBD 每次輪詢即時推送儀表資料',
+                            style:
+                                TextStyle(fontSize: 12, color: Colors.black54),
+                          ),
+                          const SizedBox(height: 8),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: const Text('啟用 ESP32 儀表推送'),
+                            value: _esp32Enabled,
+                            onChanged: (val) async {
+                              setState(() => _esp32Enabled = val);
+                              await SettingsService().setEsp32Enabled(val);
+                            },
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: TextField(
+                                  controller: _esp32IpController,
+                                  keyboardType: TextInputType.text,
+                                  decoration: const InputDecoration(
+                                    labelText: 'ESP32 IP Address',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 1,
+                                child: TextField(
+                                  controller: _esp32PortController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Port',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Column(
+                                children: [
+                                  ElevatedButton(
+                                    onPressed: _saveEsp32Settings,
+                                    child: const Text('Save'),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green[100]),
+                                    onPressed: _sendTestEsp32Data,
+                                    child: const Text('Dash Test'),
                                   ),
                                 ],
                               ),

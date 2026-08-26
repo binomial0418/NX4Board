@@ -18,3 +18,5 @@ app-release.apk
 devtools_options.yaml
 pr.md
 pr_diff.txt
+esp32_display/硬體規格與範例/
+esp32_display/nx4_dashboard/config.h

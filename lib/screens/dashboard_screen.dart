@@ -58,6 +58,16 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _isWsConnecting = false; // 防止重複連線
   Timer? _wsUploadTimer;
 
+  // --- 第二通道 WebSocket：ESP32-P4 儀表顯示器 ---
+  // 與第一通道 (_channel, 60 秒 MQTT 後送) 完全獨立，
+  // 於每次 OBD 輪詢更新時即時推送 esp32_dash JSON，追求低延遲。
+  WebSocketChannel? _esp32Channel;
+  StreamSubscription<dynamic>? _esp32Subscription;
+  Timer? _esp32ReconnectTimer;
+  bool _isEsp32Connected = false;
+  bool _isEsp32Connecting = false;
+  DateTime? _lastEsp32Push; // 推送節流時間戳
+
   // --- 電源管理 ---
   final Battery _battery = Battery();
   StreamSubscription<BatteryState>? _batterySubscription;
@@ -395,6 +405,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     _startWsUploadSync();
 
+    // 恢復第二通道 (ESP32 儀表)
+    if (!_isEsp32Connected) {
+      _connectEsp32();
+    }
+
     // 喚醒後短暫延遲傳送一次資料
     Future.delayed(const Duration(seconds: 2), () {
       if (_isCharging == true) {
@@ -432,6 +447,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _isWsConnected = false);
 
     _wsUploadTimer?.cancel();
+
+    // 切斷第二通道 (ESP32 儀表)
+    _disconnectEsp32();
 
     // 停止 GPS 定位以省電 (不再進行任何測速偵測)
     _positionSubscription?.cancel();
@@ -587,6 +605,143 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ──────────────────────────────────────────────
+  // 第二通道：ESP32-P4 儀表顯示器 WebSocket
+  // ──────────────────────────────────────────────
+  void _connectEsp32() {
+    if (!SettingsService().esp32Enabled) return;
+    if (_isEsp32Connecting) return;
+    _isEsp32Connecting = true;
+    _doConnectEsp32();
+  }
+
+  void _doConnectEsp32() {
+    try {
+      final ip = SettingsService().esp32Ip;
+      final port = SettingsService().esp32Port;
+
+      if (ip.isEmpty || port.isEmpty) {
+        debugPrint('[ESP32] IP/Port 未設定，略過連線');
+        _isEsp32Connecting = false;
+        return;
+      }
+
+      _esp32Subscription?.cancel();
+      _esp32Subscription = null;
+      _esp32Channel?.sink.close();
+      _esp32Channel = null;
+
+      _esp32Channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+
+      // 與第一通道相同：本端為主動推送方，連線建立即視為 connected
+      if (mounted) setState(() => _isEsp32Connected = true);
+      debugPrint('[ESP32] 已連接: ws://$ip:$port');
+
+      _esp32Subscription = _esp32Channel!.stream.listen(
+        (message) {
+          // ESP32 端目前僅接收，保留供未來雙向擴充（例如亮度回報）
+          debugPrint('[ESP32] device push: $message');
+        },
+        onDone: () {
+          debugPrint('[ESP32] 連線中斷 (onDone)');
+          if (mounted) setState(() => _isEsp32Connected = false);
+          _isEsp32Connecting = false;
+          _scheduleEsp32Reconnect();
+        },
+        onError: (error) {
+          debugPrint('[ESP32] 連線錯誤: $error');
+          if (mounted) setState(() => _isEsp32Connected = false);
+          _isEsp32Connecting = false;
+          _scheduleEsp32Reconnect();
+        },
+        cancelOnError: true,
+      );
+      _isEsp32Connecting = false;
+    } catch (e) {
+      debugPrint('[ESP32] 連線失敗: $e');
+      if (mounted) setState(() => _isEsp32Connected = false);
+      _isEsp32Connecting = false;
+      _scheduleEsp32Reconnect();
+    }
+  }
+
+  void _scheduleEsp32Reconnect() {
+    _esp32ReconnectTimer?.cancel();
+    if (!SettingsService().esp32Enabled) return;
+    // 未供電（睡眠或準備睡眠）時不主動重連
+    if (_isCharging != true) return;
+
+    _esp32ReconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _isCharging == true) _connectEsp32();
+    });
+  }
+
+  void _disconnectEsp32() {
+    _esp32ReconnectTimer?.cancel();
+    _esp32Subscription?.cancel();
+    _esp32Subscription = null;
+    _esp32Channel?.sink.close();
+    _esp32Channel = null;
+    _isEsp32Connecting = false;
+    _lastEsp32Push = null;
+    if (mounted) setState(() => _isEsp32Connected = false);
+  }
+
+  /// 推送 esp32_dash 儀表資料（於每次 OBD/GPS 更新時呼叫，具節流保護）
+  ///
+  /// 協定格式：
+  /// ```json
+  /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
+  ///  "fuel":50,"speed_limit":90,
+  ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
+  ///  "camera":{"active":true,"limit":90}}
+  /// ```
+  void _sendEsp32DashData() {
+    if (!mounted) return;
+    if (!SettingsService().esp32Enabled) return;
+    if (!_isEsp32Connected || _esp32Channel == null) return;
+
+    // 節流：避免 OBD 高頻更新塞爆 ESP32 的 WebSocket buffer
+    final now = DateTime.now();
+    final minInterval =
+        Duration(milliseconds: SettingsService().esp32PushIntervalMs);
+    if (_lastEsp32Push != null && now.difference(_lastEsp32Push!) < minInterval) {
+      return;
+    }
+    _lastEsp32Push = now;
+
+    final provider = context.read<AppProvider>();
+    final camInfo = provider.nearestCameraInfo;
+
+    final Map<String, dynamic> dashData = {
+      "_type": "esp32_dash",
+      "speed": _currentDisplaySpeed.round(),
+      "rpm": provider.obdRpm ?? 0,
+      "coolant": provider.obdCoolant ?? 0,
+      "soc": provider.obdHevSoc ?? 0,
+      "fuel": provider.obdFuel ?? 0,
+      "speed_limit": provider.roadSpeedLimit,
+      "tires": {
+        "fl": provider.tpmsFl ?? 0,
+        "fr": provider.tpmsFr ?? 0,
+        "rl": provider.tpmsRl ?? 0,
+        "rr": provider.tpmsRr ?? 0,
+      },
+      "camera": {
+        "active": camInfo != null,
+        "limit": camInfo?['limit'] ?? 0,
+      },
+    };
+
+    try {
+      _esp32Channel!.sink.add(jsonEncode(dashData));
+    } catch (e) {
+      debugPrint('[ESP32] 推送錯誤: $e');
+      if (mounted) setState(() => _isEsp32Connected = false);
+      _scheduleEsp32Reconnect();
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // 同步 BLE 資料至 WebView
   // ──────────────────────────────────────────────
   /// 速度來源：OBD 優先，GPS 備援（低於 1.5 m/s 視為靜止歸零）
@@ -627,6 +782,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (provider.nearestCameraInfo != null) {
       _sendCameraAlertViaWs(provider.nearestCameraInfo!);
     }
+
+    // 第二通道：每次 OBD/GPS 更新即時推送儀表資料至 ESP32
+    _sendEsp32DashData();
   }
 
   // ──────────────────────────────────────────────
@@ -745,6 +903,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     _sleepCountdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _wsUploadTimer?.cancel();
+    _esp32Subscription?.cancel();
+    _esp32ReconnectTimer?.cancel();
     _recordingStateTimer?.cancel();
     // 移除 OBD 數據監聽器
     ObdSppService().removeListener(_handleUiUpdate);
@@ -752,6 +912,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _appProvider.removeListener(_handleUiUpdate);
     _pulseController.dispose();
     _channel?.sink.close();
+    _esp32Channel?.sink.close();
     // OBD 斷線（釋放藍牙連線與停止輪詢）
     ObdSppService().handleDisconnect('dispose');
     FlutterForegroundTask.stopService();
@@ -966,6 +1127,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                         if (!mounted) return;
                         setState(() => _isWsConnected = false);
                         _connectWebSocket();
+
+                        // 第二通道 (ESP32 儀表) 亦依新設定重連
+                        _disconnectEsp32();
+                        _connectEsp32();
 
                         // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
                         if (provider.currentPosition != null) {

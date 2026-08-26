@@ -1,0 +1,25 @@
+#pragma once
+
+// ─────────────────────────────────────────────────────────────────────────
+// 複製本檔為 config.h 後填入你的參數（config.h 已被 .gitignore 排除）
+//   cp config.h.example config.h
+// ─────────────────────────────────────────────────────────────────────────
+
+// WiFi STA：需與手機 NX4Board 位於同一個網段
+// （建議用手機開熱點，讓 ESP32 連上手機；或兩者同時連車上 4G 路由器）
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASS "YOUR_WIFI_PASSWORD"
+
+// WebSocket Server 監聽埠，需與 App「ESP32-P4 儀表顯示器」設定中的 Port 相同
+#define WS_PORT 8080
+
+// 可選：固定 IP。設為 1 時使用下方靜態位址，方便 App 端固定填寫 IP。
+// 設為 0 則走 DHCP，開機後由螢幕上方狀態列顯示實際取得的 IP。
+#define USE_STATIC_IP 0
+#define STATIC_IP 192, 168, 4, 2
+#define STATIC_GATEWAY 192, 168, 4, 1
+#define STATIC_SUBNET 255, 255, 255, 0
+#define STATIC_DNS 192, 168, 4, 1
+
+// 資料逾時（毫秒）：超過此時間未收到手機推送即視為離線並將數值灰階化
+#define DATA_TIMEOUT_MS 5000
