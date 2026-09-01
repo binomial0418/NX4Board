@@ -8,19 +8,19 @@
 //   nx4_font_num_150s — 時速大字，Montserrat SemiBold（line_height 108）
 //   nx4_font_num_76s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 56）
 //   nx4_font_num_80   — 卡片大數值，Regular（line_height 57）
-//   nx4_font_num_52   — 時鐘 HH:MM，Regular（line_height 36）
+//   nx4_font_num_64   — 時鐘 HH:MM，Regular（line_height 44）
 //   nx4_font_tc_22    — 中文標籤 + 基本 ASCII（line_height 25）
 // ─────────────────────────────────────────────────────────────────────────
 LV_FONT_DECLARE(nx4_font_num_150s);
 LV_FONT_DECLARE(nx4_font_num_76s);
 LV_FONT_DECLARE(nx4_font_num_80);
-LV_FONT_DECLARE(nx4_font_num_52);
+LV_FONT_DECLARE(nx4_font_num_64);
 LV_FONT_DECLARE(nx4_font_tc_22);
 
 #define F_SPEED &nx4_font_num_150s
 #define F_RPM &nx4_font_num_76s
 #define F_VALUE &nx4_font_num_80
-#define F_CLOCK &nx4_font_num_52
+#define F_CLOCK &nx4_font_num_64
 #define F_LABEL &nx4_font_tc_22
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
@@ -31,7 +31,7 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define H_SPEED 108
 #define H_RPM 56
 #define H_VALUE 57
-#define H_CLOCK 36
+#define H_CLOCK 44
 #define H_LABEL 25
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
@@ -103,7 +103,6 @@ static lv_obj_t *s_scr;
 static lv_obj_t *s_soc_value;
 static lv_obj_t *s_coolant_value;
 static lv_obj_t *s_clock_value; // HH:MM
-static lv_obj_t *s_clock_sec;   // :SS（較小，每秒跳動）
 static lv_obj_t *s_date_value;
 static lv_obj_t *s_tire_value[4]; // FL, FR, RL, RR
 static lv_obj_t *s_odo_value;
@@ -164,22 +163,24 @@ static bool s_cam_blink_on;
 static int s_clk_h = -1, s_clk_m = 0, s_clk_s = 0;
 
 static void render_clock(void) {
+  // 手機每秒都會送新的時間字串，但畫面只到分鐘。快取已顯示的內容，
+  // 內容沒變就不呼叫 lv_label_set_text，避免每秒白白重繪一次。
+  static char shown[8] = "";
+  char buf[8];
   if (s_clk_h < 0) {
-    lv_label_set_text(s_clock_value, "--:--");
-    lv_label_set_text(s_clock_sec, "");
-    return;
+    strcpy(buf, "--:--");
+  } else {
+    lv_snprintf(buf, sizeof(buf), "%02d:%02d", s_clk_h, s_clk_m);
   }
-  lv_label_set_text_fmt(s_clock_value, "%02d:%02d", s_clk_h, s_clk_m);
-  lv_label_set_text_fmt(s_clock_sec, ":%02d", s_clk_s);
-
-  // 秒數緊接在 HH:MM 之後，底部對齊
-  lv_obj_update_layout(s_clock_value);
-  lv_obj_align_to(s_clock_sec, s_clock_value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -3);
+  if (strcmp(buf, shown) == 0) return;
+  strcpy(shown, buf);
+  lv_label_set_text(s_clock_value, buf);
 }
 
 static void clock_tick_cb(lv_timer_t *timer) {
   LV_UNUSED(timer);
   if (s_clk_h < 0) return; // 尚未從手機取得時間
+  // 秒數仍在本機累加，只是不顯示——手機斷線後仍需正確跨分鐘
   if (++s_clk_s >= 60) {
     s_clk_s = 0;
     if (++s_clk_m >= 60) {
@@ -280,13 +281,10 @@ static void build_column1(void) {
   s_date_value = make_label(card, "--/--", F_LABEL, C_LABEL);
   lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 38);
 
-  // HH:MM 用 52px 而非 80px：加上秒數後 "00:00:00" 在 80px 下約 222px，
-  // 卡片內寬只有 197px 放不下（80px 時連 "18:04" 都已逼近邊界）
+  // 只顯示 HH:MM。64px 是卡片寬度的上限：數值起點 x=33、卡片寬 226，
+  // 最壞情況 "00:00" 在 64px 下約 179px，再大就會被切掉。
   s_clock_value = make_label(card, "--:--", F_CLOCK, C_TEXT);
-  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, 80);
-  s_clock_sec = make_label(card, "", &lv_font_montserrat_24, C_UNIT);
-  lv_obj_align(s_clock_sec, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX,
-               80 + H_CLOCK - 25);
+  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, 76);
 }
 
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
@@ -298,8 +296,10 @@ static void build_column2(void) {
 
   for (int i = 0; i < 4; i++) {
     s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
+    // 左欄 (FL/RL) 右移 20px、右欄 (FR/RR) 右移 10px
+    const lv_coord_t dx = (i % 2 == 0) ? 20 : 10;
     lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
-                 ACCENT_W + 16 + (i % 2) * 100, 46 + (i / 2) * 58);
+                 ACCENT_W + 16 + (i % 2) * 100 + dx, 46 + (i / 2) * 58);
   }
 
   // 里程 + 油箱：兩列，中間一條細分隔線
@@ -324,7 +324,7 @@ static void build_column2(void) {
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 112);
-  s_fuel_value = make_label(card, "--", &lv_font_montserrat_38, C_TEXT);
+  s_fuel_value = make_label(card, "--", &lv_font_montserrat_42, C_TEXT);
   // 比里程再往左兩個字元（montserrat_38 數字寬約 25.4px）
   lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -28 - 51, 100);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
@@ -333,6 +333,7 @@ static void build_column2(void) {
   // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
   s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
                                  NULL, &s_limit_value, &s_limit_title);
+  lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 20, VALUE_Y);
 }
 
 // ── 右側 0-180 圓形時速錶 ───────────────────────────────────────────────

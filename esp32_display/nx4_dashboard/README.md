@@ -66,7 +66,7 @@
 | `speed_limit` | int | 目前路段速限 km/h，`0` 表示無資料 |
 | `odo` | int | 里程 km |
 | `turbo` | float | 渦輪增壓 Bar，範圍 -1.0 ~ +1.0 |
-| `time` | string | `HH:MM:SS`，ESP32 無 RTC，時鐘由手機端提供。ESP32 收到後會拆成時分秒，並用 `lv_timer` 每秒自增，因此手機斷線後時鐘仍會繼續走（只送 `HH:MM` 的舊格式也相容） |
+| `time` | string | `HH:MM:SS`，ESP32 無 RTC，時鐘由手機端提供。畫面只顯示到分鐘，但秒數仍用於本機 `lv_timer` 的累加，手機斷線後才能正確跨分鐘（只送 `HH:MM` 的舊格式也相容） |
 | `date` | string | `MM/DD 週X`，同上。星期用字已收錄於中文字型 |
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
@@ -115,7 +115,7 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 │              │▌油箱  50   % │        0    1750 R                 │
 ├──────────────┼──────────────┤        +0.15 BAR       180         │
 │▌09/01 週一   │▌道路速限     │    ▁▁▁▁▁▁▁┃▁▁▁▁▁▁            近燈 │
-│  18:04:37    │  90          │    -1 -0.5  0 +0.5 +1    10.0.4.99 │
+│  18:04       │  90          │    -1 -0.5  0 +0.5 +1    10.0.4.99 │
 │              │              │                                    │
 └──────────────┴──────────────┴────────────────────────────────────┘
 ```
@@ -258,7 +258,7 @@ CDCOnBoot=cdc,USBMode=hwcdc
 | `nx4_font_num_150s.c` | Montserrat **SemiBold** 150 px，`0-9` `-` | 儀表中央時速大字 |
 | `nx4_font_num_76s.c` | Montserrat **SemiBold** 76 px，`0-9` `E` `V` | 轉速（含 `EV`） |
 | `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值 |
-| `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `:` | 時鐘 `HH:MM` |
+| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `:` | 時鐘 `HH:MM` |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
