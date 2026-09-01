@@ -46,7 +46,10 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define C_TEAL 0x14B8A6   // Hev 電池色條
 #define C_CYAN 0x38BDF8   // 水溫色條
 #define C_ORANGE 0xF59E0B // 胎壓色條、警示刻度
-#define C_RED 0xEF4444    // 速限色條、高速刻度
+#define C_RED 0xEF4444    // 速限色條、測速照相面板底色、高速刻度
+// 警示文字專用的高飽和紅。與 C_RED 分開是因為 C_RED 同時用於色條與
+// 測速照相的「底色」，底色用太亮的紅會讓上面的白字變得刺眼。
+#define C_ALERT 0xFF2D2D
 #define C_AMBER 0xF97316  // 時鐘色條
 #define C_GREEN 0x22C55E
 
@@ -62,6 +65,10 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define ROW2_Y (CARDS_Y + CARD_H + CARD_GAP)
 #define ROW3_Y (CARDS_Y + 2 * (CARD_H + CARD_GAP))
 #define ACCENT_W 5
+#define VALUE_X (ACCENT_W + 12)
+#define VALUE_Y 66
+// Hev電池 / 水溫 / 時間的數值往右挪，與標籤錯開（日期不動）
+#define VALUE_DX 16
 
 // 狀態欄改置右下角後，右半部整片留給錶盤
 #define GAUGE_SIZE 460
@@ -203,7 +210,7 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
 /// alert 為真時數值轉紅字；否則使用指定的一般文字色
 static void set_alert(lv_obj_t *label, bool alert, uint32_t normal_color) {
   lv_obj_set_style_text_color(
-      label, lv_color_hex(alert ? C_RED : normal_color), 0);
+      label, lv_color_hex(alert ? C_ALERT : normal_color), 0);
 }
 
 /// rec.gif 風格的卡片：近黑底、直角、左側一道分類色條
@@ -247,11 +254,11 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
   // 數值緊接在標籤下方（靠上），單位對齊數值下緣
   lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
-  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 66);
+  lv_obj_align(value, LV_ALIGN_TOP_LEFT, VALUE_X, VALUE_Y);
 
   if (unit != NULL) {
     lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
-    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -12, 66 + H_VALUE - 24);
+    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -12, VALUE_Y + H_VALUE - 24);
   }
 
   *out_value = value;
@@ -264,6 +271,9 @@ static void build_column1(void) {
                   NULL);
   make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C", &s_coolant_value,
                   NULL);
+  // 只有這兩張卡的數值右移，道路速限維持原位
+  lv_obj_align(s_soc_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, VALUE_Y);
+  lv_obj_align(s_coolant_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, VALUE_Y);
 
   // 時鐘：上方日期 + 下方時間（HH:MM 大字 + :SS 小字）
   lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
@@ -273,9 +283,10 @@ static void build_column1(void) {
   // HH:MM 用 52px 而非 80px：加上秒數後 "00:00:00" 在 80px 下約 222px，
   // 卡片內寬只有 197px 放不下（80px 時連 "18:04" 都已逼近邊界）
   s_clock_value = make_label(card, "--:--", F_CLOCK, C_TEXT);
-  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 80);
+  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, 80);
   s_clock_sec = make_label(card, "", &lv_font_montserrat_24, C_UNIT);
-  lv_obj_align(s_clock_sec, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 80 + H_CLOCK - 25);
+  lv_obj_align(s_clock_sec, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX,
+               80 + H_CLOCK - 25);
 }
 
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
@@ -588,7 +599,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     // 超速時（有速限資料且超出 5 km/h）時速轉紅
     bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
     lv_obj_set_style_text_color(s_speed_value,
-                                lv_color_hex(over ? C_RED : C_TEXT), 0);
+                                lv_color_hex(over ? C_ALERT : C_TEXT), 0);
     if (force) {
       s_speed_last_ms = 0;
       s_speed_shown = speed + 1; // 迫使 cb 實際寫入
@@ -607,7 +618,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     // EV 狀態的綠色由 anim_rpm_cb 決定，這裡只處理有轉速時的配色
     if (rpm > 0) {
       lv_obj_set_style_text_color(
-          s_rpm_value, lv_color_hex(rpm >= 5500 ? C_RED : C_BLUE), 0);
+          s_rpm_value, lv_color_hex(rpm >= 5500 ? C_ALERT : C_BLUE), 0);
     }
     if (force) {
       s_rpm_last_ms = 0;
@@ -626,7 +637,12 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
       // LVGL 的 lv_snprintf 在 LV_SPRINTF_USE_FLOAT = 0 時不支援 %f，
       // 會印出空白方框，因此一律以整數拆出小數位
       int soc10 = (int)(data->soc * 10.0f + 0.5f);
-      lv_label_set_text_fmt(s_soc_value, "%d.%d", soc10 / 10, soc10 % 10);
+      if (soc10 >= 1000) {
+        // "100.0" 約 199px，會撞到右側的單位「%」；滿電時小數位無意義
+        lv_label_set_text(s_soc_value, "100");
+      } else {
+        lv_label_set_text_fmt(s_soc_value, "%d.%d", soc10 / 10, soc10 % 10);
+      }
     } else {
       lv_label_set_text(s_soc_value, "--");
     }
