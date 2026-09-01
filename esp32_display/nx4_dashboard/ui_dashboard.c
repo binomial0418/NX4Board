@@ -58,15 +58,14 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
 #define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
 
-// 增壓區：錶盤下方，稍微偏左讓出右下角給狀態欄
-#define TURBO_CX 680
+// 增壓區：錶盤下方，中心與時速環一致
+#define TURBO_CX GAUGE_CX
 #define TURBO_Y (GAUGE_Y + GAUGE_SIZE + 10)
 #define TURBO_BAR_W 300
 #define TURBO_BAR_Y (TURBO_Y + 52)
 
-// 狀態欄：右下角
-#define STATUS_X 862
-#define STATUS_W 148
+// 狀態區：右下角，靠右對齊到此 x
+#define STATUS_RIGHT 1010
 
 #define SPEED_MAX 180
 #define RPM_MAX 7000
@@ -81,6 +80,9 @@ static lv_obj_t *s_date_value;
 static lv_obj_t *s_tire_value[4]; // FL, FR, RL, RR
 static lv_obj_t *s_odo_value;
 static lv_obj_t *s_fuel_value;
+// 道路速限卡片兼作測速照相警示，需要卡片本體與標題的參考
+static lv_obj_t *s_limit_card;
+static lv_obj_t *s_limit_title;
 static lv_obj_t *s_limit_value;
 
 static lv_obj_t *s_meter;
@@ -92,18 +94,14 @@ static lv_obj_t *s_turbo_value;
 static lv_obj_t *s_turbo_unit;
 static lv_obj_t *s_turbo_bar;
 
-static lv_obj_t *s_status_dot;
-static lv_obj_t *s_status_link;
 static lv_obj_t *s_status_ip;
-static lv_obj_t *s_status_brightness;
 static lv_obj_t *s_status_lights;
-static lv_obj_t *s_cam_pill;
-static lv_obj_t *s_cam_label;
 
 // ── 上一次已套用的數值：相同就跳過，避免無謂的 invalidate ─────────────
 static nx4_dash_data_t s_last;
 static bool s_last_valid;
 static bool s_stale;
+static bool s_cam_active;
 static bool s_cam_blink_on;
 
 void nx4_dash_data_init(nx4_dash_data_t *data) {
@@ -148,15 +146,18 @@ static lv_obj_t *make_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
 }
 
 /// 「標籤 + 大數值 + 單位」的標準卡片（Hev電池 / 水溫 / 道路速限）
-static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
-                            uint32_t accent, const char *label,
-                            const char *unit, lv_obj_t **out_value) {
+static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
+                                 uint32_t accent, const char *label,
+                                 const char *unit, lv_obj_t **out_value,
+                                 lv_obj_t **out_title) {
   lv_obj_t *card = make_card(x, y, COL_W, h, accent);
 
+  lv_obj_t *title = NULL;
   if (label != NULL) {
-    lv_obj_t *t = make_label(card, label, F_LABEL, C_LABEL);
-    lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
+    title = make_label(card, label, F_LABEL, C_LABEL);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
   }
+  if (out_title != NULL) *out_title = title;
 
   // 數值緊接在標籤下方（靠上），單位對齊數值下緣
   lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
@@ -168,13 +169,15 @@ static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
   }
 
   *out_value = value;
+  return card;
 }
 
 // ── 左側第一欄：Hev電池 / 水溫 / 時鐘 ───────────────────────────────────
 static void build_column1(void) {
-  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", &s_soc_value);
-  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C",
-                  &s_coolant_value);
+  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", &s_soc_value,
+                  NULL);
+  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C", &s_coolant_value,
+                  NULL);
 
   // 時鐘：上方日期 + 下方時間
   lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
@@ -201,11 +204,12 @@ static void build_column2(void) {
   card = make_card(COL2_X, ROW2_Y, COL_W, CARD_H, C_CYAN);
 
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
-  lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 32);
-  s_odo_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 24);
+  lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 34);
+  // 靠右對齊，位數變多時往左長，不會壓到單位
+  s_odo_value = make_label(card, "--", &lv_font_montserrat_38, C_TEXT);
+  lv_obj_align(s_odo_value, LV_ALIGN_TOP_RIGHT, -28, 22);
   lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_16, C_UNIT);
-  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -12, 38);
+  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -8, 38);
 
   lv_obj_t *divider = lv_obj_create(card);
   lv_obj_set_pos(divider, ACCENT_W + 12, 84);
@@ -217,15 +221,15 @@ static void build_column2(void) {
   lv_obj_set_style_radius(divider, 0, 0);
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
-  lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 110);
-  s_fuel_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 102);
+  lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 112);
+  s_fuel_value = make_label(card, "--", &lv_font_montserrat_38, C_TEXT);
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -28, 100);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
-  lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -12, 116);
+  lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -8, 116);
 
-  // 道路速限
-  make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限", NULL,
-                  &s_limit_value);
+  // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
+  s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
+                                 NULL, &s_limit_value, &s_limit_title);
 }
 
 // ── 右側 0-180 圓形時速錶 ───────────────────────────────────────────────
@@ -314,58 +318,57 @@ static void build_gauge(void) {
   }
 }
 
-// ── 右下角狀態區（連線 / IP / 亮度 / 大燈 / 測速警示）───────────────────
-// 原本佔用右側整條，改置於右下角後可把整個右半部讓給時速環。
+// ── 右下角狀態區（只保留 IP 與大燈狀態）─────────────────────────────────
+// 連線狀態改由「資料逾時淡出」表達，螢幕亮度僅在序列日誌回報，
+// 兩者不再佔用畫面。測速照相警示已整合進「道路速限」卡片。
 static void build_status(void) {
-  // 測速照相警示：預設隱藏，偵測到時顯示並閃爍
-  s_cam_pill = lv_obj_create(s_scr);
-  lv_obj_set_pos(s_cam_pill, STATUS_X - 4, 498);
-  lv_obj_set_size(s_cam_pill, STATUS_W + 4, 46);
-  lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(s_cam_pill, 10, 0);
-  lv_obj_set_style_border_width(s_cam_pill, 0, 0);
-  lv_obj_set_style_bg_color(s_cam_pill, lv_color_hex(C_RED), 0);
-  lv_obj_set_style_bg_opa(s_cam_pill, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(s_cam_pill, 0, 0);
-  lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_t *cam_title = make_label(s_cam_pill, "測速", F_LABEL, 0xFFFFFF);
-  lv_obj_align(cam_title, LV_ALIGN_LEFT_MID, 12, 0);
-  s_cam_label = make_label(s_cam_pill, "--", &lv_font_montserrat_32, 0xFFFFFF);
-  lv_obj_align(s_cam_label, LV_ALIGN_RIGHT_MID, -14, 0);
-
-  // 第一列：連線狀態燈號 + 文字，右側為大燈狀態
-  s_status_dot = lv_obj_create(s_scr);
-  lv_obj_set_pos(s_status_dot, STATUS_X, 557);
-  lv_obj_set_size(s_status_dot, 12, 12);
-  lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(s_status_dot, 0, 0);
-  lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(C_UNIT), 0);
-  lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-
-  s_status_link = make_label(s_scr, "NO LINK", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_link, STATUS_X + 18, 554);
-
   s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
-  lv_obj_set_pos(s_status_lights, 964, 552);
+  lv_obj_set_pos(s_status_lights, STATUS_RIGHT - 44, 552);
 
-  // 第二列：IP 與螢幕亮度
   s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_ip, STATUS_X, 576);
-
-  s_status_brightness =
-      make_label(s_scr, "BRT --", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_brightness, 946, 576);
+  lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, 578);
 }
 
-/// 測速照相警示閃爍（500ms 週期，僅切換單一面板的底色）
+/// 文字寬度會隨內容變動，統一靠右對齊到 STATUS_RIGHT
+static void align_status_right(lv_obj_t *label, lv_coord_t y) {
+  lv_obj_update_layout(label);
+  lv_obj_set_pos(label, STATUS_RIGHT - lv_obj_get_width(label), y);
+}
+
+/// 測速照相警示閃爍：切換「道路速限」卡片的底色（500ms 週期）
 static void cam_blink_cb(lv_timer_t *timer) {
   LV_UNUSED(timer);
-  if (lv_obj_has_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN)) return;
+  if (!s_cam_active) return;
   s_cam_blink_on = !s_cam_blink_on;
   lv_obj_set_style_bg_color(
-      s_cam_pill, lv_color_hex(s_cam_blink_on ? C_RED : 0x7F1D1D), 0);
+      s_limit_card, lv_color_hex(s_cam_blink_on ? C_RED : 0x7F1D1D), 0);
+}
+
+/// 切換「道路速限」卡片在一般模式與測速照相警示模式之間
+static void set_camera_mode(bool active, int camera_limit, int speed_limit) {
+  s_cam_active = active;
+
+  if (active) {
+    lv_label_set_text(s_limit_title, "測速照相");
+    lv_obj_set_style_text_color(s_limit_title, lv_color_hex(0xFFFFFF), 0);
+    if (camera_limit > 0) {
+      lv_label_set_text_fmt(s_limit_value, "%d", camera_limit);
+    } else {
+      lv_label_set_text(s_limit_value, "!");
+    }
+    s_cam_blink_on = true;
+    lv_obj_set_style_bg_color(s_limit_card, lv_color_hex(C_RED), 0);
+  } else {
+    lv_label_set_text(s_limit_title, "道路速限");
+    lv_obj_set_style_text_color(s_limit_title, lv_color_hex(C_LABEL), 0);
+    if (speed_limit > 0) {
+      lv_label_set_text_fmt(s_limit_value, "%d", speed_limit);
+    } else {
+      lv_label_set_text(s_limit_value, "--");
+    }
+    s_cam_blink_on = false;
+    lv_obj_set_style_bg_color(s_limit_card, lv_color_hex(C_CARD), 0);
+  }
 }
 
 void ui_dashboard_create(void) {
@@ -494,14 +497,6 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
                                 lv_color_hex(fuel <= 15 ? C_RED : C_TEXT), 0);
   }
 
-  // 道路速限
-  if (force || data->speed_limit != p->speed_limit) {
-    if (data->speed_limit > 0) {
-      lv_label_set_text_fmt(s_limit_value, "%d", data->speed_limit);
-    } else {
-      lv_label_set_text(s_limit_value, "--");
-    }
-  }
 
   // 渦輪增壓
   if (force || data->turbo != p->turbo) {
@@ -541,24 +536,15 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     } else {
       lv_label_set_text(s_status_lights, "");
     }
+    align_status_right(s_status_lights, 552);
   }
 
-  // 測速照相提示
-  if (force || data->camera_active != p->camera_active ||
+  // 道路速限卡片：有測速照相時取代為警示，消失後恢復速限
+  if (force || data->speed_limit != p->speed_limit ||
+      data->camera_active != p->camera_active ||
       data->camera_limit != p->camera_limit) {
-    if (data->camera_active) {
-      if (data->camera_limit > 0) {
-        lv_label_set_text_fmt(s_cam_label, "%d", data->camera_limit);
-      } else {
-        lv_label_set_text(s_cam_label, "!");
-      }
-      lv_obj_align(s_cam_label, LV_ALIGN_RIGHT_MID, -14, 0);
-      lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
-      s_cam_blink_on = false;
-      lv_obj_set_style_bg_color(s_cam_pill, lv_color_hex(C_RED), 0);
-    }
+    set_camera_mode(data->camera_active, data->camera_limit,
+                    data->speed_limit);
   }
 
   s_last = *data;
@@ -566,6 +552,9 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
 }
 
 void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
+  // 連線狀態不再獨立顯示：資料逾時時整片數值會淡出，已足以表達
+  LV_UNUSED(client_linked);
+
   if (wifi_up && ip != NULL) {
     lv_label_set_text_fmt(s_status_ip, "%s", ip);
     lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_LABEL), 0);
@@ -573,16 +562,12 @@ void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
     lv_label_set_text(s_status_ip, "WiFi ...");
     lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_UNIT), 0);
   }
-
-  lv_label_set_text(s_status_link, client_linked ? "LINK" : "NO LINK");
-  lv_obj_set_style_text_color(
-      s_status_link, lv_color_hex(client_linked ? C_GREEN : C_UNIT), 0);
-  lv_obj_set_style_bg_color(
-      s_status_dot, lv_color_hex(client_linked ? C_GREEN : C_UNIT), 0);
+  align_status_right(s_status_ip, 578);
 }
 
 void ui_dashboard_set_brightness(int percent) {
-  lv_label_set_text_fmt(s_status_brightness, "BRT %d%%", percent);
+  // 亮度不再顯示於畫面，只在序列日誌回報（見 nx4_dashboard.ino 的 [BRT]）
+  LV_UNUSED(percent);
 }
 
 void ui_dashboard_set_stale(bool stale) {
@@ -605,8 +590,8 @@ void ui_dashboard_set_stale(bool stale) {
     lv_obj_set_style_text_opa(s_tire_value[i], opa, 0);
   }
 
-  if (stale) {
-    // 逾時不再顯示過期的警示
-    lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
+  if (stale && s_cam_active) {
+    // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限
+    set_camera_mode(false, 0, s_last.speed_limit);
   }
 }
