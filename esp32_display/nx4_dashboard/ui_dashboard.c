@@ -66,9 +66,11 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
 #define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
 
-// 增壓區：錶盤下方，中心與時速環一致
+// 增壓區：錶盤下方，中心與時速環一致。
+// 上移 32px（兩個 montserrat_14 行高）後會落在錶弧底部的缺口內，
+// 該處沒有弧線也沒有刻度，不會互相干擾。
 #define TURBO_CX GAUGE_CX
-#define TURBO_Y (GAUGE_Y + GAUGE_SIZE + 10)
+#define TURBO_Y (GAUGE_Y + GAUGE_SIZE - 22)
 #define TURBO_BAR_W 300
 #define TURBO_BAR_Y (TURBO_Y + 52)
 
@@ -396,10 +398,10 @@ static void build_gauge(void) {
 // 兩者不再佔用畫面。測速照相警示已整合進「道路速限」卡片。
 static void build_status(void) {
   s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
-  lv_obj_set_pos(s_status_lights, STATUS_RIGHT - 44, 552);
+  lv_obj_set_pos(s_status_lights, STATUS_RIGHT - 44, 520);
 
   s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, 578);
+  lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, 546);
 }
 
 /// 文字寬度會隨內容變動，統一靠右對齊到 STATUS_RIGHT
@@ -694,7 +696,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     } else {
       lv_label_set_text(s_status_lights, "");
     }
-    align_status_right(s_status_lights, 552);
+    align_status_right(s_status_lights, 520);
   }
 
   // 道路速限卡片：有測速照相時取代為警示，消失後恢復速限
@@ -720,7 +722,7 @@ void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
     lv_label_set_text(s_status_ip, "WiFi ...");
     lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_UNIT), 0);
   }
-  align_status_right(s_status_ip, 578);
+  align_status_right(s_status_ip, 546);
 }
 
 void ui_dashboard_set_brightness(int percent) {
