@@ -39,6 +39,11 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 8)
 #define CARDS_Y 30
+#define CARD_H 170
+#define CARD_GAP 15
+#define ROW1_Y CARDS_Y
+#define ROW2_Y (CARDS_Y + CARD_H + CARD_GAP)
+#define ROW3_Y (CARDS_Y + 2 * (CARD_H + CARD_GAP))
 #define ACCENT_W 5
 
 #define GAUGE_SIZE 372
@@ -68,7 +73,9 @@ static lv_obj_t *s_meter;
 static lv_meter_indicator_t *s_speed_arc;
 static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
+static lv_obj_t *s_rpm_unit;
 static lv_obj_t *s_turbo_value;
+static lv_obj_t *s_turbo_unit;
 static lv_obj_t *s_turbo_bar;
 
 static lv_obj_t *s_status_dot;
@@ -149,12 +156,12 @@ static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
 // ── 左側第一欄：Hev電池 / 水溫 / 時鐘 ───────────────────────────────────
 static void build_column1(void) {
-  make_value_card(COL1_X, CARDS_Y, 170, C_TEAL, "Hev電池", "%", &s_soc_value);
-  make_value_card(COL1_X, CARDS_Y + 185, 170, C_CYAN, "水溫", "C",
+  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", &s_soc_value);
+  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C",
                   &s_coolant_value);
 
   // 時鐘：無標籤，數字置中偏左，與 rec.gif 一致
-  lv_obj_t *card = make_card(COL1_X, CARDS_Y + 370, COL_W, 170, C_AMBER);
+  lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
   s_clock_value = make_label(card, "--:--", F_VALUE, C_TEXT);
   lv_obj_align(s_clock_value, LV_ALIGN_LEFT_MID, ACCENT_W + 12, 0);
 }
@@ -162,28 +169,28 @@ static void build_column1(void) {
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
 static void build_column2(void) {
   // 胎壓 (PSI)：2x2
-  lv_obj_t *card = make_card(COL2_X, CARDS_Y, COL_W, 195, C_ORANGE);
+  lv_obj_t *card = make_card(COL2_X, ROW1_Y, COL_W, CARD_H, C_ORANGE);
   lv_obj_t *t = make_label(card, "胎壓 (PSI)", F_LABEL, C_LABEL);
   lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
 
   for (int i = 0; i < 4; i++) {
     s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
     lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
-                 ACCENT_W + 16 + (i % 2) * 100, 50 + (i / 2) * 64);
+                 ACCENT_W + 16 + (i % 2) * 100, 46 + (i / 2) * 58);
   }
 
   // 里程 + 油箱：兩列，中間一條細分隔線
-  card = make_card(COL2_X, CARDS_Y + 210, COL_W, 145, C_CYAN);
+  card = make_card(COL2_X, ROW2_Y, COL_W, CARD_H, C_CYAN);
 
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
-  lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 20);
+  lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 32);
   s_odo_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 12);
+  lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 24);
   lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_16, C_UNIT);
-  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -12, 26);
+  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -12, 38);
 
   lv_obj_t *divider = lv_obj_create(card);
-  lv_obj_set_pos(divider, ACCENT_W + 12, 70);
+  lv_obj_set_pos(divider, ACCENT_W + 12, 84);
   lv_obj_set_size(divider, COL_W - ACCENT_W - 24, 1);
   lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(divider, lv_color_hex(0x2A303B), 0);
@@ -192,14 +199,14 @@ static void build_column2(void) {
   lv_obj_set_style_radius(divider, 0, 0);
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
-  lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 95);
+  lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 110);
   s_fuel_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 87);
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 102);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
-  lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -12, 101);
+  lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -12, 116);
 
   // 道路速限
-  make_value_card(COL2_X, CARDS_Y + 370, 170, C_RED, "道路速限", NULL,
+  make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限", NULL,
                   &s_limit_value);
 }
 
@@ -247,28 +254,24 @@ static void build_gauge(void) {
   lv_meter_set_scale_major_ticks(s_meter, s3, 2, 3, 15, lv_color_hex(C_RED), 14);
   lv_meter_set_scale_range(s_meter, s3, 120, 180, 90, 315);
 
-  // 中央時速大字
+  // 中央時速大字。
+  // 注意：這些標籤一律不呼叫 lv_obj_align()，因為 LVGL v8 中只要設過
+  // align，之後的 lv_obj_set_pos() 就會被當成「相對於該對齊點的偏移」，
+  // 我們在 update 裡是以絕對座標置中的。
   s_speed_value = make_label(s_scr, "0", F_SPEED, C_TEXT);
-  lv_obj_align(s_speed_value, LV_ALIGN_TOP_MID, 0, 0);
-  lv_obj_set_pos(s_speed_value, 0, 0); // 實際位置於 update 時置中
 
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "0", &lv_font_montserrat_44, C_BLUE);
-  lv_obj_t *rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
-
-  lv_obj_align(s_rpm_value, LV_ALIGN_TOP_LEFT, GAUGE_CX - 40, GAUGE_CY + 60);
-  lv_obj_align_to(rpm_unit, s_rpm_value, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -6);
+  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
 
   // 渦輪增壓
   s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align(s_turbo_value, LV_ALIGN_TOP_LEFT, GAUGE_CX - 70, GAUGE_Y + 396);
-  lv_obj_t *bar_unit = make_label(s_scr, "BAR", &lv_font_montserrat_18, C_LABEL);
-  lv_obj_align_to(bar_unit, s_turbo_value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
+  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_18, C_LABEL);
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, 340, 8);
   lv_obj_set_pos(s_turbo_bar, GAUGE_CX - 170, GAUGE_Y + 446);
-  lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x1C222C), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x2A303B), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(C_BLUE),
                             LV_PART_INDICATOR);
   lv_obj_set_style_radius(s_turbo_bar, 0, LV_PART_MAIN);
@@ -394,10 +397,10 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
     lv_obj_set_style_text_color(s_speed_value,
                                 lv_color_hex(over ? C_RED : C_TEXT), 0);
-    // 字寬會隨位數改變，每次重新對齊到錶盤圓心
+    // 字寬會隨位數改變，每次重新以絕對座標對齊到錶盤圓心
     lv_obj_update_layout(s_speed_value);
     lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                   GAUGE_CY - lv_obj_get_height(s_speed_value) / 2 - 18);
+                   GAUGE_CY - lv_obj_get_height(s_speed_value) / 2 - 22);
   }
 
   // 轉速
@@ -409,14 +412,19 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     lv_obj_set_style_text_color(s_rpm_value,
                                 lv_color_hex(rpm >= 5500 ? C_RED : C_BLUE), 0);
     lv_obj_update_layout(s_rpm_value);
-    lv_obj_set_pos(s_rpm_value, GAUGE_CX - lv_obj_get_width(s_rpm_value) / 2 - 8,
-                   GAUGE_CY + 62);
+    lv_coord_t rw = lv_obj_get_width(s_rpm_value);
+    lv_coord_t rx = GAUGE_CX - rw / 2 - 10;
+    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 66);
+    lv_obj_set_pos(s_rpm_unit, rx + rw + 6, GAUGE_CY + 66 + 24);
   }
 
   // Hev 電池
   if (force || data->soc != p->soc) {
     if (data->soc > 0) {
-      lv_label_set_text_fmt(s_soc_value, "%.1f", data->soc);
+      // LVGL 的 lv_snprintf 在 LV_SPRINTF_USE_FLOAT = 0 時不支援 %f，
+      // 會印出空白方框，因此一律以整數拆出小數位
+      int soc10 = (int)(data->soc * 10.0f + 0.5f);
+      lv_label_set_text_fmt(s_soc_value, "%d.%d", soc10 / 10, soc10 % 10);
     } else {
       lv_label_set_text(s_soc_value, "--");
     }
@@ -469,8 +477,17 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     float turbo = data->turbo;
     if (turbo < -1.0f) turbo = -1.0f;
     if (turbo > 1.0f) turbo = 1.0f;
-    lv_label_set_text_fmt(s_turbo_value, "%+.2f", turbo);
-    lv_bar_set_value(s_turbo_bar, (int)(turbo * 100.0f), LV_ANIM_OFF);
+    int centi = (int)(turbo * 100.0f + (turbo >= 0 ? 0.5f : -0.5f));
+    int mag = centi < 0 ? -centi : centi;
+    lv_label_set_text_fmt(s_turbo_value, "%c%d.%02d", centi < 0 ? '-' : '+',
+                          mag / 100, mag % 100);
+    lv_bar_set_value(s_turbo_bar, centi, LV_ANIM_OFF);
+
+    lv_obj_update_layout(s_turbo_value);
+    lv_coord_t tw = lv_obj_get_width(s_turbo_value);
+    lv_coord_t tx = GAUGE_CX - (tw + 52) / 2;
+    lv_obj_set_pos(s_turbo_value, tx, GAUGE_Y + 396);
+    lv_obj_set_pos(s_turbo_unit, tx + tw + 8, GAUGE_Y + 396 + 14);
   }
 
   // 胎壓
