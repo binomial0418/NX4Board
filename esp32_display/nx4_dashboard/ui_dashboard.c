@@ -51,19 +51,22 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define ROW3_Y (CARDS_Y + 2 * (CARD_H + CARD_GAP))
 #define ACCENT_W 5
 
-#define GAUGE_SIZE 430
-#define GAUGE_X 486
-#define GAUGE_Y 22
+// 狀態欄改置右下角後，右半部整片留給錶盤
+#define GAUGE_SIZE 460
+#define GAUGE_X 516
+#define GAUGE_Y 36
 #define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
 #define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
 
-// 增壓區：位於錶盤下方
-#define TURBO_Y (GAUGE_Y + GAUGE_SIZE + 30)
-#define TURBO_BAR_W 380
-#define TURBO_BAR_Y (TURBO_Y + 62)
+// 增壓區：錶盤下方，稍微偏左讓出右下角給狀態欄
+#define TURBO_CX 680
+#define TURBO_Y (GAUGE_Y + GAUGE_SIZE + 10)
+#define TURBO_BAR_W 300
+#define TURBO_BAR_Y (TURBO_Y + 52)
 
-#define STATUS_X 930
-#define STATUS_W 80
+// 狀態欄：右下角
+#define STATUS_X 862
+#define STATUS_W 148
 
 #define SPEED_MAX 180
 #define RPM_MAX 7000
@@ -289,7 +292,7 @@ static void build_gauge(void) {
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
-  lv_obj_set_pos(s_turbo_bar, GAUGE_CX - TURBO_BAR_W / 2, TURBO_BAR_Y);
+  lv_obj_set_pos(s_turbo_bar, TURBO_CX - TURBO_BAR_W / 2, TURBO_BAR_Y);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x2A303B), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(C_BLUE),
                             LV_PART_INDICATOR);
@@ -305,40 +308,19 @@ static void build_gauge(void) {
     lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_14, C_UNIT);
     lv_obj_update_layout(tl);
     lv_obj_set_pos(tl,
-                   GAUGE_CX - TURBO_BAR_W / 2 + i * (TURBO_BAR_W / 4) -
+                   TURBO_CX - TURBO_BAR_W / 2 + i * (TURBO_BAR_W / 4) -
                        lv_obj_get_width(tl) / 2,
-                   TURBO_BAR_Y + 16);
+                   TURBO_BAR_Y + 14);
   }
 }
 
-// ── 最右側狀態欄（對應 rec.gif 中 App 的按鈕列位置）─────────────────────
+// ── 右下角狀態區（連線 / IP / 亮度 / 大燈 / 測速警示）───────────────────
+// 原本佔用右側整條，改置於右下角後可把整個右半部讓給時速環。
 static void build_status(void) {
-  s_status_dot = lv_obj_create(s_scr);
-  lv_obj_set_pos(s_status_dot, STATUS_X, CARDS_Y + 4);
-  lv_obj_set_size(s_status_dot, 12, 12);
-  lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_border_width(s_status_dot, 0, 0);
-  lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(C_UNIT), 0);
-  lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-
-  s_status_link = make_label(s_scr, "NO LINK", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_link, STATUS_X + 18, CARDS_Y + 3);
-
-  s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_ip, STATUS_X, CARDS_Y + 26);
-
-  s_status_brightness =
-      make_label(s_scr, "BRT --", &lv_font_montserrat_14, C_UNIT);
-  lv_obj_set_pos(s_status_brightness, STATUS_X, CARDS_Y + 48);
-
-  s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
-  lv_obj_set_pos(s_status_lights, STATUS_X, CARDS_Y + 74);
-
   // 測速照相警示：預設隱藏，偵測到時顯示並閃爍
   s_cam_pill = lv_obj_create(s_scr);
-  lv_obj_set_pos(s_cam_pill, STATUS_X - 4, CARDS_Y + 120);
-  lv_obj_set_size(s_cam_pill, STATUS_W + 8, 76);
+  lv_obj_set_pos(s_cam_pill, STATUS_X - 4, 498);
+  lv_obj_set_size(s_cam_pill, STATUS_W + 4, 46);
   lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_radius(s_cam_pill, 10, 0);
   lv_obj_set_style_border_width(s_cam_pill, 0, 0);
@@ -348,9 +330,33 @@ static void build_status(void) {
   lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t *cam_title = make_label(s_cam_pill, "測速", F_LABEL, 0xFFFFFF);
-  lv_obj_align(cam_title, LV_ALIGN_TOP_MID, 0, 6);
+  lv_obj_align(cam_title, LV_ALIGN_LEFT_MID, 12, 0);
   s_cam_label = make_label(s_cam_pill, "--", &lv_font_montserrat_32, 0xFFFFFF);
-  lv_obj_align(s_cam_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+  lv_obj_align(s_cam_label, LV_ALIGN_RIGHT_MID, -14, 0);
+
+  // 第一列：連線狀態燈號 + 文字，右側為大燈狀態
+  s_status_dot = lv_obj_create(s_scr);
+  lv_obj_set_pos(s_status_dot, STATUS_X, 557);
+  lv_obj_set_size(s_status_dot, 12, 12);
+  lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(s_status_dot, 0, 0);
+  lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(C_UNIT), 0);
+  lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
+
+  s_status_link = make_label(s_scr, "NO LINK", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_link, STATUS_X + 18, 554);
+
+  s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
+  lv_obj_set_pos(s_status_lights, 964, 552);
+
+  // 第二列：IP 與螢幕亮度
+  s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_ip, STATUS_X, 576);
+
+  s_status_brightness =
+      make_label(s_scr, "BRT --", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_brightness, 946, 576);
 }
 
 /// 測速照相警示閃爍（500ms 週期，僅切換單一面板的底色）
@@ -512,7 +518,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     lv_coord_t tw = lv_obj_get_width(s_turbo_value);
     // 數值 + 間距 + "BAR" 一起置中；間距刻意拉開
     const lv_coord_t gap = 24, unit_w = 48;
-    lv_coord_t tx = GAUGE_CX - (tw + gap + unit_w) / 2;
+    lv_coord_t tx = TURBO_CX - (tw + gap + unit_w) / 2;
     lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
     lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 20);
   }
@@ -546,7 +552,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
       } else {
         lv_label_set_text(s_cam_label, "!");
       }
-      lv_obj_align(s_cam_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+      lv_obj_align(s_cam_label, LV_ALIGN_RIGHT_MID, -14, 0);
       lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
