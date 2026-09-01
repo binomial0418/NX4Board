@@ -16,7 +16,8 @@ SKETCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SKETCH_DIR/build"
 
 # JC1060P470C：ESP32-P4 / 16MB Flash QIO 80MHz / PSRAM 開啟 / 3MB APP 分割
-FQBN="esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600"
+# CDCOnBoot=cdc：讓 Serial 走燒錄用的 USB 埠，不必外接 USB-UART 轉板讀日誌
+FQBN="esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600,CDCOnBoot=cdc,USBMode=hwcdc"
 
 # 明確指定 lv_conf.h 路徑，避免 LVGL 找到其它專案的設定檔
 LV_FLAGS="-DLV_CONF_PATH=${SKETCH_DIR}/lv_conf.h"

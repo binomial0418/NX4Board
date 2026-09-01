@@ -199,9 +199,35 @@ static void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 // ─────────────────────────────────────────────────────────────────────────
 // WiFi（非阻塞：連線期間畫面仍持續更新）
 // ─────────────────────────────────────────────────────────────────────────
+/// WiFi 事件：記錄斷線原因碼，是診斷連不上的唯一可靠依據
+/// （常見：15=4WAY_HANDSHAKE_TIMEOUT 密碼錯誤、201=NO_AP_FOUND、
+///   202=AUTH_FAIL、203=ASSOC_FAIL）
+static void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_START:
+      Serial.println("[WiFi] STA start");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WiFi] 已與 AP 關聯");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.printf("[WiFi] 斷線, reason=%d\n",
+                    info.wifi_sta_disconnected.reason);
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.printf("[WiFi] 取得 IP: %s\n", WiFi.localIP().toString().c_str());
+      // 關聯完成後才關省電模式：在 begin() 之前呼叫會讓 ESP-Hosted
+      // 重新初始化，導致剛送出的連線請求被以 reason=8 (ASSOC_LEAVE) 中止
+      WiFi.setSleep(false);
+      break;
+    default:
+      break;
+  }
+}
+
 static void startWifi() {
+  WiFi.onEvent(onWifiEvent);
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);  // 關閉省電模式，降低推送延遲
 
 #if USE_STATIC_IP
   IPAddress ip(STATIC_IP);
@@ -228,18 +254,42 @@ static void serviceWifi() {
 
   bool connected = (WiFi.status() == WL_CONNECTED);
 
+  static uint32_t last_retry = 0;
+
   if (connected && !was_connected) {
     Serial.printf("[WiFi] 已連線，IP: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("[WS] Server 啟動於 port %d\n", WS_PORT);
-  } else if (!connected && was_connected) {
-    Serial.println("[WiFi] 連線中斷，嘗試重連");
-    WiFi.reconnect();
+    last_retry = 0;
+  } else if (!connected) {
+    // 不論是初次連線失敗還是中途斷線，都每 10 秒重送一次 begin()。
+    // 只在「已連線 → 斷線」時重連的話，開機第一次就失敗會永遠卡住。
+    if (now - last_retry >= 10000) {
+      last_retry = now;
+      Serial.printf("[WiFi] 未連線 (status=%d)，重試 %s\n", (int)WiFi.status(),
+                    WIFI_SSID);
+      WiFi.disconnect();
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
   }
   was_connected = connected;
 
   ui_dashboard_set_status(connected,
                           connected ? WiFi.localIP().toString().c_str() : NULL,
                           g_client_linked);
+
+  // 心跳：每 10 秒印一次現況，方便在車上以序列埠確認裝置是否還活著
+  static uint32_t last_beat = 0;
+  if (now - last_beat >= 10000) {
+    last_beat = now;
+    uint32_t age = (g_last_data_ms == 0) ? 0 : (now - g_last_data_ms);
+    Serial.printf(
+        "[HB] WiFi=%s(st=%d) IP=%s clients=%u lastData=%lums BRT=%d%% "
+        "speed=%d rpm=%d low=%d high=%d\n",
+        connected ? "up" : "down", (int)WiFi.status(),
+        connected ? WiFi.localIP().toString().c_str() : "-",
+        webSocket.connectedClients(), (unsigned long)age, g_brightness,
+        g_dash.speed, g_dash.rpm, g_dash.low_beam, g_dash.high_beam);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -174,8 +174,15 @@ $EDITOR config.h        # 填入 WIFI_SSID / WIFI_PASS / WS_PORT
 
 ```
 esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,\
-PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600
+PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600,\
+CDCOnBoot=cdc,USBMode=hwcdc
 ```
+
+> `CDCOnBoot=cdc,USBMode=hwcdc` 與原廠 Demo 不同（原廠為 Disabled +
+> USB-OTG）：這組設定讓 `Serial` 走燒錄用的那條 USB 線（USB-Serial-JTAG），
+> `./build.sh -u -m` 就能直接讀開機日誌，不必另外接 USB-UART 轉板到 UART0。
+> 實測若維持 `USBMode=default`（OTG/TinyUSB），CDC 會掛在另一個 USB 端點上，
+> 燒錄埠讀不到任何輸出。
 
 > 若你的板子是 **v3.00 或更新版**的 ESP32-P4 晶片，需在 FQBN 追加
 > `,ChipVariant=postv3`。
@@ -242,7 +249,7 @@ PSRAM=enabled,FlashMode=qio,FlashFreq=80,UploadSpeed=921600
 | 症狀 | 檢查 |
 |---|---|
 | 螢幕全黑 | `LCD_RST` 是否為 5；PSRAM 是否設為 `enabled`（沒開會在 `assert(buf)` 當掉） |
-| 開機後一直 `WiFi ...` | `config.h` 的 SSID/密碼；ESP32-P4 的 WiFi 走 ESP-Hosted，需確認 C6 韌體正常 |
+| 開機後一直 `WiFi ...` | 看序列日誌的 `[WiFi] 斷線, reason=N`：15=密碼錯誤、201=找不到 AP、202/203=認證或關聯失敗。韌體每 10 秒會自動重送 `begin()`，實測 ESP-Hosted 首次常以 `reason=8` 失敗、第二次才成功，屬正常 |
 | 狀態列一直 `NO LINK` | App 端 IP/Port 是否正確、是否已打開「啟用 ESP32 儀表推送」、兩者是否同網段 |
 | 數值全部灰掉 | 超過 `DATA_TIMEOUT_MS`（預設 5 秒）沒收到推送，多半是手機端斷線或未在充電狀態 |
 | `JSON 解析失敗` | 檢查是否誤把第一通道（`BVB-7980`）的 IP/Port 填成 ESP32 的 |
