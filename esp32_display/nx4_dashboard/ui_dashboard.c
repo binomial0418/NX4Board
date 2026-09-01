@@ -4,108 +4,93 @@
 #include <string.h>
 
 // ─────────────────────────────────────────────────────────────────────────
-// 大字時速字型
-//
-// 預設使用本專案內附的 nx4_font_speed_120.c（Montserrat 120 px，只含數字，
-// 約 43 KB）。若想省 Flash 或改回內建字型，編譯時加上
-//   -DNX4_NO_BIG_SPEED_FONT
-// 即可退回 LVGL 內建的 Montserrat 48。
+// 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
+//   nx4_font_num_112 — 儀表中央時速大字，僅 0-9 與 '-'
+//   nx4_font_num_64  — 卡片大數值與時鐘，0-9 . : % 空白
+//   nx4_font_tc_22   — 中文標籤 + 基本 ASCII
 // ─────────────────────────────────────────────────────────────────────────
-#ifdef NX4_NO_BIG_SPEED_FONT
-#define NX4_FONT_SPEED &lv_font_montserrat_48
-#else
-LV_FONT_DECLARE(nx4_font_speed_120);
-#define NX4_FONT_SPEED &nx4_font_speed_120
-#endif
+LV_FONT_DECLARE(nx4_font_num_112);
+LV_FONT_DECLARE(nx4_font_num_64);
+LV_FONT_DECLARE(nx4_font_tc_22);
 
-// ── 配色 ────────────────────────────────────────────────────────────────
-#define C_BG 0x0B0F14
-#define C_CARD 0x161C24
-#define C_CARD_HI 0x1F2733
-#define C_TEXT 0xE6EDF3
-#define C_MUTED 0x7D8896
-#define C_ACCENT 0x22D3EE
-#define C_RED 0xEF4444
-#define C_AMBER 0xF59E0B
+#define F_SPEED &nx4_font_num_112
+#define F_VALUE &nx4_font_num_64
+#define F_LABEL &nx4_font_tc_22
+
+// ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
+#define C_BG 0x000000
+#define C_CARD 0x0D1117
+#define C_TEXT 0xFFFFFF
+#define C_LABEL 0xE2E8F0
+#define C_UNIT 0x8B95A5
+#define C_TRACK 0x3A3F47
+
+#define C_BLUE 0x2E7DF7   // 時速進度弧、RPM
+#define C_TEAL 0x14B8A6   // Hev 電池色條
+#define C_CYAN 0x38BDF8   // 水溫色條
+#define C_ORANGE 0xF59E0B // 胎壓色條、警示刻度
+#define C_RED 0xEF4444    // 速限色條、高速刻度
+#define C_AMBER 0xF97316  // 時鐘色條
 #define C_GREEN 0x22C55E
 
-// ── 版面常數（1024 x 600）─────────────────────────────────────────────
-#define PAD 16
-#define STATUS_H 40
-#define MAIN_Y (STATUS_H + 8)
-#define MAIN_H 400
+// ── 版面（1024 x 600）────────────────────────────────────────────────
+#define PAD 14
+#define COL_W 226
+#define COL1_X PAD
+#define COL2_X (COL1_X + COL_W + 8)
+#define CARDS_Y 30
+#define ACCENT_W 5
 
-#define LEFT_X PAD
-#define LEFT_W 200
+#define GAUGE_SIZE 372
+#define GAUGE_X 542
+#define GAUGE_Y 76
+#define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
+#define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
 
-#define CENTER_X (LEFT_X + LEFT_W + 16)
-#define CENTER_W 468
+#define STATUS_X 930
+#define STATUS_W 80
 
-#define RIGHT_X (CENTER_X + CENTER_W + 16)
-#define RIGHT_W (LCD_H_RES - RIGHT_X - PAD)
-
-#define TPMS_Y (MAIN_Y + MAIN_H + 12)
-#define TPMS_H 120
-#define TPMS_GAP 10
-#define TPMS_W ((LCD_H_RES - 2 * PAD - 3 * TPMS_GAP) / 4)
-
+#define SPEED_MAX 180
 #define RPM_MAX 7000
 
 // ── 物件參考（建立一次，之後只更新數值）──────────────────────────────
 static lv_obj_t *s_scr;
 
-static lv_obj_t *s_status_title;
-static lv_obj_t *s_status_ip;
+static lv_obj_t *s_soc_value;
+static lv_obj_t *s_coolant_value;
+static lv_obj_t *s_clock_value;
+static lv_obj_t *s_tire_value[4]; // FL, FR, RL, RR
+static lv_obj_t *s_odo_value;
+static lv_obj_t *s_fuel_value;
+static lv_obj_t *s_limit_value;
+
+static lv_obj_t *s_meter;
+static lv_meter_indicator_t *s_speed_arc;
+static lv_obj_t *s_speed_value;
+static lv_obj_t *s_rpm_value;
+static lv_obj_t *s_turbo_value;
+static lv_obj_t *s_turbo_bar;
+
 static lv_obj_t *s_status_dot;
 static lv_obj_t *s_status_link;
-static lv_obj_t *s_status_lights;
+static lv_obj_t *s_status_ip;
 static lv_obj_t *s_status_brightness;
-
-static lv_obj_t *s_limit_sign;
-static lv_obj_t *s_limit_label;
-static lv_obj_t *s_cam_panel;
-static lv_obj_t *s_cam_limit;
-
-static lv_obj_t *s_speed_label;
-static lv_obj_t *s_speed_unit;
-static lv_obj_t *s_rpm_bar;
-static lv_obj_t *s_rpm_value;
-
-static lv_obj_t *s_coolant_bar;
-static lv_obj_t *s_coolant_value;
-static lv_obj_t *s_soc_arc;
-static lv_obj_t *s_soc_value;
-static lv_obj_t *s_fuel_bar;
-static lv_obj_t *s_fuel_value;
-
-static lv_obj_t *s_tire_value[4];  // FL, FR, RL, RR
+static lv_obj_t *s_status_lights;
+static lv_obj_t *s_cam_pill;
+static lv_obj_t *s_cam_label;
 
 // ── 上一次已套用的數值：相同就跳過，避免無謂的 invalidate ─────────────
 static nx4_dash_data_t s_last;
 static bool s_last_valid;
 static bool s_stale;
 static bool s_cam_blink_on;
-static lv_timer_t *s_cam_blink_timer;
 
 void nx4_dash_data_init(nx4_dash_data_t *data) {
   memset(data, 0, sizeof(nx4_dash_data_t));
+  strcpy(data->clock, "--:--");
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────
-static lv_obj_t *make_card(lv_obj_t *parent, lv_coord_t x, lv_coord_t y,
-                           lv_coord_t w, lv_coord_t h, uint32_t bg) {
-  lv_obj_t *card = lv_obj_create(parent);
-  lv_obj_set_pos(card, x, y);
-  lv_obj_set_size(card, w, h);
-  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(card, lv_color_hex(bg), 0);
-  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(card, 0, 0);
-  lv_obj_set_style_radius(card, 14, 0);
-  lv_obj_set_style_pad_all(card, 10, 0);
-  return card;
-}
-
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
                             const lv_font_t *font, uint32_t color) {
   lv_obj_t *label = lv_label_create(parent);
@@ -115,194 +100,242 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
   return label;
 }
 
-/// 建立「標題 + 大數值 + 進度條」的右側量表卡片
-static void make_gauge_card(lv_obj_t *parent, lv_coord_t y, lv_coord_t h,
-                            const char *title, const char *unit,
-                            uint32_t bar_color, lv_obj_t **out_value,
-                            lv_obj_t **out_bar) {
-  lv_obj_t *card = make_card(parent, RIGHT_X, y, RIGHT_W, h, C_CARD);
+/// rec.gif 風格的卡片：近黑底、直角、左側一道分類色條
+static lv_obj_t *make_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
+                           lv_coord_t h, uint32_t accent) {
+  lv_obj_t *card = lv_obj_create(s_scr);
+  lv_obj_set_pos(card, x, y);
+  lv_obj_set_size(card, w, h);
+  lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(card, lv_color_hex(C_CARD), 0);
+  lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(card, 0, 0);
+  lv_obj_set_style_radius(card, 0, 0);
+  lv_obj_set_style_pad_all(card, 0, 0);
 
-  lv_obj_t *t = make_label(card, title, &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(t, LV_ALIGN_TOP_LEFT, 0, 0);
+  lv_obj_t *bar = lv_obj_create(card);
+  lv_obj_set_pos(bar, 0, 0);
+  lv_obj_set_size(bar, ACCENT_W, h);
+  lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(accent), 0);
+  lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(bar, 0, 0);
+  lv_obj_set_style_radius(bar, 0, 0);
 
-  lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(u, LV_ALIGN_TOP_RIGHT, 0, 0);
+  return card;
+}
 
-  lv_obj_t *value = make_label(card, "--", &lv_font_montserrat_40, C_TEXT);
-  lv_obj_align(value, LV_ALIGN_TOP_LEFT, 0, 24);
+/// 「標籤 + 大數值 + 單位」的標準卡片（Hev電池 / 水溫 / 道路速限）
+static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
+                            uint32_t accent, const char *label,
+                            const char *unit, lv_obj_t **out_value) {
+  lv_obj_t *card = make_card(x, y, COL_W, h, accent);
 
-  lv_obj_t *bar = lv_bar_create(card);
-  lv_obj_set_size(bar, RIGHT_W - 20, 10);
-  lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(bar, lv_color_hex(C_CARD_HI), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(bar, lv_color_hex(bar_color), LV_PART_INDICATOR);
-  lv_obj_set_style_radius(bar, 5, LV_PART_MAIN);
-  lv_obj_set_style_radius(bar, 5, LV_PART_INDICATOR);
-  lv_bar_set_range(bar, 0, 100);
-  lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+  if (label != NULL) {
+    lv_obj_t *t = make_label(card, label, F_LABEL, C_LABEL);
+    lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
+  }
+
+  lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
+  lv_obj_align(value, LV_ALIGN_BOTTOM_LEFT, ACCENT_W + 12, -12);
+
+  if (unit != NULL) {
+    lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
+    lv_obj_align(u, LV_ALIGN_BOTTOM_RIGHT, -12, -18);
+  }
 
   *out_value = value;
-  *out_bar = bar;
+}
+
+// ── 左側第一欄：Hev電池 / 水溫 / 時鐘 ───────────────────────────────────
+static void build_column1(void) {
+  make_value_card(COL1_X, CARDS_Y, 170, C_TEAL, "Hev電池", "%", &s_soc_value);
+  make_value_card(COL1_X, CARDS_Y + 185, 170, C_CYAN, "水溫", "C",
+                  &s_coolant_value);
+
+  // 時鐘：無標籤，數字置中偏左，與 rec.gif 一致
+  lv_obj_t *card = make_card(COL1_X, CARDS_Y + 370, COL_W, 170, C_AMBER);
+  s_clock_value = make_label(card, "--:--", F_VALUE, C_TEXT);
+  lv_obj_align(s_clock_value, LV_ALIGN_LEFT_MID, ACCENT_W + 12, 0);
+}
+
+// ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
+static void build_column2(void) {
+  // 胎壓 (PSI)：2x2
+  lv_obj_t *card = make_card(COL2_X, CARDS_Y, COL_W, 195, C_ORANGE);
+  lv_obj_t *t = make_label(card, "胎壓 (PSI)", F_LABEL, C_LABEL);
+  lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
+
+  for (int i = 0; i < 4; i++) {
+    s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
+    lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
+                 ACCENT_W + 16 + (i % 2) * 100, 50 + (i / 2) * 64);
+  }
+
+  // 里程 + 油箱：兩列，中間一條細分隔線
+  card = make_card(COL2_X, CARDS_Y + 210, COL_W, 145, C_CYAN);
+
+  lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
+  lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 20);
+  s_odo_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
+  lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 12);
+  lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_16, C_UNIT);
+  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -12, 26);
+
+  lv_obj_t *divider = lv_obj_create(card);
+  lv_obj_set_pos(divider, ACCENT_W + 12, 70);
+  lv_obj_set_size(divider, COL_W - ACCENT_W - 24, 1);
+  lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(divider, lv_color_hex(0x2A303B), 0);
+  lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(divider, 0, 0);
+  lv_obj_set_style_radius(divider, 0, 0);
+
+  lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
+  lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 95);
+  s_fuel_value = make_label(card, "--", &lv_font_montserrat_32, C_TEXT);
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 70, 87);
+  lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
+  lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -12, 101);
+
+  // 道路速限
+  make_value_card(COL2_X, CARDS_Y + 370, 170, C_RED, "道路速限", NULL,
+                  &s_limit_value);
+}
+
+// ── 右側 0-180 圓形時速錶 ───────────────────────────────────────────────
+static void build_gauge(void) {
+  s_meter = lv_meter_create(s_scr);
+  lv_obj_set_pos(s_meter, GAUGE_X, GAUGE_Y);
+  lv_obj_set_size(s_meter, GAUGE_SIZE, GAUGE_SIZE);
+  lv_obj_clear_flag(s_meter, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(s_meter, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_meter, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(s_meter, 0, LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_meter, &lv_font_montserrat_16, LV_PART_TICKS);
+
+  // 無刻度的隱藏 scale，僅用來畫背景軌道與時速進度弧（涵蓋完整 0-180）
+  lv_meter_scale_t *arc_scale = lv_meter_add_scale(s_meter);
+  lv_meter_set_scale_ticks(s_meter, arc_scale, 0, 0, 0, lv_color_black());
+  lv_meter_set_scale_range(s_meter, arc_scale, 0, SPEED_MAX, 270, 135);
+
+  lv_meter_indicator_t *track =
+      lv_meter_add_arc(s_meter, arc_scale, 9, lv_color_hex(C_TRACK), 0);
+  lv_meter_set_indicator_start_value(s_meter, track, 0);
+  lv_meter_set_indicator_end_value(s_meter, track, SPEED_MAX);
+
+  s_speed_arc = lv_meter_add_arc(s_meter, arc_scale, 9, lv_color_hex(C_BLUE), 0);
+  lv_meter_set_indicator_start_value(s_meter, s_speed_arc, 0);
+  lv_meter_set_indicator_end_value(s_meter, s_speed_arc, 0);
+
+  // 刻度分成三段，讓刻度線與數字能依速域上色（白 → 琥珀 → 紅）
+  // 三段的角度是依 270° / 180 km/h = 1.5°每單位換算，彼此不重疊也不留空。
+  lv_meter_scale_t *s1 = lv_meter_add_scale(s_meter);
+  lv_meter_set_scale_ticks(s_meter, s1, 8, 2, 9, lv_color_hex(0x7A8494));
+  lv_meter_set_scale_major_ticks(s_meter, s1, 2, 3, 15, lv_color_hex(0xD8DEE9),
+                                 14);
+  lv_meter_set_scale_range(s_meter, s1, 0, 70, 105, 135);
+
+  lv_meter_scale_t *s2 = lv_meter_add_scale(s_meter);
+  lv_meter_set_scale_ticks(s_meter, s2, 4, 2, 9, lv_color_hex(0x8A6A2A));
+  lv_meter_set_scale_major_ticks(s_meter, s2, 2, 3, 15, lv_color_hex(C_ORANGE),
+                                 14);
+  lv_meter_set_scale_range(s_meter, s2, 80, 110, 45, 255);
+
+  lv_meter_scale_t *s3 = lv_meter_add_scale(s_meter);
+  lv_meter_set_scale_ticks(s_meter, s3, 7, 2, 9, lv_color_hex(0x8A3A3A));
+  lv_meter_set_scale_major_ticks(s_meter, s3, 2, 3, 15, lv_color_hex(C_RED), 14);
+  lv_meter_set_scale_range(s_meter, s3, 120, 180, 90, 315);
+
+  // 中央時速大字
+  s_speed_value = make_label(s_scr, "0", F_SPEED, C_TEXT);
+  lv_obj_align(s_speed_value, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_set_pos(s_speed_value, 0, 0); // 實際位置於 update 時置中
+
+  // 轉速（藍色）與單位 R
+  s_rpm_value = make_label(s_scr, "0", &lv_font_montserrat_44, C_BLUE);
+  lv_obj_t *rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
+
+  lv_obj_align(s_rpm_value, LV_ALIGN_TOP_LEFT, GAUGE_CX - 40, GAUGE_CY + 60);
+  lv_obj_align_to(rpm_unit, s_rpm_value, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -6);
+
+  // 渦輪增壓
+  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_32, C_TEXT);
+  lv_obj_align(s_turbo_value, LV_ALIGN_TOP_LEFT, GAUGE_CX - 70, GAUGE_Y + 396);
+  lv_obj_t *bar_unit = make_label(s_scr, "BAR", &lv_font_montserrat_18, C_LABEL);
+  lv_obj_align_to(bar_unit, s_turbo_value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
+
+  s_turbo_bar = lv_bar_create(s_scr);
+  lv_obj_set_size(s_turbo_bar, 340, 8);
+  lv_obj_set_pos(s_turbo_bar, GAUGE_CX - 170, GAUGE_Y + 446);
+  lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x1C222C), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(C_BLUE),
+                            LV_PART_INDICATOR);
+  lv_obj_set_style_radius(s_turbo_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_turbo_bar, 0, LV_PART_INDICATOR);
+  // -1.0 ~ +1.0 Bar，以百分之一為單位避免浮點；0 對應中線
+  lv_bar_set_range(s_turbo_bar, -100, 100);
+  lv_bar_set_mode(s_turbo_bar, LV_BAR_MODE_SYMMETRICAL);
+  lv_bar_set_value(s_turbo_bar, 0, LV_ANIM_OFF);
+
+  static const char *ticks[5] = {"-1", "-0.5", "0", "+0.5", "+1"};
+  for (int i = 0; i < 5; i++) {
+    lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_14, C_UNIT);
+    lv_obj_update_layout(tl);
+    lv_obj_set_pos(tl, GAUGE_CX - 170 + i * 85 - lv_obj_get_width(tl) / 2,
+                   GAUGE_Y + 460);
+  }
+}
+
+// ── 最右側狀態欄（對應 rec.gif 中 App 的按鈕列位置）─────────────────────
+static void build_status(void) {
+  s_status_dot = lv_obj_create(s_scr);
+  lv_obj_set_pos(s_status_dot, STATUS_X, CARDS_Y + 4);
+  lv_obj_set_size(s_status_dot, 12, 12);
+  lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(s_status_dot, 0, 0);
+  lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(C_UNIT), 0);
+  lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
+
+  s_status_link = make_label(s_scr, "NO LINK", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_link, STATUS_X + 18, CARDS_Y + 3);
+
+  s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_ip, STATUS_X, CARDS_Y + 26);
+
+  s_status_brightness =
+      make_label(s_scr, "BRT --", &lv_font_montserrat_14, C_UNIT);
+  lv_obj_set_pos(s_status_brightness, STATUS_X, CARDS_Y + 48);
+
+  s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
+  lv_obj_set_pos(s_status_lights, STATUS_X, CARDS_Y + 74);
+
+  // 測速照相警示：預設隱藏，偵測到時顯示並閃爍
+  s_cam_pill = lv_obj_create(s_scr);
+  lv_obj_set_pos(s_cam_pill, STATUS_X - 4, CARDS_Y + 120);
+  lv_obj_set_size(s_cam_pill, STATUS_W + 8, 76);
+  lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(s_cam_pill, 10, 0);
+  lv_obj_set_style_border_width(s_cam_pill, 0, 0);
+  lv_obj_set_style_bg_color(s_cam_pill, lv_color_hex(C_RED), 0);
+  lv_obj_set_style_bg_opa(s_cam_pill, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(s_cam_pill, 0, 0);
+  lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_t *cam_title = make_label(s_cam_pill, "測速", F_LABEL, 0xFFFFFF);
+  lv_obj_align(cam_title, LV_ALIGN_TOP_MID, 0, 6);
+  s_cam_label = make_label(s_cam_pill, "--", &lv_font_montserrat_32, 0xFFFFFF);
+  lv_obj_align(s_cam_label, LV_ALIGN_BOTTOM_MID, 0, -4);
 }
 
 /// 測速照相警示閃爍（500ms 週期，僅切換單一面板的底色）
 static void cam_blink_cb(lv_timer_t *timer) {
   LV_UNUSED(timer);
-  if (lv_obj_has_flag(s_cam_panel, LV_OBJ_FLAG_HIDDEN)) return;
+  if (lv_obj_has_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN)) return;
   s_cam_blink_on = !s_cam_blink_on;
   lv_obj_set_style_bg_color(
-      s_cam_panel, lv_color_hex(s_cam_blink_on ? C_RED : 0x7F1D1D), 0);
-}
-
-// ── 各區塊 ──────────────────────────────────────────────────────────────
-static void build_status_bar(void) {
-  lv_obj_t *bar = lv_obj_create(s_scr);
-  lv_obj_set_pos(bar, 0, 0);
-  lv_obj_set_size(bar, LCD_H_RES, STATUS_H);
-  lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(bar, lv_color_hex(C_CARD), 0);
-  lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(bar, 0, 0);
-  lv_obj_set_style_radius(bar, 0, 0);
-  lv_obj_set_style_pad_all(bar, 0, 0);
-
-  s_status_title = make_label(bar, "NX4BOARD", &lv_font_montserrat_18, C_ACCENT);
-  lv_obj_align(s_status_title, LV_ALIGN_LEFT_MID, PAD, 0);
-
-  // 大燈狀態與亮度採固定座標，避免文字長度變動時互相推擠
-  s_status_lights = make_label(bar, "", &lv_font_montserrat_18, C_AMBER);
-  lv_obj_align(s_status_lights, LV_ALIGN_LEFT_MID, 150, 0);
-
-  s_status_brightness = make_label(bar, "BRT --", &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(s_status_brightness, LV_ALIGN_LEFT_MID, 230, 0);
-
-  s_status_dot = lv_obj_create(bar);
-  lv_obj_set_size(s_status_dot, 12, 12);
-  lv_obj_set_style_radius(s_status_dot, 6, 0);
-  lv_obj_set_style_border_width(s_status_dot, 0, 0);
-  lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(C_MUTED), 0);
-  lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_align(s_status_dot, LV_ALIGN_RIGHT_MID, -PAD, 0);
-
-  s_status_link = make_label(bar, "NO LINK", &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align_to(s_status_link, s_status_dot, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-
-  s_status_ip = make_label(bar, "WiFi ...", &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align_to(s_status_ip, s_status_link, LV_ALIGN_OUT_LEFT_MID, -20, 0);
-}
-
-static void build_left_column(void) {
-  // 速限標誌（白底紅圈黑字，圓形）
-  s_limit_sign = lv_obj_create(s_scr);
-  lv_obj_set_pos(s_limit_sign, LEFT_X + (LEFT_W - 176) / 2, MAIN_Y + 20);
-  lv_obj_set_size(s_limit_sign, 176, 176);
-  lv_obj_clear_flag(s_limit_sign, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(s_limit_sign, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(s_limit_sign, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_set_style_bg_opa(s_limit_sign, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(s_limit_sign, lv_color_hex(C_RED), 0);
-  lv_obj_set_style_border_width(s_limit_sign, 12, 0);
-  lv_obj_set_style_pad_all(s_limit_sign, 0, 0);
-
-  s_limit_label = make_label(s_limit_sign, "--", &lv_font_montserrat_48, 0x101010);
-  lv_obj_center(s_limit_label);
-
-  // 測速照相提示（預設隱藏，偵測到時顯示並閃爍）
-  s_cam_panel = make_card(s_scr, LEFT_X, MAIN_Y + 216, LEFT_W, 150, C_RED);
-  lv_obj_add_flag(s_cam_panel, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_t *icon =
-      make_label(s_cam_panel, LV_SYMBOL_WARNING, &lv_font_montserrat_28, 0xFFFFFF);
-  lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 0);
-
-  lv_obj_t *text = make_label(s_cam_panel, "CAMERA", &lv_font_montserrat_20, 0xFFFFFF);
-  lv_obj_align(text, LV_ALIGN_TOP_MID, 0, 40);
-
-  s_cam_limit = make_label(s_cam_panel, "--", &lv_font_montserrat_44, 0xFFFFFF);
-  lv_obj_align(s_cam_limit, LV_ALIGN_BOTTOM_MID, 0, 0);
-
-  s_cam_blink_timer = lv_timer_create(cam_blink_cb, 500, NULL);
-}
-
-static void build_center_column(void) {
-  lv_obj_t *card =
-      make_card(s_scr, CENTER_X, MAIN_Y, CENTER_W, MAIN_H, C_CARD);
-
-  s_speed_label = make_label(card, "0", NX4_FONT_SPEED, C_TEXT);
-  lv_obj_align(s_speed_label, LV_ALIGN_CENTER, 0, -70);
-
-  s_speed_unit = make_label(card, "km/h", &lv_font_montserrat_26, C_MUTED);
-  lv_obj_align_to(s_speed_unit, s_speed_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
-
-  lv_obj_t *rpm_title = make_label(card, "RPM", &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(rpm_title, LV_ALIGN_BOTTOM_LEFT, 0, -54);
-
-  s_rpm_value = make_label(card, "0", &lv_font_montserrat_24, C_ACCENT);
-  lv_obj_align(s_rpm_value, LV_ALIGN_BOTTOM_RIGHT, 0, -48);
-
-  // 轉速條：0 ~ RPM_MAX，超過紅線時指示條轉紅
-  s_rpm_bar = lv_bar_create(card);
-  lv_obj_set_size(s_rpm_bar, CENTER_W - 20, 22);
-  lv_obj_align(s_rpm_bar, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(s_rpm_bar, lv_color_hex(C_CARD_HI), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(s_rpm_bar, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
-  lv_obj_set_style_radius(s_rpm_bar, 11, LV_PART_MAIN);
-  lv_obj_set_style_radius(s_rpm_bar, 11, LV_PART_INDICATOR);
-  lv_bar_set_range(s_rpm_bar, 0, RPM_MAX);
-  lv_bar_set_value(s_rpm_bar, 0, LV_ANIM_OFF);
-}
-
-static void build_right_column(void) {
-  // 水溫
-  make_gauge_card(s_scr, MAIN_Y, 120, "COOLANT", "C", C_AMBER, &s_coolant_value,
-                  &s_coolant_bar);
-  lv_bar_set_range(s_coolant_bar, 0, 130);
-
-  // SOC（混合動力電池）— 以圓弧呈現
-  lv_obj_t *soc_card = make_card(s_scr, RIGHT_X, MAIN_Y + 132, RIGHT_W, 156, C_CARD);
-  lv_obj_t *soc_title = make_label(soc_card, "SOC", &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(soc_title, LV_ALIGN_TOP_LEFT, 0, 0);
-
-  s_soc_arc = lv_arc_create(soc_card);
-  lv_obj_set_size(s_soc_arc, 116, 116);
-  lv_obj_align(s_soc_arc, LV_ALIGN_BOTTOM_MID, 0, 6);
-  lv_arc_set_rotation(s_soc_arc, 135);
-  lv_arc_set_bg_angles(s_soc_arc, 0, 270);
-  lv_arc_set_range(s_soc_arc, 0, 100);
-  lv_arc_set_value(s_soc_arc, 0);
-  lv_obj_remove_style(s_soc_arc, NULL, LV_PART_KNOB);
-  lv_obj_clear_flag(s_soc_arc, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_arc_width(s_soc_arc, 12, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(s_soc_arc, 12, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(s_soc_arc, lv_color_hex(C_CARD_HI), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(s_soc_arc, lv_color_hex(C_GREEN), LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(s_soc_arc, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(s_soc_arc, 0, LV_PART_MAIN);
-
-  s_soc_value = make_label(soc_card, "--", &lv_font_montserrat_32, C_TEXT);
-  lv_obj_align_to(s_soc_value, s_soc_arc, LV_ALIGN_CENTER, 0, 0);
-
-  // 油量
-  make_gauge_card(s_scr, MAIN_Y + 300, 100, "FUEL", "%", C_ACCENT, &s_fuel_value,
-                  &s_fuel_bar);
-}
-
-static void build_tpms_row(void) {
-  static const char *names[4] = {"FL", "FR", "RL", "RR"};
-
-  for (int i = 0; i < 4; i++) {
-    lv_coord_t x = PAD + i * (TPMS_W + TPMS_GAP);
-    lv_obj_t *card = make_card(s_scr, x, TPMS_Y, TPMS_W, TPMS_H, C_CARD);
-
-    lv_obj_t *name = make_label(card, names[i], &lv_font_montserrat_18, C_MUTED);
-    lv_obj_align(name, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t *unit = make_label(card, "psi", &lv_font_montserrat_16, C_MUTED);
-    lv_obj_align(unit, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-
-    s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
-    lv_obj_align(s_tire_value[i], LV_ALIGN_BOTTOM_LEFT, 0, 0);
-  }
+      s_cam_pill, lv_color_hex(s_cam_blink_on ? C_RED : 0x7F1D1D), 0);
 }
 
 void ui_dashboard_create(void) {
@@ -310,12 +343,14 @@ void ui_dashboard_create(void) {
   lv_obj_clear_flag(s_scr, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(s_scr, lv_color_hex(C_BG), 0);
   lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(s_scr, 0, 0);
 
-  build_status_bar();
-  build_left_column();
-  build_center_column();
-  build_right_column();
-  build_tpms_row();
+  build_column1();
+  build_column2();
+  build_gauge();
+  build_status();
+
+  lv_timer_create(cam_blink_cb, 500, NULL);
 
   nx4_dash_data_init(&s_last);
   s_last_valid = false;
@@ -326,7 +361,7 @@ static void update_tire(int index, int psi, int prev, bool force) {
   if (!force && psi == prev) return;
   if (psi <= 0) {
     lv_label_set_text(s_tire_value[index], "--");
-    lv_obj_set_style_text_color(s_tire_value[index], lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_text_color(s_tire_value[index], lv_color_hex(C_UNIT), 0);
     return;
   }
   lv_label_set_text_fmt(s_tire_value[index], "%d", psi);
@@ -335,28 +370,34 @@ static void update_tire(int index, int psi, int prev, bool force) {
   if (psi < 28) {
     color = C_RED;
   } else if (psi > 40) {
-    color = C_AMBER;
+    color = C_ORANGE;
   }
   lv_obj_set_style_text_color(s_tire_value[index], lv_color_hex(color), 0);
 }
 
 void ui_dashboard_update(const nx4_dash_data_t *data) {
   // 剛從逾時狀態恢復時，先解除淡出再強制重套所有欄位
-  // （逾時期間曾隱藏測速照相提示，需要重新評估顯示狀態）
   const bool was_stale = s_stale;
   if (was_stale) ui_dashboard_set_stale(false);
 
   const bool force = !s_last_valid || was_stale;
   const nx4_dash_data_t *p = &s_last;
 
-  // 時速
+  // 時速：大字 + 進度弧
   if (force || data->speed != p->speed) {
-    lv_label_set_text_fmt(s_speed_label, "%d", data->speed);
+    int speed = data->speed;
+    if (speed < 0) speed = 0;
+    lv_label_set_text_fmt(s_speed_value, "%d", speed);
+    lv_meter_set_indicator_end_value(s_meter, s_speed_arc,
+                                     speed > SPEED_MAX ? SPEED_MAX : speed);
     // 超速時（有速限資料且超出 5 km/h）時速轉紅
-    bool over = data->speed_limit > 0 && data->speed > data->speed_limit + 5;
-    lv_obj_set_style_text_color(s_speed_label,
+    bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
+    lv_obj_set_style_text_color(s_speed_value,
                                 lv_color_hex(over ? C_RED : C_TEXT), 0);
-    lv_obj_align_to(s_speed_unit, s_speed_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+    // 字寬會隨位數改變，每次重新對齊到錶盤圓心
+    lv_obj_update_layout(s_speed_value);
+    lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
+                   GAUGE_CY - lv_obj_get_height(s_speed_value) / 2 - 18);
   }
 
   // 轉速
@@ -364,12 +405,21 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     int rpm = data->rpm;
     if (rpm < 0) rpm = 0;
     if (rpm > RPM_MAX) rpm = RPM_MAX;
-    lv_bar_set_value(s_rpm_bar, rpm, LV_ANIM_OFF);
-    lv_label_set_text_fmt(s_rpm_value, "%d", data->rpm);
-    lv_obj_set_style_bg_color(s_rpm_bar,
-                              lv_color_hex(rpm >= 5500 ? C_RED : C_ACCENT),
-                              LV_PART_INDICATOR);
-    lv_obj_align(s_rpm_value, LV_ALIGN_BOTTOM_RIGHT, 0, -48);
+    lv_label_set_text_fmt(s_rpm_value, "%d", rpm);
+    lv_obj_set_style_text_color(s_rpm_value,
+                                lv_color_hex(rpm >= 5500 ? C_RED : C_BLUE), 0);
+    lv_obj_update_layout(s_rpm_value);
+    lv_obj_set_pos(s_rpm_value, GAUGE_CX - lv_obj_get_width(s_rpm_value) / 2 - 8,
+                   GAUGE_CY + 62);
+  }
+
+  // Hev 電池
+  if (force || data->soc != p->soc) {
+    if (data->soc > 0) {
+      lv_label_set_text_fmt(s_soc_value, "%.1f", data->soc);
+    } else {
+      lv_label_set_text(s_soc_value, "--");
+    }
   }
 
   // 水溫
@@ -379,79 +429,48 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     } else {
       lv_label_set_text(s_coolant_value, "--");
     }
-    int c = data->coolant;
-    if (c < 0) c = 0;
-    if (c > 130) c = 130;
-    lv_bar_set_value(s_coolant_bar, c, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_coolant_bar,
-                              lv_color_hex(data->coolant >= 105 ? C_RED : C_AMBER),
-                              LV_PART_INDICATOR);
+    lv_obj_set_style_text_color(
+        s_coolant_value, lv_color_hex(data->coolant >= 105 ? C_RED : C_TEXT), 0);
   }
 
-  // SOC
-  if (force || data->soc != p->soc) {
-    int soc = (int)(data->soc + 0.5f);
-    if (soc < 0) soc = 0;
-    if (soc > 100) soc = 100;
-    lv_arc_set_value(s_soc_arc, soc);
-    lv_label_set_text_fmt(s_soc_value, "%d%%", soc);
-    lv_obj_set_style_arc_color(s_soc_arc,
-                               lv_color_hex(soc <= 20 ? C_RED : C_GREEN),
-                               LV_PART_INDICATOR);
+  // 時鐘
+  if (force || strcmp(data->clock, p->clock) != 0) {
+    lv_label_set_text(s_clock_value, data->clock);
   }
 
-  // 油量
+  // 里程 / 油箱
+  if (force || data->odo != p->odo) {
+    if (data->odo > 0) {
+      lv_label_set_text_fmt(s_odo_value, "%d", data->odo);
+    } else {
+      lv_label_set_text(s_odo_value, "--");
+    }
+  }
   if (force || data->fuel != p->fuel) {
     int fuel = data->fuel;
     if (fuel < 0) fuel = 0;
     if (fuel > 100) fuel = 100;
     lv_label_set_text_fmt(s_fuel_value, "%d", fuel);
-    lv_bar_set_value(s_fuel_bar, fuel, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_fuel_bar,
-                              lv_color_hex(fuel <= 15 ? C_RED : C_ACCENT),
-                              LV_PART_INDICATOR);
+    lv_obj_set_style_text_color(s_fuel_value,
+                                lv_color_hex(fuel <= 15 ? C_RED : C_TEXT), 0);
   }
 
-  // 速限標誌
+  // 道路速限
   if (force || data->speed_limit != p->speed_limit) {
     if (data->speed_limit > 0) {
-      lv_label_set_text_fmt(s_limit_label, "%d", data->speed_limit);
+      lv_label_set_text_fmt(s_limit_value, "%d", data->speed_limit);
     } else {
-      lv_label_set_text(s_limit_label, "--");
-    }
-    lv_obj_center(s_limit_label);
-  }
-
-  // 測速照相提示
-  if (force || data->camera_active != p->camera_active ||
-      data->camera_limit != p->camera_limit) {
-    if (data->camera_active) {
-      if (data->camera_limit > 0) {
-        lv_label_set_text_fmt(s_cam_limit, "%d", data->camera_limit);
-      } else {
-        lv_label_set_text(s_cam_limit, "!");
-      }
-      lv_obj_align(s_cam_limit, LV_ALIGN_BOTTOM_MID, 0, 0);
-      lv_obj_clear_flag(s_cam_panel, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      lv_obj_add_flag(s_cam_panel, LV_OBJ_FLAG_HIDDEN);
-      s_cam_blink_on = false;
-      lv_obj_set_style_bg_color(s_cam_panel, lv_color_hex(C_RED), 0);
+      lv_label_set_text(s_limit_value, "--");
     }
   }
 
-  // 大燈狀態
-  if (force || data->low_beam != p->low_beam ||
-      data->high_beam != p->high_beam) {
-    if (data->high_beam) {
-      lv_label_set_text(s_status_lights, "HIGH BEAM");
-      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(0x3B82F6), 0);
-    } else if (data->low_beam) {
-      lv_label_set_text(s_status_lights, "LIGHTS");
-      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_AMBER), 0);
-    } else {
-      lv_label_set_text(s_status_lights, "");
-    }
+  // 渦輪增壓
+  if (force || data->turbo != p->turbo) {
+    float turbo = data->turbo;
+    if (turbo < -1.0f) turbo = -1.0f;
+    if (turbo > 1.0f) turbo = 1.0f;
+    lv_label_set_text_fmt(s_turbo_value, "%+.2f", turbo);
+    lv_bar_set_value(s_turbo_bar, (int)(turbo * 100.0f), LV_ANIM_OFF);
   }
 
   // 胎壓
@@ -460,6 +479,38 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   update_tire(2, data->tire_rl, p->tire_rl, force);
   update_tire(3, data->tire_rr, p->tire_rr, force);
 
+  // 大燈狀態
+  if (force || data->low_beam != p->low_beam ||
+      data->high_beam != p->high_beam) {
+    if (data->high_beam) {
+      lv_label_set_text(s_status_lights, "遠燈");
+      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_BLUE), 0);
+    } else if (data->low_beam) {
+      lv_label_set_text(s_status_lights, "近燈");
+      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_ORANGE), 0);
+    } else {
+      lv_label_set_text(s_status_lights, "");
+    }
+  }
+
+  // 測速照相提示
+  if (force || data->camera_active != p->camera_active ||
+      data->camera_limit != p->camera_limit) {
+    if (data->camera_active) {
+      if (data->camera_limit > 0) {
+        lv_label_set_text_fmt(s_cam_label, "%d", data->camera_limit);
+      } else {
+        lv_label_set_text(s_cam_label, "!");
+      }
+      lv_obj_align(s_cam_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+      lv_obj_clear_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
+      s_cam_blink_on = false;
+      lv_obj_set_style_bg_color(s_cam_pill, lv_color_hex(C_RED), 0);
+    }
+  }
+
   s_last = *data;
   s_last_valid = true;
 }
@@ -467,22 +518,17 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
 void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
   if (wifi_up && ip != NULL) {
     lv_label_set_text_fmt(s_status_ip, "%s", ip);
-    lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_TEXT), 0);
+    lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_LABEL), 0);
   } else {
     lv_label_set_text(s_status_ip, "WiFi ...");
-    lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_UNIT), 0);
   }
 
-  lv_label_set_text(s_status_link, client_linked ? "LINKED" : "NO LINK");
+  lv_label_set_text(s_status_link, client_linked ? "LINK" : "NO LINK");
   lv_obj_set_style_text_color(
-      s_status_link, lv_color_hex(client_linked ? C_GREEN : C_MUTED), 0);
+      s_status_link, lv_color_hex(client_linked ? C_GREEN : C_UNIT), 0);
   lv_obj_set_style_bg_color(
-      s_status_dot, lv_color_hex(client_linked ? C_GREEN : C_MUTED), 0);
-
-  // 文字寬度會變，重新對齊右側三個元素
-  lv_obj_align(s_status_dot, LV_ALIGN_RIGHT_MID, -PAD, 0);
-  lv_obj_align_to(s_status_link, s_status_dot, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-  lv_obj_align_to(s_status_ip, s_status_link, LV_ALIGN_OUT_LEFT_MID, -20, 0);
+      s_status_dot, lv_color_hex(client_linked ? C_GREEN : C_UNIT), 0);
 }
 
 void ui_dashboard_set_brightness(int percent) {
@@ -494,19 +540,22 @@ void ui_dashboard_set_stale(bool stale) {
   s_stale = stale;
 
   lv_opa_t opa = stale ? LV_OPA_40 : LV_OPA_COVER;
-  lv_obj_set_style_text_opa(s_speed_label, opa, 0);
-  lv_obj_set_style_text_opa(s_speed_unit, opa, 0);
+  lv_obj_set_style_text_opa(s_speed_value, opa, 0);
   lv_obj_set_style_text_opa(s_rpm_value, opa, 0);
-  lv_obj_set_style_opa(s_rpm_bar, opa, 0);
-  lv_obj_set_style_text_opa(s_coolant_value, opa, 0);
   lv_obj_set_style_text_opa(s_soc_value, opa, 0);
+  lv_obj_set_style_text_opa(s_coolant_value, opa, 0);
+  lv_obj_set_style_text_opa(s_clock_value, opa, 0);
+  lv_obj_set_style_text_opa(s_odo_value, opa, 0);
   lv_obj_set_style_text_opa(s_fuel_value, opa, 0);
+  lv_obj_set_style_text_opa(s_limit_value, opa, 0);
+  lv_obj_set_style_text_opa(s_turbo_value, opa, 0);
+  lv_obj_set_style_opa(s_turbo_bar, opa, 0);
   for (int i = 0; i < 4; i++) {
     lv_obj_set_style_text_opa(s_tire_value[i], opa, 0);
   }
 
   if (stale) {
     // 逾時不再顯示過期的警示
-    lv_obj_add_flag(s_cam_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_cam_pill, LV_OBJ_FLAG_HIDDEN);
   }
 }

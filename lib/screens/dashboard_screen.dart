@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import '../providers/app_provider.dart';
 import '../services/device_status_service.dart';
 import '../services/location_service.dart';
@@ -692,6 +693,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// ```json
   /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
   ///  "fuel":50,"speed_limit":90,
+  ///  "odo":33676,"turbo":0.15,"time":"18:04",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
   ///  "lights":{"low":true,"high":false},"brightness":40}
@@ -721,6 +723,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       "soc": provider.obdHevSoc ?? 0,
       "fuel": provider.obdFuel ?? 0,
       "speed_limit": provider.roadSpeedLimit,
+      "odo": provider.obdOdometer?.round() ?? 0,
+      "turbo": provider.obdTurbo ?? 0.0,
+      // ESP32 沒有 RTC，時鐘由手機端提供
+      "time": DateFormat('HH:mm').format(DateTime.now()),
       "tires": {
         "fl": provider.tpmsFl ?? 0,
         "fr": provider.tpmsFr ?? 0,

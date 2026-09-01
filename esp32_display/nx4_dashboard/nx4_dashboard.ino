@@ -10,6 +10,7 @@
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
 //   "fuel": 50, "speed_limit": 90,
+//   "odo": 33676, "turbo": 0.15, "time": "18:04",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90},
 //   "lights": {"low": true, "high": false},
@@ -136,6 +137,14 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   g_dash.soc = doc["soc"] | g_dash.soc;
   g_dash.fuel = doc["fuel"] | g_dash.fuel;
   g_dash.speed_limit = doc["speed_limit"] | g_dash.speed_limit;
+  g_dash.odo = doc["odo"] | g_dash.odo;
+  g_dash.turbo = doc["turbo"] | g_dash.turbo;
+
+  const char *clock = doc["time"] | "";
+  if (clock[0] != '\0') {
+    strncpy(g_dash.clock, clock, sizeof(g_dash.clock) - 1);
+    g_dash.clock[sizeof(g_dash.clock) - 1] = '\0';
+  }
 
   JsonObjectConst tires = doc["tires"];
   if (!tires.isNull()) {

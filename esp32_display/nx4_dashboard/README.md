@@ -44,6 +44,9 @@
   "soc": 65.5,
   "fuel": 50,
   "speed_limit": 90,
+  "odo": 33676,
+  "turbo": 0.15,
+  "time": "18:04",
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
   "camera": { "active": true, "limit": 90 },
   "lights": { "low": true, "high": false },
@@ -60,6 +63,9 @@
 | `soc` | float | 混合動力電池 % |
 | `fuel` | int | 油量 % |
 | `speed_limit` | int | 目前路段速限 km/h，`0` 表示無資料 |
+| `odo` | int | 里程 km |
+| `turbo` | float | 渦輪增壓 Bar，範圍 -1.0 ~ +1.0 |
+| `time` | string | `HH:MM`，ESP32 無 RTC，時鐘由手機端提供 |
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
 | `camera.limit` | int | 該測速照相的速限 km/h |
@@ -93,41 +99,49 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 
 ## 三、畫面配置（1024 x 600）
 
+版面比照手機端 App 的儀表畫面（專案根目錄 `rec.gif`）：純黑底、
+左側兩欄帶分類色條的資訊卡、右側 0-180 圓形時速錶。
+
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│ NX4BOARD  LIGHTS  BRT 40%          192.168.4.2   LINKED  ●          │ 40px
-├──────────────┬──────────────────────────────────┬──────────────────┤
-│  ╭────────╮  │                                  │ COOLANT       C  │
-│  │   90   │  │              75                  │ 88  ▁▁▁▁▁▁▁▁    │
-│  ╰────────╯  │             km/h                 ├──────────────────┤
-│   速限標誌   │                                  │ SOC              │
-│              │                                  │      ◜ 65% ◝     │
-│ ┌──────────┐ │  RPM                      1750   │      ◟     ◞     │
-│ │ ⚠ CAMERA │ │  ████████████░░░░░░░░░░░░░░░░░   ├──────────────────┤
-│ │    90    │ │                                  │ FUEL          %  │
-│ └──────────┘ │                                  │ 50  ▁▁▁▁▁▁▁▁    │
-├──────────────┴──────────────────────────────────┴──────────────────┤
-│  FL  34  psi │  FR  34  psi │  RL  33  psi │  RR  33  psi          │ 120px
-└────────────────────────────────────────────────────────────────────┘
+┌──────────────┬──────────────┬────────────────────────────┬───────┐
+│▌Hev電池      │▌胎壓 (PSI)   │            ....            │ ● LINK│
+│  61.2      % │  37    36    │        ‥  80  100 ⁚        │10.0.. │
+│              │  36    36    │     60              120    │BRT 40%│
+├──────────────┼──────────────┤   40         67       140  │ 近燈  │
+│▌水溫         │▌里程 33676 K │                            │┌─────┐│
+│  68        C │──────────────│   20      1620 R      160  ││ 測速││
+│              │▌油箱  27   % │     0                 180  ││  80 ││
+├──────────────┼──────────────┤                            │└─────┘│
+│▌             │▌道路速限     │         +0.00 BAR          │       │
+│  18:04       │  60          │  ▁▁▁▁▁▁▁▁▁┃▁▁▁▁▁▁▁▁▁▁      │       │
+└──────────────┴──────────────┴────────────────────────────┴───────┘
 ```
+
+左欄色條對應：Hev電池=青綠、水溫=天藍、時鐘=橘、
+胎壓=琥珀、里程/油箱=天藍、道路速限=紅。
+
+**時速錶**：0-180 km/h，270° 範圍。刻度每 10 一格，數字每 20 一個，
+並依速域上色 —— 0-70 白、80-110 琥珀、120-180 紅（以三段 scale 拼接，
+角度按 270°/180 = 1.5° 每單位換算，彼此不重疊也不留空）。
+藍色進度弧疊在灰色軌道上，中央為時速大字，下方藍色轉速 + `R`。
+
+**最右側狀態欄**取代 rec.gif 中 App 的按鈕列，顯示連線狀態、IP、
+螢幕亮度、大燈狀態，以及測速照相警示（紅色面板 500 ms 閃爍）。
 
 顏色提示：
 
 - **時速**：超出速限 5 km/h 以上轉紅
-- **轉速條**：≥ 5500 rpm 轉紅
+- **轉速**：≥ 5500 rpm 轉紅
 - **水溫**：≥ 105 °C 轉紅
-- **SOC**：≤ 20% 轉紅
 - **油量**：≤ 15% 轉紅
 - **胎壓**：< 28 psi 紅色（過低）、> 40 psi 琥珀色（過高）
-- **測速照相**：紅色面板以 500 ms 週期閃爍
-- **狀態列大燈**：近燈亮起顯示琥珀色 `LIGHTS`、遠燈顯示藍色 `HIGH BEAM`
 - **逾時**（預設 5 秒未收到資料）：所有數值淡出至 40% 不透明度
 
 ### 效能設計
 
 `ui_dashboard_create()` 只在開機時建立一次所有 LVGL 物件；
 `ui_dashboard_update()` 逐欄位比對前一次的值，**只有變動的欄位才寫入**
-Label 文字 / Bar / Arc 數值，因此每次推送僅會 invalidate 極小的區域。
+Label 文字 / Meter / Bar 數值，因此每次推送僅會 invalidate 極小的區域。
 搭配 `disp_drv.full_refresh = false`（局部刷新），可維持 60 FPS。
 
 ---
@@ -204,24 +218,37 @@ CDCOnBoot=cdc,USBMode=hwcdc
 
 ---
 
-## 六、更大 / 中文字型
+## 六、字型
 
-- 時速大字使用本資料夾內附的 `nx4_font_speed_120.c`
-  （Montserrat 120 px，只收錄 `0-9`、`-`、空白，約 43 KB，
-  授權見 `OFL-Montserrat.txt`）。
-  編譯時加上 `-DNX4_NO_BIG_SPEED_FONT` 可退回 LVGL 內建的 Montserrat 48。
-- 重新產生其它尺寸：
+本專案內附三個以 `lv_font_conv` 產生的字型：
 
-  ```bash
-  npx lv_font_conv@1.5.2 --font Montserrat[wght].ttf --size 140 --bpp 4 \
-    --format lvgl --lv-include lvgl.h \
-    --range 0x30-0x39 --range 0x2D --range 0x20 -o nx4_font_speed_120.c
-  ```
+| 檔案 | 內容 | 用途 |
+|---|---|---|
+| `nx4_font_num_112.c` | Montserrat 112 px，`0-9` `-` | 儀表中央時速大字 |
+| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `.` `:` `%` | 卡片大數值與時鐘 |
+| `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
-- 目前介面文字刻意採用英文（`COOLANT` / `FUEL` / `CAMERA` …），
-  以便直接使用 LVGL 內建字型。若要顯示中文，請以 lv_font_conv 產生
-  含所需漢字的字型（原廠 Demo 的 `Wifi_scan/weiruanyahei_14.c` 即為範例），
-  再於 `ui_dashboard.c` 中把對應 `make_label()` 的字型換掉。
+兩份字型皆為 SIL Open Font License 1.1，授權全文見
+`OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。
+
+> **產生時務必加 `--no-compress`。** lv_font_conv 預設會壓縮點陣，
+> 而本專案 `lv_conf.h` 的 `LV_USE_FONT_COMPRESSED = 0`。載入壓縮字型時
+> 字寬與行高都正確（版面看起來有預留位置），但**一個像素都畫不出來**，
+> 非常容易誤判成版面或顏色問題。字型檔裡的 `.bitmap_format` 必須是 `0`。
+
+重新產生（需 node）：
+
+```bash
+npx lv_font_conv@1.5.2 --no-compress --font Montserrat[wght].ttf \
+  --size 112 --bpp 4 --format lvgl --lv-include lvgl.h \
+  --range 0x30-0x39 --range 0x2D -o nx4_font_num_112.c
+
+npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
+  --size 22 --bpp 4 --format lvgl --lv-include lvgl.h --range 0x20-0x7E \
+  --symbols "電池水溫胎壓里程油箱道路速限測照相遠近燈" -o nx4_font_tc_22.c
+```
+
+若要新增中文字，把字加進 `--symbols` 後重新產生即可。
 
 ---
 
@@ -231,7 +258,7 @@ CDCOnBoot=cdc,USBMode=hwcdc
 |---|---|
 | `nx4_dashboard.ino` | 主程式：LCD/觸控/LVGL 初始化、WiFi、WebSocket Server |
 | `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新（唯一會碰 LVGL 物件的地方） |
-| `nx4_font_speed_120.c` | 時速大字字型（Montserrat 120 px，僅數字） |
+| `nx4_font_num_112.c` / `nx4_font_num_64.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
 | `pins_config.h` | 螢幕解析度與腳位（取自原廠 Demo） |
 | `lv_conf.h` | LVGL 設定（原廠 Demo + 開啟大字型） |
 | `config.h.example` | WiFi / Port / 靜態 IP / 逾時設定範本 |
@@ -254,4 +281,6 @@ CDCOnBoot=cdc,USBMode=hwcdc
 | 數值全部灰掉 | 超過 `DATA_TIMEOUT_MS`（預設 5 秒）沒收到推送，多半是手機端斷線或未在充電狀態 |
 | `JSON 解析失敗` | 檢查是否誤把第一通道（`BVB-7980`）的 IP/Port 填成 ESP32 的 |
 | 畫面撕裂 | 於 `nx4_dashboard.ino` 將 `disp_drv.full_refresh` 改為 `true` |
+| 某段文字完全不顯示但版面有留位置 | 該字型是壓縮格式。檢查字型檔的 `.bitmap_format` 是否為 `0`，不是的話用 `--no-compress` 重新產生 |
+| 右下角出現 FPS / CPU 疊圖 | `lv_conf.h` 的 `LV_USE_PERF_MONITOR` 要設為 `0` |
 | 亮度不會隨大燈變化 | 序列監視器看有無 `[BRT] 螢幕亮度 -> N%`；沒有代表手機端沒讀到 22BC09（App 日誌搜尋 `Headlights`），可能該車的 IGMP 請求 Header 不是 `ATSH302` |
