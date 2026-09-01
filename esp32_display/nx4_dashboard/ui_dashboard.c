@@ -84,7 +84,7 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define SPEED_MAX 180
 #define RPM_MAX 7000
 
-// ── 警示門檻（達到即以紅底標示）─────────────────────────────────────────
+// ── 警示門檻（達到即以紅字標示）─────────────────────────────────────────
 #define ALERT_FUEL_MAX 15   // 油量 <= 15 %
 #define ALERT_TIRE_MIN 30   // 胎壓 <= 30 psi
 #define ALERT_COOLANT 110   // 水溫 >= 110 °C
@@ -199,26 +199,11 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
   return label;
 }
 
-// ── 警示紅底 ────────────────────────────────────────────────────────────
-// 內距與圓角在建立時就固定套上（底色預設透明），警示時只切換
-// bg_opa 與文字顏色。若等到警示才加內距，label 尺寸會變、
-// 數字位置會跟著跳動。
-#define ALERT_PAD_H 8
-#define ALERT_PAD_V 2
-
-static void init_alert_box(lv_obj_t *label) {
-  lv_obj_set_style_pad_hor(label, ALERT_PAD_H, 0);
-  lv_obj_set_style_pad_ver(label, ALERT_PAD_V, 0);
-  lv_obj_set_style_radius(label, 6, 0);
-  lv_obj_set_style_bg_color(label, lv_color_hex(C_RED), 0);
-  lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, 0);
-}
-
-/// alert 為真時轉為白字紅底；否則恢復透明底與指定文字色
+// ── 警示 ────────────────────────────────────────────────────────────────
+/// alert 為真時數值轉紅字；否則使用指定的一般文字色
 static void set_alert(lv_obj_t *label, bool alert, uint32_t normal_color) {
-  lv_obj_set_style_bg_opa(label, alert ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
   lv_obj_set_style_text_color(
-      label, lv_color_hex(alert ? 0xFFFFFF : normal_color), 0);
+      label, lv_color_hex(alert ? C_RED : normal_color), 0);
 }
 
 /// rec.gif 風格的卡片：近黑底、直角、左側一道分類色條
@@ -262,10 +247,7 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
   // 數值緊接在標籤下方（靠上），單位對齊數值下緣
   lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
-  init_alert_box(value);
-  // 扣掉內距，讓文字落在與未加內距時相同的位置
-  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12 - ALERT_PAD_H,
-               66 - ALERT_PAD_V);
+  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 66);
 
   if (unit != NULL) {
     lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
@@ -305,10 +287,8 @@ static void build_column2(void) {
 
   for (int i = 0; i < 4; i++) {
     s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
-    init_alert_box(s_tire_value[i]);
     lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
-                 ACCENT_W + 16 + (i % 2) * 100 - ALERT_PAD_H,
-                 46 + (i / 2) * 58 - ALERT_PAD_V);
+                 ACCENT_W + 16 + (i % 2) * 100, 46 + (i / 2) * 58);
   }
 
   // 里程 + 油箱：兩列，中間一條細分隔線
@@ -334,10 +314,8 @@ static void build_column2(void) {
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 112);
   s_fuel_value = make_label(card, "--", &lv_font_montserrat_38, C_TEXT);
-  init_alert_box(s_fuel_value);
   // 比里程再往左兩個字元（montserrat_38 數字寬約 25.4px）
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -28 - 51 + ALERT_PAD_H,
-               100 - ALERT_PAD_V);
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -28 - 51, 100);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
   lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -8, 116);
 
@@ -590,7 +568,7 @@ static void update_tire(int index, int psi, int prev, bool force) {
     return;
   }
   lv_label_set_text_fmt(s_tire_value[index], "%d", psi);
-  // 30 psi 以下：紅底警示；40 psi 以上：琥珀色文字（次級提示）
+  // 30 psi 以下：紅字警示；40 psi 以上：琥珀色文字（次級提示）
   set_alert(s_tire_value[index], psi <= ALERT_TIRE_MIN,
             psi > WARN_TIRE_HIGH ? C_ORANGE : C_TEXT);
 }
