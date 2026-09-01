@@ -130,7 +130,8 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 **時速錶**：0-180 km/h，270° 範圍。刻度每 10 一格，數字每 20 一個，
 並依速域上色 —— 0-70 白、80-110 琥珀、120-180 紅（以三段 scale 拼接，
 角度按 270°/180 = 1.5° 每單位換算，彼此不重疊也不留空）。
-藍色進度弧疊在灰色軌道上，中央為時速大字（Bold），下方藍色轉速 + `R`；
+藍色進度弧疊在灰色軌道上，中央為時速大字（SemiBold + 字距），
+下方藍色轉速 + `R`；
 轉速為 0（引擎熄火、HEV 純電行駛）時改顯示綠色 `EV` 並隱藏單位。
 
 **數值補間**：手機端最快也只有 3~5 Hz（受限於 OBD 輪詢），直接跳值
@@ -248,8 +249,8 @@ CDCOnBoot=cdc,USBMode=hwcdc
 
 | 檔案 | 內容 | 用途 |
 |---|---|---|
-| `nx4_font_num_160b.c` | Montserrat **Bold** 160 px，`0-9` `-` | 儀表中央時速大字 |
-| `nx4_font_num_80b.c` | Montserrat **Bold** 80 px，`0-9` `E` `V` | 轉速（含 `EV`） |
+| `nx4_font_num_150s.c` | Montserrat **SemiBold** 150 px，`0-9` `-` | 儀表中央時速大字 |
+| `nx4_font_num_76s.c` | Montserrat **SemiBold** 76 px，`0-9` `E` `V` | 轉速（含 `EV`） |
 | `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值 |
 | `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `:` | 時鐘 `HH:MM` |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
@@ -257,9 +258,13 @@ CDCOnBoot=cdc,USBMode=hwcdc
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
 `OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。
 
-> Bold 字重必須用**靜態**的 `Montserrat-Bold.ttf`（取自 Montserrat 上游
-> repo）。`Montserrat[wght].ttf` 是可變字型，lv_font_conv 只會取到預設
-> 的 Regular 字重，指定粗體是沒有作用的。
+> Regular 以外的字重必須用**靜態**的 TTF（例如 `Montserrat-SemiBold.ttf`，
+> 取自 Montserrat 上游 repo）。`Montserrat[wght].ttf` 是可變字型，
+> lv_font_conv 只會取到預設的 Regular 字重，指定粗體是沒有作用的。
+
+> 時速與轉速另外以 `lv_obj_set_style_text_letter_space()` 加上字距
+> （`LS_SPEED` 6px、`LS_RPM` 3px）。字重負責「粗細」、字距負責「疏密」，
+> 兩者是分開的：光調字重解決不了數字擠在一起的問題。
 
 > **產生時務必加 `--no-compress`。** lv_font_conv 預設會壓縮點陣，
 > 而本專案 `lv_conf.h` 的 `LV_USE_FONT_COMPRESSED = 0`。載入壓縮字型時

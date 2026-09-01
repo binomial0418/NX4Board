@@ -5,27 +5,31 @@
 
 // ─────────────────────────────────────────────────────────────────────────
 // 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
-//   nx4_font_num_160b — 時速大字，Montserrat Bold（line_height 116）
-//   nx4_font_num_80b  — 轉速，Montserrat Bold，含 'E' 'V'（line_height 59）
+//   nx4_font_num_150s — 時速大字，Montserrat SemiBold（line_height 108）
+//   nx4_font_num_76s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 56）
 //   nx4_font_num_80   — 卡片大數值，Regular（line_height 57）
 //   nx4_font_num_52   — 時鐘 HH:MM，Regular（line_height 36）
 //   nx4_font_tc_22    — 中文標籤 + 基本 ASCII（line_height 25）
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_160b);
-LV_FONT_DECLARE(nx4_font_num_80b);
+LV_FONT_DECLARE(nx4_font_num_150s);
+LV_FONT_DECLARE(nx4_font_num_76s);
 LV_FONT_DECLARE(nx4_font_num_80);
 LV_FONT_DECLARE(nx4_font_num_52);
 LV_FONT_DECLARE(nx4_font_tc_22);
 
-#define F_SPEED &nx4_font_num_160b
-#define F_RPM &nx4_font_num_80b
+#define F_SPEED &nx4_font_num_150s
+#define F_RPM &nx4_font_num_76s
 #define F_VALUE &nx4_font_num_80
 #define F_CLOCK &nx4_font_num_52
 #define F_LABEL &nx4_font_tc_22
 
+// 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
+#define LS_SPEED 6
+#define LS_RPM 3
+
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 116
-#define H_RPM 59
+#define H_SPEED 108
+#define H_RPM 56
 #define H_VALUE 57
 #define H_CLOCK 36
 #define H_LABEL 25
@@ -360,9 +364,11 @@ static void build_gauge(void) {
   // align，之後的 lv_obj_set_pos() 就會被當成「相對於該對齊點的偏移」，
   // 我們在 update 裡是以絕對座標置中的。
   s_speed_value = make_label(s_scr, "0", F_SPEED, C_TEXT);
+  lv_obj_set_style_text_letter_space(s_speed_value, LS_SPEED, 0);
 
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "0", F_RPM, C_BLUE);
+  lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
   s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
 
   // 渦輪增壓
