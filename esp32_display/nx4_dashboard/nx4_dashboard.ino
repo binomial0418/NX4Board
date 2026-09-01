@@ -61,6 +61,9 @@ static bool g_dash_dirty = false;
 static uint32_t g_last_data_ms = 0;
 static bool g_client_linked = false;
 
+// 實測畫面刷新率：每次 flush 計數一次，於心跳換算成 FPS
+static volatile uint32_t g_flush_count = 0;
+
 // 背光：只有數值變動時才呼叫 LEDC，避免每筆推送都重設 duty
 static int g_brightness = 100;
 static uint32_t g_brightness_hold_until = 0;
@@ -85,6 +88,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
   const int offsety2 = area->y2;
   lcd.lcd_draw_bitmap(offsetx1, offsety1, offsetx2 + 1, offsety2 + 1,
                       &color_p->full);
+  g_flush_count++;
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
@@ -297,13 +301,16 @@ static void serviceWifi() {
   if (now - last_beat >= 10000) {
     last_beat = now;
     uint32_t age = (g_last_data_ms == 0) ? 0 : (now - g_last_data_ms);
+    uint32_t fps = (g_flush_count * 1000) / (now - (last_beat - 10000));
+    g_flush_count = 0;
     Serial.printf(
         "[HB] WiFi=%s(st=%d) IP=%s clients=%u lastData=%lums BRT=%d%% "
-        "speed=%d rpm=%d low=%d high=%d\n",
+        "fps=%lu speed=%d rpm=%d low=%d high=%d\n",
         connected ? "up" : "down", (int)WiFi.status(),
         connected ? WiFi.localIP().toString().c_str() : "-",
         webSocket.connectedClients(), (unsigned long)age, g_brightness,
-        g_dash.speed, g_dash.rpm, g_dash.low_beam, g_dash.high_beam);
+        (unsigned long)fps, g_dash.speed, g_dash.rpm, g_dash.low_beam,
+        g_dash.high_beam);
   }
 }
 

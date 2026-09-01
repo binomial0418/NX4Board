@@ -97,6 +97,32 @@ static lv_obj_t *s_turbo_bar;
 static lv_obj_t *s_status_ip;
 static lv_obj_t *s_status_lights;
 
+// ── 數值補間 ────────────────────────────────────────────────────────────
+// 手機端最快也只有 3~5 Hz（受限於 OBD 輪詢），直接跳值看起來會很鈍。
+// 收到新值後改用 lv_anim 在「兩筆資料的實際間隔」內線性走到新值，
+// 讓 LVGL 以自己的 66 Hz 補出中間影格。動畫長度取實測間隔而非固定值，
+// 這樣動畫剛好在下一筆資料抵達時結束，既不停頓也不落後。
+#define ANIM_MS_MIN 60
+#define ANIM_MS_MAX 500
+#define ANIM_MS_FIRST 250
+
+static int s_speed_shown;
+static int s_rpm_shown;
+static int s_turbo_shown; // 百分之一 Bar
+static uint32_t s_speed_last_ms;
+static uint32_t s_rpm_last_ms;
+static uint32_t s_turbo_last_ms;
+
+/// 依距離上次更新的實際間隔決定動畫長度
+static uint32_t anim_ms(uint32_t *last_ms) {
+  uint32_t now = lv_tick_get();
+  uint32_t dt = (*last_ms == 0) ? ANIM_MS_FIRST : (now - *last_ms);
+  *last_ms = now;
+  if (dt < ANIM_MS_MIN) dt = ANIM_MS_MIN;
+  if (dt > ANIM_MS_MAX) dt = ANIM_MS_MAX;
+  return dt;
+}
+
 // ── 上一次已套用的數值：相同就跳過，避免無謂的 invalidate ─────────────
 static nx4_dash_data_t s_last;
 static bool s_last_valid;
@@ -390,6 +416,81 @@ void ui_dashboard_create(void) {
 }
 
 // ── 更新 ────────────────────────────────────────────────────────────────
+
+/// 時速補間：同時驅動進度弧與中央大字
+static void anim_speed_cb(void *var, int32_t v) {
+  LV_UNUSED(var);
+  if (v == s_speed_shown) return;
+  s_speed_shown = v;
+
+  lv_meter_set_indicator_end_value(s_meter, s_speed_arc,
+                                   v > SPEED_MAX ? SPEED_MAX : v);
+  lv_label_set_text_fmt(s_speed_value, "%d", v);
+  // 位數改變時字寬會變，重新對齊到錶盤圓心
+  lv_obj_update_layout(s_speed_value);
+  lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
+                 GAUGE_CY - H_SPEED / 2 - 20);
+}
+
+/// 轉速補間。引擎熄火（轉速 0）時改顯示 EV — HEV 以純電行駛的狀態。
+static void anim_rpm_cb(void *var, int32_t v) {
+  LV_UNUSED(var);
+  if (v == s_rpm_shown) return;
+  s_rpm_shown = v;
+
+  const bool ev = (v <= 0);
+  if (ev) {
+    lv_label_set_text(s_rpm_value, "EV");
+    lv_obj_set_style_text_color(s_rpm_value, lv_color_hex(C_GREEN), 0);
+    // EV 沒有轉速可言，隱藏單位 R
+    lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_label_set_text_fmt(s_rpm_value, "%d", v);
+    lv_obj_clear_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  lv_obj_update_layout(s_rpm_value);
+  lv_coord_t rw = lv_obj_get_width(s_rpm_value);
+  // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
+  lv_coord_t rx = GAUGE_CX - rw / 2 - (ev ? 0 : 10);
+  lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 112);
+  lv_obj_set_pos(s_rpm_unit, rx + rw + 10, GAUGE_CY + 112 + H_VALUE - 22);
+}
+
+/// 增壓補間（單位為百分之一 Bar）
+static void anim_turbo_cb(void *var, int32_t v) {
+  LV_UNUSED(var);
+  if (v == s_turbo_shown) return;
+  s_turbo_shown = v;
+
+  int mag = v < 0 ? -v : v;
+  lv_label_set_text_fmt(s_turbo_value, "%c%d.%02d", v < 0 ? '-' : '+',
+                        mag / 100, mag % 100);
+  lv_bar_set_value(s_turbo_bar, v, LV_ANIM_OFF);
+
+  lv_obj_update_layout(s_turbo_value);
+  lv_coord_t tw = lv_obj_get_width(s_turbo_value);
+  const lv_coord_t gap = 24, unit_w = 48;
+  lv_coord_t tx = TURBO_CX - (tw + gap + unit_w) / 2;
+  lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
+  lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 20);
+}
+
+/// 啟動一段補間。同一組 (var, exec_cb) 再次啟動會自動取代前一段動畫，
+/// 因此新資料抵達時會從目前顯示值接著走，不會跳回起點。
+static void start_anim(lv_obj_t *var, lv_anim_exec_xcb_t cb, int32_t from,
+                       int32_t to, uint32_t ms) {
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, var);
+  lv_anim_set_exec_cb(&a, cb);
+  lv_anim_set_values(&a, from, to);
+  lv_anim_set_time(&a, ms);
+  // 線性：兩筆資料之間等速移動，看起來最連續
+  lv_anim_set_path_cb(&a, lv_anim_path_linear);
+  lv_anim_start(&a);
+}
+
 static void update_tire(int index, int psi, int prev, bool force) {
   if (!force && psi == prev) return;
   if (psi <= 0) {
@@ -416,38 +517,44 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   const bool force = !s_last_valid || was_stale;
   const nx4_dash_data_t *p = &s_last;
 
-  // 時速：大字 + 進度弧
+  // 時速：大字 + 進度弧（以補間平滑過渡）
   if (force || data->speed != p->speed) {
     int speed = data->speed;
     if (speed < 0) speed = 0;
-    lv_label_set_text_fmt(s_speed_value, "%d", speed);
-    lv_meter_set_indicator_end_value(s_meter, s_speed_arc,
-                                     speed > SPEED_MAX ? SPEED_MAX : speed);
     // 超速時（有速限資料且超出 5 km/h）時速轉紅
     bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
     lv_obj_set_style_text_color(s_speed_value,
                                 lv_color_hex(over ? C_RED : C_TEXT), 0);
-    // 字寬會隨位數改變，每次重新以絕對座標對齊到錶盤圓心
-    lv_obj_update_layout(s_speed_value);
-    lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                   GAUGE_CY - H_SPEED / 2 - 20);
+    if (force) {
+      s_speed_last_ms = 0;
+      s_speed_shown = speed + 1; // 迫使 cb 實際寫入
+      anim_speed_cb(NULL, speed);
+    } else {
+      start_anim(s_speed_value, anim_speed_cb, s_speed_shown, speed,
+                 anim_ms(&s_speed_last_ms));
+    }
   }
 
-  // 轉速
+  // 轉速（以補間平滑過渡）
   if (force || data->rpm != p->rpm) {
     int rpm = data->rpm;
     if (rpm < 0) rpm = 0;
     if (rpm > RPM_MAX) rpm = RPM_MAX;
-    lv_label_set_text_fmt(s_rpm_value, "%d", rpm);
-    lv_obj_set_style_text_color(s_rpm_value,
-                                lv_color_hex(rpm >= 5500 ? C_RED : C_BLUE), 0);
-    lv_obj_update_layout(s_rpm_value);
-    lv_coord_t rw = lv_obj_get_width(s_rpm_value);
-    lv_coord_t rx = GAUGE_CX - rw / 2 - 10;
-    // 轉速下移到錶弧底部缺口處（弧線兩端位於 CY + r*sin45 ≈ CY + 152）
-    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 112);
-    lv_obj_set_pos(s_rpm_unit, rx + rw + 10, GAUGE_CY + 112 + H_VALUE - 22);
+    // EV 狀態的綠色由 anim_rpm_cb 決定，這裡只處理有轉速時的配色
+    if (rpm > 0) {
+      lv_obj_set_style_text_color(
+          s_rpm_value, lv_color_hex(rpm >= 5500 ? C_RED : C_BLUE), 0);
+    }
+    if (force) {
+      s_rpm_last_ms = 0;
+      s_rpm_shown = rpm + 1;
+      anim_rpm_cb(NULL, rpm);
+    } else {
+      start_anim(s_rpm_value, anim_rpm_cb, s_rpm_shown, rpm,
+                 anim_ms(&s_rpm_last_ms));
+    }
   }
+
 
   // Hev 電池
   if (force || data->soc != p->soc) {
@@ -498,24 +605,20 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   }
 
 
-  // 渦輪增壓
+  // 渦輪增壓（以補間平滑過渡）
   if (force || data->turbo != p->turbo) {
     float turbo = data->turbo;
     if (turbo < -1.0f) turbo = -1.0f;
     if (turbo > 1.0f) turbo = 1.0f;
     int centi = (int)(turbo * 100.0f + (turbo >= 0 ? 0.5f : -0.5f));
-    int mag = centi < 0 ? -centi : centi;
-    lv_label_set_text_fmt(s_turbo_value, "%c%d.%02d", centi < 0 ? '-' : '+',
-                          mag / 100, mag % 100);
-    lv_bar_set_value(s_turbo_bar, centi, LV_ANIM_OFF);
-
-    lv_obj_update_layout(s_turbo_value);
-    lv_coord_t tw = lv_obj_get_width(s_turbo_value);
-    // 數值 + 間距 + "BAR" 一起置中；間距刻意拉開
-    const lv_coord_t gap = 24, unit_w = 48;
-    lv_coord_t tx = TURBO_CX - (tw + gap + unit_w) / 2;
-    lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
-    lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 20);
+    if (force) {
+      s_turbo_last_ms = 0;
+      s_turbo_shown = centi + 1;
+      anim_turbo_cb(NULL, centi);
+    } else {
+      start_anim(s_turbo_value, anim_turbo_cb, s_turbo_shown, centi,
+                 anim_ms(&s_turbo_last_ms));
+    }
   }
 
   // 胎壓
