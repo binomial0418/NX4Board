@@ -30,6 +30,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
+#include <Preferences.h>
 
 #include "driver/i2c_master.h"
 #include "lvgl.h"
@@ -39,6 +40,7 @@
 #include "src/lcd/jd9165_lcd.h"
 #include "src/touch/gt911_touch.h"
 #include "ui_dashboard.h"
+#include "ui_settings.h"
 
 // ── 顯示與觸控 ──────────────────────────────────────────────────────────
 bsp_lcd_handles_t lcd_panels;
@@ -92,6 +94,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area,
 }
 
 void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+  static bool was_pressed = false;
   uint16_t touchX, touchY;
   bool touched = touch.getTouch(&touchX, &touchY);
 
@@ -102,6 +105,12 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
     data->point.x = touchX;
     data->point.y = touchY;
   }
+
+  // 只在按下的瞬間記錄一次，方便從序列埠確認觸控有沒有作用
+  if (touched && !was_pressed) {
+    Serial.printf("[TOUCH] x=%u y=%u\n", touchX, touchY);
+  }
+  was_pressed = touched;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -218,6 +227,87 @@ static void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
 // ─────────────────────────────────────────────────────────────────────────
 // WiFi（非阻塞：連線期間畫面仍持續更新）
 // ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+// WiFi 憑證
+//
+// 以 NVS 儲存的為優先，沒有才回退到 config.h。這樣螢幕上設定過之後，
+// 重新燒錄韌體也不會被 config.h 蓋掉。
+// ─────────────────────────────────────────────────────────────────────────
+static Preferences g_prefs;
+static String g_ssid;
+static String g_pass;
+static bool g_scan_pending = false;
+
+static void loadCredentials() {
+  g_prefs.begin("nx4wifi", true);
+  g_ssid = g_prefs.getString("ssid", "");
+  g_pass = g_prefs.getString("pass", "");
+  g_prefs.end();
+
+  if (g_ssid.isEmpty()) {
+    g_ssid = WIFI_SSID;
+    g_pass = WIFI_PASS;
+    Serial.printf("[WiFi] 使用 config.h 的設定: %s\n", g_ssid.c_str());
+  } else {
+    Serial.printf("[WiFi] 使用已儲存的設定: %s\n", g_ssid.c_str());
+  }
+}
+
+static void saveCredentials(const char *ssid, const char *pass) {
+  g_prefs.begin("nx4wifi", false);
+  g_prefs.putString("ssid", ssid);
+  g_prefs.putString("pass", pass);
+  g_prefs.end();
+}
+
+/// 設定面板按下「儲存並連線」
+static void onSettingsApply(const char *ssid, const char *pass) {
+  Serial.printf("[WiFi] 套用新設定: %s\n", ssid);
+  saveCredentials(ssid, pass);
+  g_ssid = ssid;
+  g_pass = pass;
+
+  WiFi.disconnect();
+  WiFi.begin(g_ssid.c_str(), g_pass.c_str());
+  ui_dashboard_set_ssid(g_ssid.c_str());
+}
+
+/// 設定面板按下「掃描」。WiFi.scanNetworks(true) 為非阻塞，
+/// 結果在 serviceScan() 內取回，避免卡住 LVGL 的更新迴圈。
+static void onSettingsScan() {
+  if (g_scan_pending) return;
+  WiFi.scanDelete();
+  WiFi.scanNetworks(true);
+  g_scan_pending = true;
+}
+
+static void serviceScan() {
+  if (!g_scan_pending) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) return;
+
+  g_scan_pending = false;
+  if (n < 0) {
+    ui_settings_set_status("掃描失敗");
+    return;
+  }
+  if (n == 0) {
+    ui_settings_set_status("找不到網路");
+    return;
+  }
+
+  ui_settings_clear_networks();
+  if (n > 20) n = 20; // 清單塞得下就好
+  for (int i = 0; i < n; i++) {
+    ui_settings_add_network(WiFi.SSID(i).c_str(), WiFi.RSSI(i),
+                            WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%d", n);
+  ui_settings_set_status(buf);
+  WiFi.scanDelete();
+}
+
 /// WiFi 事件：記錄斷線原因碼，是診斷連不上的唯一可靠依據
 /// （常見：15=4WAY_HANDSHAKE_TIMEOUT 密碼錯誤、201=NO_AP_FOUND、
 ///   202=AUTH_FAIL、203=ASSOC_FAIL）
@@ -232,9 +322,11 @@ static void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       Serial.printf("[WiFi] 斷線, reason=%d\n",
                     info.wifi_sta_disconnected.reason);
+      if (ui_settings_is_open()) ui_settings_set_status("連線失敗");
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       Serial.printf("[WiFi] 取得 IP: %s\n", WiFi.localIP().toString().c_str());
+      if (ui_settings_is_open()) ui_settings_set_status("已連線");
       // 關聯完成後才關省電模式：在 begin() 之前呼叫會讓 ESP-Hosted
       // 重新初始化，導致剛送出的連線請求被以 reason=8 (ASSOC_LEAVE) 中止
       WiFi.setSleep(false);
@@ -258,8 +350,8 @@ static void startWifi() {
   }
 #endif
 
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] 連線中: %s\n", WIFI_SSID);
+  WiFi.begin(g_ssid.c_str(), g_pass.c_str());
+  Serial.printf("[WiFi] 連線中: %s\n", g_ssid.c_str());
 }
 
 /// 每秒檢查一次 WiFi/連線狀態並更新狀態列，斷線時自動重連
@@ -282,12 +374,13 @@ static void serviceWifi() {
   } else if (!connected) {
     // 不論是初次連線失敗還是中途斷線，都每 10 秒重送一次 begin()。
     // 只在「已連線 → 斷線」時重連的話，開機第一次就失敗會永遠卡住。
-    if (now - last_retry >= 10000) {
+    // 掃描進行中則跳過，重連會中斷掃描。
+    if (!g_scan_pending && now - last_retry >= 10000) {
       last_retry = now;
       Serial.printf("[WiFi] 未連線 (status=%d)，重試 %s\n", (int)WiFi.status(),
-                    WIFI_SSID);
+                    g_ssid.c_str());
       WiFi.disconnect();
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      WiFi.begin(g_ssid.c_str(), g_pass.c_str());
     }
   }
   was_connected = connected;
@@ -371,6 +464,9 @@ void setup() {
   esp_lcd_dpi_panel_register_event_callbacks(lcd_panels.panel, &cbs, &disp_drv);
 
   ui_dashboard_create();
+  ui_settings_set_callbacks(onSettingsApply, onSettingsScan);
+  loadCredentials();
+  ui_dashboard_set_ssid(g_ssid.c_str());
   ui_dashboard_update(&g_dash);
   ui_dashboard_set_brightness(g_brightness);
   ui_dashboard_set_stale(true);
@@ -386,6 +482,7 @@ void setup() {
 void loop() {
   webSocket.loop();
   serviceWifi();
+  serviceScan();
 
   // 僅在有新資料時套用（只寫入 Label/Bar/Arc 數值，不重建物件）
   if (g_dash_dirty) {

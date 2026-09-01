@@ -58,6 +58,9 @@ void ui_dashboard_set_stale(bool stale);
 /// 更新狀態欄上的螢幕亮度顯示（實際背光由 .ino 呼叫 LCD 驅動套用）
 void ui_dashboard_set_brightness(int percent);
 
+/// 記錄目前連線的 SSID，供點擊 IP 開啟設定面板時預填
+void ui_dashboard_set_ssid(const char *ssid);
+
 #ifdef __cplusplus
 }
 #endif

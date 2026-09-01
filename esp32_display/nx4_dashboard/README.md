@@ -146,7 +146,8 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 
 增壓區與右下角狀態區都落在錶弧底部缺口的高度，該處沒有弧線也沒有刻度。
 
-**右下角狀態區**只保留 IP 與大燈狀態，靠右對齊。連線狀態改由
+**右下角狀態區**只保留 IP 與大燈狀態，靠右對齊。
+**點 IP 可開啟 WiFi 設定面板**（字很小，可點範圍已往外擴 24px）。連線狀態改由
 「資料逾時整片淡出」表達，螢幕亮度僅在序列日誌以 `[BRT]` 回報，
 兩者都不再佔用畫面，把右半部完整讓給時速環。
 
@@ -201,6 +202,14 @@ $EDITOR config.h        # 填入 WIFI_SSID / WIFI_PASS / WS_PORT
 ```
 
 `config.h` 已列入 `.gitignore`，不會被提交。
+
+也可以**直接在螢幕上設定**：點右下角的 IP 會開啟 WiFi 設定面板，
+可掃描周邊網路、輸入 SSID 與密碼，按「儲存並連線」即套用。
+
+設定會寫入 NVS（`Preferences`，namespace `nx4wifi`），**開機時 NVS 優先於
+`config.h`** —— 在螢幕上設定過之後，重新燒錄韌體也不會被 `config.h` 蓋掉。
+要恢復用 `config.h` 的設定，需清除 NVS（`./build.sh` 加 `EraseFlash=all`，
+或在程式中呼叫 `g_prefs.clear()`）。
 
 ### 3. 編譯 / 上傳
 
@@ -299,7 +308,8 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 | 檔案 | 說明 |
 |---|---|
 | `nx4_dashboard.ino` | 主程式：LCD/觸控/LVGL 初始化、WiFi、WebSocket Server |
-| `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新（唯一會碰 LVGL 物件的地方） |
+| `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新 |
+| `ui_settings.h/.c` | WiFi 設定面板（掃描清單、輸入欄位、螢幕鍵盤） |
 | `nx4_font_num_160.c` / `nx4_font_num_80.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
 | `pins_config.h` | 螢幕解析度與腳位（取自原廠 Demo） |
 | `lv_conf.h` | LVGL 設定（原廠 Demo + 開啟大字型） |
@@ -325,4 +335,6 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 | 畫面撕裂 | 於 `nx4_dashboard.ino` 將 `disp_drv.full_refresh` 改為 `true` |
 | 某段文字完全不顯示但版面有留位置 | 該字型是壓縮格式。檢查字型檔的 `.bitmap_format` 是否為 `0`，不是的話用 `--no-compress` 重新產生 |
 | 右下角出現 FPS / CPU 疊圖 | `lv_conf.h` 的 `LV_USE_PERF_MONITOR` 要設為 `0` |
+| 點 IP 沒反應 | 先看序列日誌有沒有 `[TOUCH] x= y=`：沒有代表 GT911 觸控本身沒作用（檢查 `TP_I2C_SDA/SCL` 腳位），有的話代表座標對不上點擊區 |
+| 設定過的 WiFi 想改回 config.h | NVS 優先於 config.h，需清除 NVS 才會回退 |
 | 亮度不會隨大燈變化 | 序列監視器看有無 `[BRT] 螢幕亮度 -> N%`；沒有代表手機端沒讀到 22BC09（App 日誌搜尋 `Headlights`），可能該車的 IGMP 請求 Header 不是 `ATSH302` |

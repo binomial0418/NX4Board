@@ -1,5 +1,6 @@
 #include "ui_dashboard.h"
 #include "pins_config.h"
+#include "ui_settings.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -123,6 +124,7 @@ static lv_obj_t *s_turbo_bar;
 
 static lv_obj_t *s_status_ip;
 static lv_obj_t *s_status_lights;
+static char s_current_ssid[36];
 
 // ── 數值補間 ────────────────────────────────────────────────────────────
 // 手機端最快也只有 3~5 Hz（受限於 OBD 輪詢），直接跳值看起來會很鈍。
@@ -424,6 +426,12 @@ static void build_gauge(void) {
   }
 }
 
+/// 點右下角的 IP 開啟 WiFi 設定面板，並帶入目前的 SSID
+static void ip_clicked_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  ui_settings_open(s_current_ssid);
+}
+
 // ── 右下角狀態區（只保留 IP 與大燈狀態）─────────────────────────────────
 // 連線狀態改由「資料逾時淡出」表達，螢幕亮度僅在序列日誌回報，
 // 兩者不再佔用畫面。測速照相警示已整合進「道路速限」卡片。
@@ -433,6 +441,11 @@ static void build_status(void) {
 
   s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
   lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, 546);
+
+  // 點 IP 開啟 WiFi 設定面板。字很小，把可點範圍往外擴 24px 才好按。
+  lv_obj_add_flag(s_status_ip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_ext_click_area(s_status_ip, 24);
+  lv_obj_add_event_cb(s_status_ip, ip_clicked_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /// 文字寬度會隨內容變動，統一靠右對齊到 STATUS_RIGHT
@@ -488,6 +501,7 @@ void ui_dashboard_create(void) {
   build_column2();
   build_gauge();
   build_status();
+  ui_settings_create();
 
   lv_timer_create(cam_blink_cb, 500, NULL);
   lv_timer_create(clock_tick_cb, 1000, NULL);
@@ -752,6 +766,12 @@ void ui_dashboard_set_status(bool wifi_up, const char *ip, bool client_linked) {
     lv_obj_set_style_text_color(s_status_ip, lv_color_hex(C_UNIT), 0);
   }
   align_status_right(s_status_ip, 546);
+}
+
+void ui_dashboard_set_ssid(const char *ssid) {
+  if (ssid == NULL) return;
+  strncpy(s_current_ssid, ssid, sizeof(s_current_ssid) - 1);
+  s_current_ssid[sizeof(s_current_ssid) - 1] = '\0';
 }
 
 void ui_dashboard_set_brightness(int percent) {
