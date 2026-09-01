@@ -5,17 +5,22 @@
 
 // ─────────────────────────────────────────────────────────────────────────
 // 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
-//   nx4_font_num_112 — 儀表中央時速大字，僅 0-9 與 '-'
-//   nx4_font_num_64  — 卡片大數值與時鐘，0-9 . : % 空白
-//   nx4_font_tc_22   — 中文標籤 + 基本 ASCII
+//   nx4_font_num_140 — 儀表中央時速大字，僅 0-9 與 '-'（line_height 98）
+//   nx4_font_num_80  — 卡片大數值、時鐘與轉速，0-9 . : % 空白（line_height 57）
+//   nx4_font_tc_22   — 中文標籤 + 基本 ASCII（line_height 25）
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_112);
-LV_FONT_DECLARE(nx4_font_num_64);
+LV_FONT_DECLARE(nx4_font_num_140);
+LV_FONT_DECLARE(nx4_font_num_80);
 LV_FONT_DECLARE(nx4_font_tc_22);
 
-#define F_SPEED &nx4_font_num_112
-#define F_VALUE &nx4_font_num_64
+#define F_SPEED &nx4_font_num_140
+#define F_VALUE &nx4_font_num_80
 #define F_LABEL &nx4_font_tc_22
+
+// 由字型的 line_height 推得，用於排版時預留高度
+#define H_SPEED 98
+#define H_VALUE 57
+#define H_LABEL 25
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
 #define C_BG 0x000000
@@ -64,6 +69,7 @@ static lv_obj_t *s_scr;
 static lv_obj_t *s_soc_value;
 static lv_obj_t *s_coolant_value;
 static lv_obj_t *s_clock_value;
+static lv_obj_t *s_date_value;
 static lv_obj_t *s_tire_value[4]; // FL, FR, RL, RR
 static lv_obj_t *s_odo_value;
 static lv_obj_t *s_fuel_value;
@@ -95,6 +101,7 @@ static bool s_cam_blink_on;
 void nx4_dash_data_init(nx4_dash_data_t *data) {
   memset(data, 0, sizeof(nx4_dash_data_t));
   strcpy(data->clock, "--:--");
+  strcpy(data->date, "--/--");
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────
@@ -143,12 +150,13 @@ static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
     lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 10);
   }
 
+  // 數值緊接在標籤下方（靠上），單位對齊數值下緣
   lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
-  lv_obj_align(value, LV_ALIGN_BOTTOM_LEFT, ACCENT_W + 12, -12);
+  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 44);
 
   if (unit != NULL) {
     lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
-    lv_obj_align(u, LV_ALIGN_BOTTOM_RIGHT, -12, -18);
+    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -12, 44 + H_VALUE - 24);
   }
 
   *out_value = value;
@@ -160,10 +168,12 @@ static void build_column1(void) {
   make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C",
                   &s_coolant_value);
 
-  // 時鐘：無標籤，數字置中偏左，與 rec.gif 一致
+  // 時鐘：上方日期 + 下方時間
   lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
+  s_date_value = make_label(card, "--/--", F_LABEL, C_LABEL);
+  lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 30);
   s_clock_value = make_label(card, "--:--", F_VALUE, C_TEXT);
-  lv_obj_align(s_clock_value, LV_ALIGN_LEFT_MID, ACCENT_W + 12, 0);
+  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 68);
 }
 
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
@@ -220,6 +230,10 @@ static void build_gauge(void) {
   lv_obj_set_style_border_width(s_meter, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(s_meter, 0, LV_PART_MAIN);
   lv_obj_set_style_text_font(s_meter, &lv_font_montserrat_16, LV_PART_TICKS);
+  // lv_meter 會在 LV_PART_INDICATOR 無條件畫出指針樞紐的小圓點；
+  // 本儀表沒有指針，把它的尺寸與不透明度歸零藏起來
+  lv_obj_set_style_size(s_meter, 0, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(s_meter, LV_OPA_TRANSP, LV_PART_INDICATOR);
 
   // 無刻度的隱藏 scale，僅用來畫背景軌道與時速進度弧（涵蓋完整 0-180）
   lv_meter_scale_t *arc_scale = lv_meter_add_scale(s_meter);
@@ -261,7 +275,7 @@ static void build_gauge(void) {
   s_speed_value = make_label(s_scr, "0", F_SPEED, C_TEXT);
 
   // 轉速（藍色）與單位 R
-  s_rpm_value = make_label(s_scr, "0", &lv_font_montserrat_44, C_BLUE);
+  s_rpm_value = make_label(s_scr, "0", F_VALUE, C_BLUE);
   s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
 
   // 渦輪增壓
@@ -400,7 +414,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     // 字寬會隨位數改變，每次重新以絕對座標對齊到錶盤圓心
     lv_obj_update_layout(s_speed_value);
     lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                   GAUGE_CY - lv_obj_get_height(s_speed_value) / 2 - 22);
+                   GAUGE_CY - H_SPEED / 2 - 26);
   }
 
   // 轉速
@@ -414,8 +428,8 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     lv_obj_update_layout(s_rpm_value);
     lv_coord_t rw = lv_obj_get_width(s_rpm_value);
     lv_coord_t rx = GAUGE_CX - rw / 2 - 10;
-    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 66);
-    lv_obj_set_pos(s_rpm_unit, rx + rw + 6, GAUGE_CY + 66 + 24);
+    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 46);
+    lv_obj_set_pos(s_rpm_unit, rx + rw + 8, GAUGE_CY + 46 + H_VALUE - 22);
   }
 
   // Hev 電池
@@ -441,9 +455,12 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
         s_coolant_value, lv_color_hex(data->coolant >= 105 ? C_RED : C_TEXT), 0);
   }
 
-  // 時鐘
+  // 時鐘與日期
   if (force || strcmp(data->clock, p->clock) != 0) {
     lv_label_set_text(s_clock_value, data->clock);
+  }
+  if (force || strcmp(data->date, p->date) != 0) {
+    lv_label_set_text(s_date_value, data->date);
   }
 
   // 里程 / 油箱
@@ -562,6 +579,7 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_soc_value, opa, 0);
   lv_obj_set_style_text_opa(s_coolant_value, opa, 0);
   lv_obj_set_style_text_opa(s_clock_value, opa, 0);
+  lv_obj_set_style_text_opa(s_date_value, opa, 0);
   lv_obj_set_style_text_opa(s_odo_value, opa, 0);
   lv_obj_set_style_text_opa(s_fuel_value, opa, 0);
   lv_obj_set_style_text_opa(s_limit_value, opa, 0);

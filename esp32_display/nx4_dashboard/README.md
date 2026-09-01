@@ -47,6 +47,7 @@
   "odo": 33676,
   "turbo": 0.15,
   "time": "18:04",
+  "date": "09/01 週一",
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
   "camera": { "active": true, "limit": 90 },
   "lights": { "low": true, "high": false },
@@ -66,6 +67,7 @@
 | `odo` | int | 里程 km |
 | `turbo` | float | 渦輪增壓 Bar，範圍 -1.0 ~ +1.0 |
 | `time` | string | `HH:MM`，ESP32 無 RTC，時鐘由手機端提供 |
+| `date` | string | `MM/DD 週X`，同上。星期用字已收錄於中文字型 |
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
 | `camera.limit` | int | 該測速照相的速限 km/h |
@@ -112,7 +114,7 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 │  68        C │──────────────│   20      1620 R      160  ││ 測速││
 │              │▌油箱  27   % │     0                 180  ││  80 ││
 ├──────────────┼──────────────┤                            │└─────┘│
-│▌             │▌道路速限     │         +0.00 BAR          │       │
+│▌09/01 週一   │▌道路速限     │         +0.00 BAR          │       │
 │  18:04       │  60          │  ▁▁▁▁▁▁▁▁▁┃▁▁▁▁▁▁▁▁▁▁      │       │
 └──────────────┴──────────────┴────────────────────────────┴───────┘
 ```
@@ -224,8 +226,8 @@ CDCOnBoot=cdc,USBMode=hwcdc
 
 | 檔案 | 內容 | 用途 |
 |---|---|---|
-| `nx4_font_num_112.c` | Montserrat 112 px，`0-9` `-` | 儀表中央時速大字 |
-| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `.` `:` `%` | 卡片大數值與時鐘 |
+| `nx4_font_num_140.c` | Montserrat 140 px，`0-9` `-` | 儀表中央時速大字 |
+| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值、時鐘、轉速 |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
@@ -245,7 +247,8 @@ npx lv_font_conv@1.5.2 --no-compress --font Montserrat[wght].ttf \
 
 npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
   --size 22 --bpp 4 --format lvgl --lv-include lvgl.h --range 0x20-0x7E \
-  --symbols "電池水溫胎壓里程油箱道路速限測照相遠近燈" -o nx4_font_tc_22.c
+  --symbols "電池水溫胎壓里程油箱道路速限測照相遠近燈週一二三四五六日月" \\
+  -o nx4_font_tc_22.c
 ```
 
 若要新增中文字，把字加進 `--symbols` 後重新產生即可。
@@ -258,7 +261,7 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 |---|---|
 | `nx4_dashboard.ino` | 主程式：LCD/觸控/LVGL 初始化、WiFi、WebSocket Server |
 | `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新（唯一會碰 LVGL 物件的地方） |
-| `nx4_font_num_112.c` / `nx4_font_num_64.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
+| `nx4_font_num_140.c` / `nx4_font_num_80.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
 | `pins_config.h` | 螢幕解析度與腳位（取自原廠 Demo） |
 | `lv_conf.h` | LVGL 設定（原廠 Demo + 開啟大字型） |
 | `config.h.example` | WiFi / Port / 靜態 IP / 逾時設定範本 |

@@ -241,6 +241,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         "odo": 33676,
         "turbo": 0.15,
         "time": DateFormat('HH:mm').format(DateTime.now()),
+        "date": DateFormat('MM/dd').format(DateTime.now()),
         "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
         "camera": {"active": true, "limit": 90},
         "lights": {"low": false, "high": false},

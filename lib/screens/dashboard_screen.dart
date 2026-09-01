@@ -687,13 +687,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _isEsp32Connected = false);
   }
 
+  /// 星期中文字（ESP32 端字型僅收錄「週一二三四五六日」）
+  static String _weekdayZh(DateTime t) {
+    const names = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+    return names[t.weekday - 1];
+  }
+
   /// 推送 esp32_dash 儀表資料（於每次 OBD/GPS 更新時呼叫，具節流保護）
   ///
   /// 協定格式：
   /// ```json
   /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
   ///  "fuel":50,"speed_limit":90,
-  ///  "odo":33676,"turbo":0.15,"time":"18:04",
+  ///  "odo":33676,"turbo":0.15,"time":"18:04","date":"09/01 週一",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
   ///  "lights":{"low":true,"high":false},"brightness":40}
@@ -725,8 +731,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       "speed_limit": provider.roadSpeedLimit,
       "odo": provider.obdOdometer?.round() ?? 0,
       "turbo": provider.obdTurbo ?? 0.0,
-      // ESP32 沒有 RTC，時鐘由手機端提供
-      "time": DateFormat('HH:mm').format(DateTime.now()),
+      // ESP32 沒有 RTC，日期時間由手機端提供
+      "time": DateFormat('HH:mm').format(now),
+      "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',
       "tires": {
         "fl": provider.tpmsFl ?? 0,
         "fr": provider.tpmsFr ?? 0,
