@@ -226,7 +226,7 @@ CDCOnBoot=cdc,USBMode=hwcdc
 
 | 檔案 | 內容 | 用途 |
 |---|---|---|
-| `nx4_font_num_140.c` | Montserrat 140 px，`0-9` `-` | 儀表中央時速大字 |
+| `nx4_font_num_160.c` | Montserrat 160 px，`0-9` `-` | 儀表中央時速大字 |
 | `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值、時鐘、轉速 |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
@@ -261,7 +261,7 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 |---|---|
 | `nx4_dashboard.ino` | 主程式：LCD/觸控/LVGL 初始化、WiFi、WebSocket Server |
 | `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新（唯一會碰 LVGL 物件的地方） |
-| `nx4_font_num_140.c` / `nx4_font_num_80.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
+| `nx4_font_num_160.c` / `nx4_font_num_80.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
 | `pins_config.h` | 螢幕解析度與腳位（取自原廠 Demo） |
 | `lv_conf.h` | LVGL 設定（原廠 Demo + 開啟大字型） |
 | `config.h.example` | WiFi / Port / 靜態 IP / 逾時設定範本 |

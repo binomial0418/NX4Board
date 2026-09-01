@@ -5,20 +5,20 @@
 
 // ─────────────────────────────────────────────────────────────────────────
 // 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
-//   nx4_font_num_140 — 儀表中央時速大字，僅 0-9 與 '-'（line_height 98）
+//   nx4_font_num_160 — 儀表中央時速大字，僅 0-9 與 '-'（line_height 112）
 //   nx4_font_num_80  — 卡片大數值、時鐘與轉速，0-9 . : % 空白（line_height 57）
 //   nx4_font_tc_22   — 中文標籤 + 基本 ASCII（line_height 25）
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_140);
+LV_FONT_DECLARE(nx4_font_num_160);
 LV_FONT_DECLARE(nx4_font_num_80);
 LV_FONT_DECLARE(nx4_font_tc_22);
 
-#define F_SPEED &nx4_font_num_140
+#define F_SPEED &nx4_font_num_160
 #define F_VALUE &nx4_font_num_80
 #define F_LABEL &nx4_font_tc_22
 
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 98
+#define H_SPEED 112
 #define H_VALUE 57
 #define H_LABEL 25
 
@@ -51,11 +51,16 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define ROW3_Y (CARDS_Y + 2 * (CARD_H + CARD_GAP))
 #define ACCENT_W 5
 
-#define GAUGE_SIZE 372
-#define GAUGE_X 542
-#define GAUGE_Y 76
+#define GAUGE_SIZE 430
+#define GAUGE_X 486
+#define GAUGE_Y 22
 #define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
 #define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
+
+// 增壓區：位於錶盤下方
+#define TURBO_Y (GAUGE_Y + GAUGE_SIZE + 30)
+#define TURBO_BAR_W 380
+#define TURBO_BAR_Y (TURBO_Y + 62)
 
 #define STATUS_X 930
 #define STATUS_W 80
@@ -152,11 +157,11 @@ static void make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
   // 數值緊接在標籤下方（靠上），單位對齊數值下緣
   lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
-  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 44);
+  lv_obj_align(value, LV_ALIGN_TOP_LEFT, ACCENT_W + 12, 66);
 
   if (unit != NULL) {
     lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
-    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -12, 44 + H_VALUE - 24);
+    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -12, 66 + H_VALUE - 24);
   }
 
   *out_value = value;
@@ -279,12 +284,12 @@ static void build_gauge(void) {
   s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
 
   // 渦輪增壓
-  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_32, C_TEXT);
-  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_18, C_LABEL);
+  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_44, C_TEXT);
+  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_22, C_LABEL);
 
   s_turbo_bar = lv_bar_create(s_scr);
-  lv_obj_set_size(s_turbo_bar, 340, 8);
-  lv_obj_set_pos(s_turbo_bar, GAUGE_CX - 170, GAUGE_Y + 446);
+  lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
+  lv_obj_set_pos(s_turbo_bar, GAUGE_CX - TURBO_BAR_W / 2, TURBO_BAR_Y);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x2A303B), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(C_BLUE),
                             LV_PART_INDICATOR);
@@ -299,8 +304,10 @@ static void build_gauge(void) {
   for (int i = 0; i < 5; i++) {
     lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_14, C_UNIT);
     lv_obj_update_layout(tl);
-    lv_obj_set_pos(tl, GAUGE_CX - 170 + i * 85 - lv_obj_get_width(tl) / 2,
-                   GAUGE_Y + 460);
+    lv_obj_set_pos(tl,
+                   GAUGE_CX - TURBO_BAR_W / 2 + i * (TURBO_BAR_W / 4) -
+                       lv_obj_get_width(tl) / 2,
+                   TURBO_BAR_Y + 16);
   }
 }
 
@@ -414,7 +421,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     // 字寬會隨位數改變，每次重新以絕對座標對齊到錶盤圓心
     lv_obj_update_layout(s_speed_value);
     lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                   GAUGE_CY - H_SPEED / 2 - 26);
+                   GAUGE_CY - H_SPEED / 2 - 20);
   }
 
   // 轉速
@@ -428,8 +435,9 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     lv_obj_update_layout(s_rpm_value);
     lv_coord_t rw = lv_obj_get_width(s_rpm_value);
     lv_coord_t rx = GAUGE_CX - rw / 2 - 10;
-    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 46);
-    lv_obj_set_pos(s_rpm_unit, rx + rw + 8, GAUGE_CY + 46 + H_VALUE - 22);
+    // 轉速下移到錶弧底部缺口處（弧線兩端位於 CY + r*sin45 ≈ CY + 152）
+    lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + 112);
+    lv_obj_set_pos(s_rpm_unit, rx + rw + 10, GAUGE_CY + 112 + H_VALUE - 22);
   }
 
   // Hev 電池
@@ -502,9 +510,11 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
 
     lv_obj_update_layout(s_turbo_value);
     lv_coord_t tw = lv_obj_get_width(s_turbo_value);
-    lv_coord_t tx = GAUGE_CX - (tw + 52) / 2;
-    lv_obj_set_pos(s_turbo_value, tx, GAUGE_Y + 396);
-    lv_obj_set_pos(s_turbo_unit, tx + tw + 8, GAUGE_Y + 396 + 14);
+    // 數值 + 間距 + "BAR" 一起置中；間距刻意拉開
+    const lv_coord_t gap = 24, unit_w = 48;
+    lv_coord_t tx = GAUGE_CX - (tw + gap + unit_w) / 2;
+    lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
+    lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 20);
   }
 
   // 胎壓
