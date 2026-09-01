@@ -281,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 用絕對 tick 而非 cycle，否則每跑完一圈里程會倒退
       "odo": 33676 + t ~/ 40,
       "turbo": double.parse(turbo.toStringAsFixed(2)),
-      "time": DateFormat('HH:mm').format(now),
+      "time": DateFormat('HH:mm:ss').format(now),
       "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',
       "tires": {
         "fl": 34 + (cycle ~/ 60) % 2,

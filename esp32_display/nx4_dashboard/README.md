@@ -46,7 +46,7 @@
   "speed_limit": 90,
   "odo": 33676,
   "turbo": 0.15,
-  "time": "18:04",
+  "time": "18:04:37",
   "date": "09/01 週一",
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
   "camera": { "active": true, "limit": 90 },
@@ -66,7 +66,7 @@
 | `speed_limit` | int | 目前路段速限 km/h，`0` 表示無資料 |
 | `odo` | int | 里程 km |
 | `turbo` | float | 渦輪增壓 Bar，範圍 -1.0 ~ +1.0 |
-| `time` | string | `HH:MM`，ESP32 無 RTC，時鐘由手機端提供 |
+| `time` | string | `HH:MM:SS`，ESP32 無 RTC，時鐘由手機端提供。ESP32 收到後會拆成時分秒，並用 `lv_timer` 每秒自增，因此手機斷線後時鐘仍會繼續走（只送 `HH:MM` 的舊格式也相容） |
 | `date` | string | `MM/DD 週X`，同上。星期用字已收錄於中文字型 |
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
@@ -247,12 +247,18 @@ CDCOnBoot=cdc,USBMode=hwcdc
 
 | 檔案 | 內容 | 用途 |
 |---|---|---|
-| `nx4_font_num_160.c` | Montserrat 160 px，`0-9` `-` | 儀表中央時速大字 |
-| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` `E` `V` | 卡片大數值、時鐘、轉速（含 `EV`） |
+| `nx4_font_num_160b.c` | Montserrat **Bold** 160 px，`0-9` `-` | 儀表中央時速大字 |
+| `nx4_font_num_80b.c` | Montserrat **Bold** 80 px，`0-9` `E` `V` | 轉速（含 `EV`） |
+| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值 |
+| `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `:` | 時鐘 `HH:MM` |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
 `OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。
+
+> Bold 字重必須用**靜態**的 `Montserrat-Bold.ttf`（取自 Montserrat 上游
+> repo）。`Montserrat[wght].ttf` 是可變字型，lv_font_conv 只會取到預設
+> 的 Regular 字重，指定粗體是沒有作用的。
 
 > **產生時務必加 `--no-compress`。** lv_font_conv 預設會壓縮點陣，
 > 而本專案 `lv_conf.h` 的 `LV_USE_FONT_COMPRESSED = 0`。載入壓縮字型時

@@ -10,7 +10,7 @@
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
 //   "fuel": 50, "speed_limit": 90,
-//   "odo": 33676, "turbo": 0.15, "time": "18:04", "date": "09/01 週一",
+//   "odo": 33676, "turbo": 0.15, "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90},
 //   "lights": {"low": true, "high": false},

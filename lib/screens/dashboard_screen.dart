@@ -699,7 +699,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// ```json
   /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
   ///  "fuel":50,"speed_limit":90,
-  ///  "odo":33676,"turbo":0.15,"time":"18:04","date":"09/01 週一",
+  ///  "odo":33676,"turbo":0.15,"time":"18:04:37","date":"09/01 週一",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
   ///  "lights":{"low":true,"high":false},"brightness":40}
@@ -734,7 +734,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       "odo": provider.obdOdometer?.round() ?? 0,
       "turbo": provider.obdTurbo ?? 0.0,
       // ESP32 沒有 RTC，日期時間由手機端提供
-      "time": DateFormat('HH:mm').format(now),
+      "time": DateFormat('HH:mm:ss').format(now),
       "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',
       "tires": {
         "fl": provider.tpmsFl ?? 0,

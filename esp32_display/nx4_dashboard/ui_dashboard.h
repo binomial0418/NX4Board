@@ -36,7 +36,7 @@ typedef struct {
   int camera_limit;    // 該測速照相的速限 km/h
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
-  char clock[8];       // 手機端時間 "HH:MM"
+  char clock[12];      // 手機端時間 "HH:MM:SS"
   char date[24];       // 手機端日期 "09/01 週一"
 } nx4_dash_data_t;
 
