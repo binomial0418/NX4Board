@@ -464,6 +464,9 @@ void setup() {
   esp_lcd_dpi_panel_register_event_callbacks(lcd_panels.panel, &cbs, &disp_drv);
 
   ui_dashboard_create();
+  // 不在此呼叫 ui_dashboard_update()：那會把全 0 的初始結構畫上去，
+  // 讓畫面在還沒收到任何資料時就顯示 0 km/h、EV 等看似真實的狀態。
+  // 保留各 label 建立時的 "--"，第一筆資料抵達時自然會 force 全面更新。
   ui_settings_set_callbacks(onSettingsApply, onSettingsScan);
   loadCredentials();
   ui_dashboard_set_ssid(g_ssid.c_str());
@@ -471,7 +474,6 @@ void setup() {
   char geo[160];
   ui_settings_debug_geometry(geo, sizeof(geo));
   Serial.printf("[UI] 設定面板 %s\n", geo);
-  ui_dashboard_update(&g_dash);
   ui_dashboard_set_brightness(g_brightness);
   ui_dashboard_set_stale(true);
 

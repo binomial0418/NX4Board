@@ -1,9 +1,8 @@
 /*******************************************************************************
  * NX4Board 專用字型：nx4_font_num_64
  *
- * Montserrat 64 px，僅 0-9 與 ':'，供時鐘 HH:MM 使用。
- * 尺寸上限來自卡片寬度：數值起點 x=33、卡片寬 226，可用約 181px，
- * 最壞情況 "00:00" 在 64px 下約 178px，再大就會被切掉。
+ * Montserrat 64 px，收錄 0-9 : - —— 用於時鐘 HH:MM。
+ * '-' 是必要的：尚未取得資料時畫面以 "--" 當佔位符，字型少了它會變方框。
  *
  * 字型來源：Montserrat（SIL Open Font License 1.1），授權見 OFL-Montserrat.txt
  * 注意：必須以 --no-compress 產生（詳見 README「字型」章節）。
@@ -27,6 +26,12 @@
 
 /*Store the image of the glyphs*/
 static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
+    /* U+002D "-" */
+    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+    0xd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xf2, 0x23, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+    0x33, 0x0,
+
     /* U+0030 "0" */
     0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x16, 0xad,
     0xef, 0xfe, 0xc9, 0x50, 0x0, 0x0, 0x0, 0x0,
@@ -934,31 +939,35 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
 
 static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 0, .adv_w = 0, .box_w = 0, .box_h = 0, .ofs_x = 0, .ofs_y = 0} /* id = 0 reserved */,
-    {.bitmap_index = 0, .adv_w = 668, .box_w = 35, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
-    {.bitmap_index = 770, .adv_w = 350, .box_w = 14, .box_h = 44, .ofs_x = 0, .ofs_y = 0},
-    {.bitmap_index = 1078, .adv_w = 568, .box_w = 32, .box_h = 44, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 1782, .adv_w = 561, .box_w = 31, .box_h = 44, .ofs_x = 1, .ofs_y = 0},
-    {.bitmap_index = 2464, .adv_w = 659, .box_w = 39, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 3322, .adv_w = 561, .box_w = 31, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 4004, .adv_w = 606, .box_w = 33, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
-    {.bitmap_index = 4730, .adv_w = 584, .box_w = 32, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 5434, .adv_w = 639, .box_w = 34, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
-    {.bitmap_index = 6182, .adv_w = 606, .box_w = 33, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
-    {.bitmap_index = 6908, .adv_w = 186, .box_w = 4, .box_h = 33, .ofs_x = 4, .ofs_y = 0}
+    {.bitmap_index = 0, .adv_w = 389, .box_w = 17, .box_h = 3, .ofs_x = 4, .ofs_y = 15},
+    {.bitmap_index = 26, .adv_w = 668, .box_w = 35, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
+    {.bitmap_index = 796, .adv_w = 350, .box_w = 14, .box_h = 44, .ofs_x = 0, .ofs_y = 0},
+    {.bitmap_index = 1104, .adv_w = 568, .box_w = 32, .box_h = 44, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 1808, .adv_w = 561, .box_w = 31, .box_h = 44, .ofs_x = 1, .ofs_y = 0},
+    {.bitmap_index = 2490, .adv_w = 659, .box_w = 39, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 3348, .adv_w = 561, .box_w = 31, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 4030, .adv_w = 606, .box_w = 33, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
+    {.bitmap_index = 4756, .adv_w = 584, .box_w = 32, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 5460, .adv_w = 639, .box_w = 34, .box_h = 44, .ofs_x = 3, .ofs_y = 0},
+    {.bitmap_index = 6208, .adv_w = 606, .box_w = 33, .box_h = 44, .ofs_x = 2, .ofs_y = 0},
+    {.bitmap_index = 6934, .adv_w = 186, .box_w = 4, .box_h = 33, .ofs_x = 4, .ofs_y = 0}
 };
 
 /*---------------------
  *  CHARACTER MAPPING
  *--------------------*/
 
-
+static const uint8_t glyph_id_ofs_list_0[] = {
+    0, 0, 0, 1, 2, 3, 4, 5,
+    6, 7, 8, 9, 10, 11
+};
 
 /*Collect the unicode lists and glyph_id offsets*/
 static const lv_font_fmt_txt_cmap_t cmaps[] =
 {
     {
-        .range_start = 48, .range_length = 11, .glyph_id_start = 1,
-        .unicode_list = NULL, .glyph_id_ofs_list = NULL, .list_length = 0, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY
+        .range_start = 45, .range_length = 14, .glyph_id_start = 1,
+        .unicode_list = NULL, .glyph_id_ofs_list = glyph_id_ofs_list_0, .list_length = 14, .type = LV_FONT_FMT_TXT_CMAP_FORMAT0_FULL
     }
 };
 

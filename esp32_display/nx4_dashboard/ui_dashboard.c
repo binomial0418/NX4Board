@@ -390,13 +390,15 @@ static void build_gauge(void) {
   // 注意：這些標籤一律不呼叫 lv_obj_align()，因為 LVGL v8 中只要設過
   // align，之後的 lv_obj_set_pos() 就會被當成「相對於該對齊點的偏移」，
   // 我們在 update 裡是以絕對座標置中的。
-  s_speed_value = make_label(s_scr, "0", F_SPEED, C_TEXT);
+  // 尚未收到資料前顯示 "--"，而不是 0 / EV —— 那會看起來像真實狀態
+  s_speed_value = make_label(s_scr, "--", F_SPEED, C_TEXT);
   lv_obj_set_style_text_letter_space(s_speed_value, LS_SPEED, 0);
 
   // 轉速（藍色）與單位 R
-  s_rpm_value = make_label(s_scr, "0", F_RPM, C_BLUE);
+  s_rpm_value = make_label(s_scr, "--", F_RPM, C_BLUE);
   lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
   s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
+  lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
   // 渦輪增壓
   s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_44, C_TEXT);
@@ -502,6 +504,15 @@ void ui_dashboard_create(void) {
   build_gauge();
   build_status();
   ui_settings_create();
+
+  // 這兩個 label 平常由補間的 callback 定位；開機時還沒有資料，
+  // 先手動擺一次，否則會停在 (0,0)
+  lv_obj_update_layout(s_speed_value);
+  lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
+                 GAUGE_CY - H_SPEED / 2 - 20);
+  lv_obj_update_layout(s_rpm_value);
+  lv_obj_set_pos(s_rpm_value, GAUGE_CX - lv_obj_get_width(s_rpm_value) / 2,
+                 GAUGE_CY + 112);
 
   lv_timer_create(cam_blink_cb, 500, NULL);
   lv_timer_create(clock_tick_cb, 1000, NULL);

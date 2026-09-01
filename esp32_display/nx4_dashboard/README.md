@@ -265,9 +265,9 @@ CDCOnBoot=cdc,USBMode=hwcdc
 | 檔案 | 內容 | 用途 |
 |---|---|---|
 | `nx4_font_num_150s.c` | Montserrat **SemiBold** 150 px，`0-9` `-` | 儀表中央時速大字 |
-| `nx4_font_num_76s.c` | Montserrat **SemiBold** 76 px，`0-9` `E` `V` | 轉速（含 `EV`） |
-| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` | 卡片大數值 |
-| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `:` | 時鐘 `HH:MM` |
+| `nx4_font_num_76s.c` | Montserrat **SemiBold** 76 px，`0-9` `E` `V` `-` | 轉速（含 `EV`） |
+| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` `-` | 卡片大數值 |
+| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `:` `-` | 時鐘 `HH:MM` |
 | `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
 
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
@@ -276,6 +276,10 @@ CDCOnBoot=cdc,USBMode=hwcdc
 > Regular 以外的字重必須用**靜態**的 TTF（例如 `Montserrat-SemiBold.ttf`，
 > 取自 Montserrat 上游 repo）。`Montserrat[wght].ttf` 是可變字型，
 > lv_font_conv 只會取到預設的 Regular 字重，指定粗體是沒有作用的。
+
+> 每個數字字型都必須收錄 `-`：畫面在尚未取得資料時以 `--` 當佔位符，
+> 字型少了它會顯示成空白方框。新增任何佔位符或單位字元時，
+> 記得檢查對應字型有沒有收錄該字元。
 
 > 時速與轉速另外以 `lv_obj_set_style_text_letter_space()` 加上字距
 > （`LS_SPEED` 6px、`LS_RPM` 3px）。字重負責「粗細」、字距負責「疏密」，
