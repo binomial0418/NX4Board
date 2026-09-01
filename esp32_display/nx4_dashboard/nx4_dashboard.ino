@@ -467,6 +467,10 @@ void setup() {
   ui_settings_set_callbacks(onSettingsApply, onSettingsScan);
   loadCredentials();
   ui_dashboard_set_ssid(g_ssid.c_str());
+
+  char geo[160];
+  ui_settings_debug_geometry(geo, sizeof(geo));
+  Serial.printf("[UI] 設定面板 %s\n", geo);
   ui_dashboard_update(&g_dash);
   ui_dashboard_set_brightness(g_brightness);
   ui_dashboard_set_stale(true);

@@ -335,6 +335,7 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 | 畫面撕裂 | 於 `nx4_dashboard.ino` 將 `disp_drv.full_refresh` 改為 `true` |
 | 某段文字完全不顯示但版面有留位置 | 該字型是壓縮格式。檢查字型檔的 `.bitmap_format` 是否為 `0`，不是的話用 `--no-compress` 重新產生 |
 | 右下角出現 FPS / CPU 疊圖 | `lv_conf.h` 的 `LV_USE_PERF_MONITOR` 要設為 `0` |
+| 螢幕鍵盤不出現 | `lv_keyboard_constructor()` 內建就對自己做了 `lv_obj_align(BOTTOM_MID)`，之後再用 `lv_obj_set_pos()` 會被當成相對偏移而把鍵盤推出畫面。要用 `lv_obj_align()` 定位。開機時的 `[UI] 設定面板 ...` 會印出實際座標 |
 | 點 IP 沒反應 | 先看序列日誌有沒有 `[TOUCH] x= y=`：沒有代表 GT911 觸控本身沒作用（檢查 `TP_I2C_SDA/SCL` 腳位），有的話代表座標對不上點擊區 |
 | 設定過的 WiFi 想改回 config.h | NVS 優先於 config.h，需清除 NVS 才會回退 |
 | 亮度不會隨大燈變化 | 序列監視器看有無 `[BRT] 螢幕亮度 -> N%`；沒有代表手機端沒讀到 22BC09（App 日誌搜尋 `Headlights`），可能該車的 IGMP 請求 Header 不是 `ATSH302` |

@@ -2,6 +2,7 @@
 
 #include "lvgl.h"
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,9 @@ void ui_settings_add_network(const char *ssid, int rssi, bool locked);
 
 /// 面板下方的狀態列文字（掃描中、連線中、連線失敗…）
 void ui_settings_set_status(const char *text);
+
+/// 把面板內主要元件的實際座標寫入 buf，供序列埠診斷版面
+void ui_settings_debug_geometry(char *buf, size_t n);
 
 #ifdef __cplusplus
 }

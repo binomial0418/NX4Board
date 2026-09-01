@@ -184,11 +184,27 @@ void ui_settings_create(void) {
   make_button(card, "儲存並連線", FORM_X, 230, 180, C_BLUE, save_btn_cb);
   make_button(card, "取消", FORM_X + 196, 230, 120, C_FIELD, close_btn_cb);
 
-  // 下：注音/中文不需要，維持預設的 ASCII 鍵盤
+  // 下：維持預設的 ASCII 鍵盤。
+  //
+  // 注意：lv_keyboard_constructor() 內建就呼叫了
+  //   lv_obj_align(obj, LV_ALIGN_BOTTOM_MID, 0, 0)
+  // 因此對它用 lv_obj_set_pos() 會被當成「相對底部中央的偏移」而非
+  // 絕對座標，鍵盤會被推到螢幕外。這裡直接沿用它的 BOTTOM_MID 對齊。
   s_kb = lv_keyboard_create(s_panel);
-  lv_obj_set_pos(s_kb, PANEL_X, KB_Y);
   lv_obj_set_size(s_kb, PANEL_W, KB_H);
+  lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, -6);
   lv_keyboard_set_textarea(s_kb, s_ssid_ta);
+}
+
+void ui_settings_debug_geometry(char *buf, size_t n) {
+  lv_obj_update_layout(s_panel);
+  lv_snprintf(buf, n, "panel=%dx%d kb=(%d,%d) %dx%d ssid=(%d,%d) %dx%d",
+              (int)lv_obj_get_width(s_panel), (int)lv_obj_get_height(s_panel),
+              (int)lv_obj_get_x(s_kb), (int)lv_obj_get_y(s_kb),
+              (int)lv_obj_get_width(s_kb), (int)lv_obj_get_height(s_kb),
+              (int)lv_obj_get_x(s_ssid_ta), (int)lv_obj_get_y(s_ssid_ta),
+              (int)lv_obj_get_width(s_ssid_ta),
+              (int)lv_obj_get_height(s_ssid_ta));
 }
 
 // ── 開關 ────────────────────────────────────────────────────────────────
