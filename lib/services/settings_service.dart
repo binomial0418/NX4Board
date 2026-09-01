@@ -43,6 +43,12 @@ class SettingsService {
   int get esp32BrightnessHighBeam =>
       _prefs?.getInt('esp32_brightness_high') ?? 25;
 
+  /// 設定頁的模擬推送是否進行中。
+  ///
+  /// 純執行期旗標（不寫入 SharedPreferences）。開啟時 dashboard_screen
+  /// 會暫停自己的第二通道推送，否則兩邊會互相覆蓋、畫面跳動。
+  bool esp32SimulationActive = false;
+
   /// 依目前大燈狀態換算出應套用的亮度百分比
   int esp32BrightnessFor({required bool lowBeam, required bool highBeam}) {
     if (highBeam) return esp32BrightnessHighBeam;

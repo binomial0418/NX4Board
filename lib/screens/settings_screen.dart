@@ -30,6 +30,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _esp32PortController = TextEditingController();
   bool _esp32Enabled = false;
 
+  // ESP32 模擬推送（設定頁的連續測試）
+  Timer? _esp32SimTimer;
+  WebSocketChannel? _esp32SimChannel;
+  StreamSubscription? _esp32SimSub;
+  bool _esp32SimRunning = false;
+  int _esp32SimTick = 0;
+  String _esp32SimStatus = '';
+
   // ESP32 螢幕亮度（依大燈狀態切換）
   int _brightnessDay = 100;
   int _brightnessLow = 40;
@@ -117,6 +125,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _portController.dispose();
     _esp32IpController.dispose();
     _esp32PortController.dispose();
+    // 一定要停：否則 esp32SimulationActive 會卡在 true，
+    // 回到儀表頁後第二通道就永遠不再推送
+    _stopEsp32Simulation(null);
     _logSub?.cancel();
     _volumeSub?.cancel();
     _scrollController.dispose();
@@ -215,10 +226,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _sendTestEsp32Data() async {
+  // ── ESP32 模擬推送 ───────────────────────────────────────────────────
+  // 連續送出一段 40 秒的模擬行程（每 200ms 一筆，跑完自動循環），
+  // 方便在沒有接 OBD 的情況下驗證 ESP32 儀表的動態表現。
+  //
+  // 時序（tick，每秒 5 tick）：
+  //   0- 25  怠速          25-100  加速 0→120     100-125 定速 120
+  // 125-150  減速 120→60   150-175 定速 60        175-200 減速至停止
+  // 速限 60 → 90 → 50；100 tick 起開近燈、130-150 開遠燈；
+  // 130-165 tick 出現測速照相警示。
+  static const int _simCycleTicks = 200;
+  static const Duration _simInterval = Duration(milliseconds: 200);
+
+  int _simSpeed(int t) {
+    if (t < 0) return 0;
+    t %= _simCycleTicks;
+    if (t < 25) return 0;
+    if (t < 100) return ((t - 25) * 120 / 75).round();
+    if (t < 125) return 120;
+    if (t < 150) return (120 - (t - 125) * 60 / 25).round();
+    if (t < 175) return 60;
+    return (60 - (t - 175) * 60 / 25).round().clamp(0, 60);
+  }
+
+  /// 依車速推算轉速，並用檔位造出換檔的鋸齒感
+  int _simRpm(int speed) {
+    if (speed == 0) return 780;
+    final gear = (speed ~/ 30).clamp(0, 3);
+    return 1000 + ((speed - gear * 30) * 95).round();
+  }
+
+  Map<String, dynamic> _buildSimFrame(int t) {
+    final cycle = t % _simCycleTicks;
+    final speed = _simSpeed(t);
+    // 增壓由加速度推得（加速為正壓、減速為真空）。
+    // 取 1 秒（5 tick）的位移再平均，逐 tick 相減會因四捨五入
+    // 在 1/2 km/h 之間跳動，畫面上的增壓值會抖。
+    final turbo =
+        ((speed - _simSpeed(t - 5)) / 5 * 0.35).clamp(-1.0, 1.0);
+    final speedLimit = cycle < 100 ? 60 : (cycle < 150 ? 90 : 50);
+    final lowBeam = cycle >= 100 && cycle < 180;
+    final highBeam = cycle >= 130 && cycle < 150;
+    final cameraActive = cycle >= 130 && cycle < 165;
+    final now = DateTime.now();
+
+    return {
+      "_type": "esp32_dash",
+      "speed": speed,
+      "rpm": _simRpm(speed),
+      "coolant": (70 + cycle * 0.11).clamp(70, 92).round(),
+      "soc": double.parse((65.5 - cycle * 0.05).toStringAsFixed(1)),
+      "fuel": 50 - cycle ~/ 100,
+      "speed_limit": speedLimit,
+      // 用絕對 tick 而非 cycle，否則每跑完一圈里程會倒退
+      "odo": 33676 + t ~/ 40,
+      "turbo": double.parse(turbo.toStringAsFixed(2)),
+      "time": DateFormat('HH:mm').format(now),
+      "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',
+      "tires": {
+        "fl": 34 + (cycle ~/ 60) % 2,
+        "fr": 34,
+        "rl": 33,
+        "rr": 33,
+      },
+      "camera": {"active": cameraActive, "limit": 50},
+      "lights": {"low": lowBeam, "high": highBeam},
+      "brightness": SettingsService()
+          .esp32BrightnessFor(lowBeam: lowBeam, highBeam: highBeam),
+    };
+  }
+
+  static String _weekdayZh(DateTime t) {
+    const names = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+    return names[t.weekday - 1];
+  }
+
+  Future<void> _toggleEsp32Simulation() async {
+    if (_esp32SimRunning) {
+      _stopEsp32Simulation('模擬已停止');
+      return;
+    }
+
     final ip = _esp32IpController.text.trim();
     final port = _esp32PortController.text.trim();
-
     if (ip.isEmpty || port.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請先輸入 ESP32 IP 與 Port')),
@@ -227,43 +317,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     try {
-      final channel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
-
-      // 與 dashboard_screen 的 _sendEsp32DashData() 相同的協定格式
-      final testData = {
-        "_type": "esp32_dash",
-        "speed": 75,
-        "rpm": 1750,
-        "coolant": 88,
-        "soc": 65.5,
-        "fuel": 50,
-        "speed_limit": 90,
-        "odo": 33676,
-        "turbo": 0.15,
-        "time": DateFormat('HH:mm').format(DateTime.now()),
-        "date": DateFormat('MM/dd').format(DateTime.now()),
-        "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
-        "camera": {"active": true, "limit": 90},
-        "lights": {"low": false, "high": false},
-        "brightness": 100,
-      };
-
-      final jsonString = jsonEncode(testData);
-      channel.sink.add(jsonString);
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ESP32 測試資料已發送: $jsonString')),
+      _esp32SimChannel = WebSocketChannel.connect(Uri.parse('ws://$ip:$port'));
+      _esp32SimSub = _esp32SimChannel!.stream.listen(
+        (_) {},
+        onDone: () => _stopEsp32Simulation('ESP32 連線中斷'),
+        onError: (e) => _stopEsp32Simulation('連線錯誤: $e'),
+        cancelOnError: true,
       );
-
-      await Future.delayed(const Duration(seconds: 1));
-      await channel.sink.close();
     } catch (e) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ESP32 發送失敗: $e')),
+        SnackBar(content: Text('連線失敗: $e')),
       );
+      return;
     }
+
+    // 模擬期間讓儀表頁暫停推送，否則兩邊會互相覆蓋
+    SettingsService().esp32SimulationActive = true;
+    _esp32SimTick = 0;
+
+    setState(() {
+      _esp32SimRunning = true;
+      _esp32SimStatus = '模擬中…';
+    });
+
+    _esp32SimTimer = Timer.periodic(_simInterval, (_) => _pushSimFrame());
+    _pushSimFrame();
+  }
+
+  void _pushSimFrame() {
+    if (!_esp32SimRunning || _esp32SimChannel == null) return;
+
+    final frame = _buildSimFrame(_esp32SimTick);
+    try {
+      _esp32SimChannel!.sink.add(jsonEncode(frame));
+    } catch (e) {
+      _stopEsp32Simulation('發送失敗: $e');
+      return;
+    }
+
+    _esp32SimTick++;
+
+    // 狀態文字每秒才更新一次。每 200ms setState 會讓整個設定頁
+    // （含底下的日誌列表）每秒重建 5 次，沒必要。
+    if (_esp32SimTick % 5 != 0 || !mounted) return;
+    final cycle = _esp32SimTick % _simCycleTicks;
+    final cam = (frame["camera"] as Map)["active"] == true;
+    setState(() {
+      _esp32SimStatus = '模擬中 ${cycle ~/ 5}/40s — '
+          '${frame["speed"]} km/h  ${frame["rpm"]} rpm  '
+          '${frame["turbo"]} bar${cam ? "  ⚠ 測速照相" : ""}';
+    });
+  }
+
+  /// 停止模擬。reason 為 null 時不更新 UI（供 dispose 呼叫）。
+  void _stopEsp32Simulation(String? reason) {
+    _esp32SimTimer?.cancel();
+    _esp32SimTimer = null;
+    _esp32SimSub?.cancel();
+    _esp32SimSub = null;
+    _esp32SimChannel?.sink.close();
+    _esp32SimChannel = null;
+    SettingsService().esp32SimulationActive = false;
+
+    if (reason == null) {
+      _esp32SimRunning = false;
+      return;
+    }
+    if (!mounted) {
+      _esp32SimRunning = false;
+      return;
+    }
+    setState(() {
+      _esp32SimRunning = false;
+      _esp32SimStatus = reason;
+    });
   }
 
   /// 立即把指定亮度推送到 ESP32 供實機確認。
@@ -653,7 +780,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               style: TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold)),
                           const Text(
-                            '獨立於上方 MQTT 後送通道，OBD 每次輪詢即時推送儀表資料',
+                            '獨立於上方 MQTT 後送通道，OBD 每次輪詢即時推送儀表資料。'
+                            '「模擬」會連續送出 40 秒的行程（加速→定速→測速照相→減速）'
+                            '並循環，期間儀表頁暫停推送',
                             style:
                                 TextStyle(fontSize: 12, color: Colors.black54),
                           ),
@@ -703,14 +832,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   const SizedBox(height: 4),
                                   ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green[100]),
-                                    onPressed: _sendTestEsp32Data,
-                                    child: const Text('Dash Test'),
+                                      backgroundColor: _esp32SimRunning
+                                          ? Colors.red[100]
+                                          : Colors.green[100],
+                                    ),
+                                    onPressed: _toggleEsp32Simulation,
+                                    child:
+                                        Text(_esp32SimRunning ? '停止' : '模擬'),
                                   ),
                                 ],
                               ),
                             ],
                           ),
+                          if (_esp32SimStatus.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                _esp32SimStatus,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _esp32SimRunning
+                                      ? Colors.green[800]
+                                      : Colors.black54,
+                                ),
+                              ),
+                            ),
                           const Divider(height: 24),
                           // ── 螢幕亮度：依 OBD 大燈狀態自動切換 ──────────
                           const Text('螢幕亮度 (依大燈狀態切換)',

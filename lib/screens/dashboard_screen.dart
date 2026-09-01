@@ -708,6 +708,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     if (!SettingsService().esp32Enabled) return;
     if (!_isEsp32Connected || _esp32Channel == null) return;
+    // 設定頁正在跑模擬推送，讓出通道避免兩邊互相覆蓋
+    if (SettingsService().esp32SimulationActive) return;
 
     // 節流：避免 OBD 高頻更新塞爆 ESP32 的 WebSocket buffer
     final now = DateTime.now();
