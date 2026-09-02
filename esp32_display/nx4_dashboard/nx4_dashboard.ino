@@ -128,13 +128,39 @@ static void applyBrightness(int percent) {
   Serial.printf("[BRT] 螢幕亮度 -> %d%%\n", percent);
 }
 
+// 診斷：記錄手機端「曾經送過」哪些欄位。手機 App 版本較舊時會缺欄位，
+// 而缺欄位在協定上是合法的（沿用舊值），畫面上看起來就像「不會更新」。
+static uint32_t g_seen_fields = 0;
+static bool g_log_next_payload = false;
+
+#define FIELD_ODO (1 << 0)
+#define FIELD_TIME (1 << 1)
+#define FIELD_DATE (1 << 2)
+#define FIELD_TURBO (1 << 3)
+#define FIELD_LIGHTS (1 << 4)
+#define FIELD_BRIGHT (1 << 5)
+
 static void handleDashPayload(uint8_t *payload, size_t length) {
+  // 連線後的第一筆原樣印出，直接看得到手機到底送了什麼
+  if (g_log_next_payload) {
+    g_log_next_payload = false;
+    Serial.printf("[WS-RAW] (%u bytes) %.*s\n", (unsigned)length,
+                  (int)(length > 400 ? 400 : length), (const char *)payload);
+  }
+
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
     Serial.printf("[WS] JSON 解析失敗: %s\n", err.c_str());
     return;
   }
+
+  if (!doc["odo"].isNull()) g_seen_fields |= FIELD_ODO;
+  if (!doc["time"].isNull()) g_seen_fields |= FIELD_TIME;
+  if (!doc["date"].isNull()) g_seen_fields |= FIELD_DATE;
+  if (!doc["turbo"].isNull()) g_seen_fields |= FIELD_TURBO;
+  if (!doc["lights"].isNull()) g_seen_fields |= FIELD_LIGHTS;
+  if (!doc["brightness"].isNull()) g_seen_fields |= FIELD_BRIGHT;
 
   // 只處理本機認得的協定，其餘（例如第一通道的 BVB-7980）直接忽略
   const char *type = doc["_type"] | "";
@@ -213,6 +239,8 @@ static void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
       IPAddress ip = webSocket.remoteIP(num);
       Serial.printf("[WS] [%u] 已連接，來自: %s\n", num, ip.toString().c_str());
       g_client_linked = true;
+      g_seen_fields = 0;
+      g_log_next_payload = true;
     } break;
 
     case WStype_TEXT:
@@ -404,6 +432,22 @@ static void serviceWifi() {
         webSocket.connectedClients(), (unsigned long)age, g_brightness,
         (unsigned long)fps, g_dash.speed, g_dash.rpm, g_dash.low_beam,
         g_dash.high_beam);
+
+    // 只要有 client 就檢查欄位齊不齊，缺哪個直接點名
+    if (webSocket.connectedClients() > 0) {
+      Serial.printf("[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c",
+                    (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
+                    (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
+                    (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
+                    (g_seen_fields & FIELD_TURBO) ? 'Y' : 'N',
+                    (g_seen_fields & FIELD_LIGHTS) ? 'Y' : 'N',
+                    (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N');
+      if ((g_seen_fields & (FIELD_ODO | FIELD_TIME | FIELD_DATE)) !=
+          (FIELD_ODO | FIELD_TIME | FIELD_DATE)) {
+        Serial.print("   <- 手機 App 版本可能過舊，缺少的欄位不會更新");
+      }
+      Serial.println();
+    }
   }
 }
 
