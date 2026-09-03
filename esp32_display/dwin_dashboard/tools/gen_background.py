@@ -15,9 +15,23 @@ DGUS 的畫面分兩層：
 import os, sys
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1280, 480
+W = 1280
+# 第二參數可指定畫面高度（DMG12480C068=480、DMG12400C074=400）。
+# 兩者同為 1280 寬，因此只縮放垂直座標與字級。
+H = int(sys.argv[2]) if len(sys.argv) > 2 else 480
+S = H / 480.0
+SUFFIX = "" if H == 480 else "_%d" % H
+
 OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
 FONTS = sys.argv[1] if len(sys.argv) > 1 else "fonts"
+
+def V(y):
+    """垂直座標依畫面高度縮放"""
+    return int(round(y * S))
+
+def FS(size):
+    """字級依畫面高度縮放"""
+    return max(8, int(round(size * S)))
 
 # ── 配色（沿用 LVGL 版）────────────────────────────────────────────────
 BG      = (0x00, 0x00, 0x00)
@@ -40,8 +54,8 @@ PAD      = 12
 COL_W    = 320
 LEFT_X   = PAD
 RIGHT_X  = W - PAD - COL_W
-ROW_H    = 144
-ROW_GAP  = 12
+ROW_GAP  = V(12)
+ROW_H    = (H - 2 * PAD - 2 * ROW_GAP) // 3
 ROW_Y    = [PAD, PAD + ROW_H + ROW_GAP, PAD + 2 * (ROW_H + ROW_GAP)]
 ACCENT_W = 5
 
@@ -55,8 +69,8 @@ CX            = W // 2
 NOMINAL_SPEED = "75"
 NOMINAL_RPM   = "1750"
 UNIT_GAP      = 14       # 數值右緣到單位起點的間距
-SPEED_BASE    = 203      # 時速基線
-RPM_BASE      = 317      # 轉速基線
+SPEED_BASE    = V(203)   # 時速基線
+RPM_BASE      = V(317)   # 轉速基線
 
 # 轉速為 0（引擎熄火、HEV 純電）時顯示 EV。
 # 轉速數值是 Data Variable（只能顯示數字），而 "RPM" 單位是畫在背景圖裡的
@@ -64,8 +78,8 @@ RPM_BASE      = 317      # 轉速基線
 # 圖示底色與畫面背景同為純黑，蓋上去看不出接縫。
 # DGUS 端用 Variable Icon (0x00) 或 Animation Icon (0x01)：
 # 把 V_Min/V_Max 都設為 0，轉速一大於 0 就自動不顯示。
-TURBO_CY      = 374
-TURBO_BAR_Y   = 420
+TURBO_CY      = V(374)
+TURBO_BAR_Y   = V(420)
 TURBO_BAR_W   = 460
 TURBO_BAR_X   = CX - TURBO_BAR_W // 2
 
@@ -85,16 +99,16 @@ def tw(font, txt):
     return b[2] - b[0]
 
 # 由標稱位數推出右對齊基準線與單位位置（不寫死座標，改字級會自動跟著算）
-SPEED_RIGHT  = CX + tw(F_NUM_SB(230), NOMINAL_SPEED) // 2
+SPEED_RIGHT  = CX + tw(F_NUM_SB(FS(230)), NOMINAL_SPEED) // 2
 SPEED_UNIT_X = SPEED_RIGHT + UNIT_GAP
-RPM_RIGHT    = CX + tw(F_NUM_SB(88), NOMINAL_RPM) // 2
+RPM_RIGHT    = CX + tw(F_NUM_SB(FS(88)), NOMINAL_RPM) // 2
 RPM_UNIT_X   = RPM_RIGHT + UNIT_GAP
 
 # EV 圖示需涵蓋轉速最寬情況與單位
-_ev_left  = RPM_RIGHT - tw(F_NUM_SB(88), "8888") - 20
-_ev_right = RPM_UNIT_X + tw(F_UNIT(30), "RPM") + 20
-EV_X, EV_Y = _ev_left, 245
-EV_W, EV_H = _ev_right - _ev_left, 90
+_ev_left  = RPM_RIGHT - tw(F_NUM_SB(FS(88)), "8888") - 20
+_ev_right = RPM_UNIT_X + tw(F_UNIT(FS(30)), "RPM") + 20
+EV_X, EV_Y = _ev_left, V(245)
+EV_W, EV_H = _ev_right - _ev_left, V(90)
 
 def card(d, x, y, w, h, accent):
     d.rectangle([x, y, x + w - 1, y + h - 1], fill=CARD)
@@ -107,91 +121,90 @@ def text(d, xy, s, font, fill, anchor="la"):
 def draw_static(d):
     # 左欄
     card(d, LEFT_X, ROW_Y[0], COL_W, ROW_H, TEAL)
-    text(d, (LEFT_X + 20, ROW_Y[0] + 12), "Hev電池", F_TC(24), LABEL)
-    text(d, (LEFT_X + COL_W - 16, ROW_Y[0] + ROW_H - 26), "%", F_UNIT(24), UNIT, "ra")
+    text(d, (LEFT_X + 20, ROW_Y[0] + V(12)), "Hev電池", F_TC(FS(24)), LABEL)
+    text(d, (LEFT_X + COL_W - 16, ROW_Y[0] + ROW_H - V(26)), "%", F_UNIT(FS(24)), UNIT, "ra")
 
     card(d, LEFT_X, ROW_Y[1], COL_W, ROW_H, CYAN)
-    text(d, (LEFT_X + 20, ROW_Y[1] + 12), "水溫", F_TC(24), LABEL)
-    text(d, (LEFT_X + COL_W - 16, ROW_Y[1] + ROW_H - 26), "°C", F_UNIT(24), UNIT, "ra")
+    text(d, (LEFT_X + 20, ROW_Y[1] + V(12)), "水溫", F_TC(FS(24)), LABEL)
+    text(d, (LEFT_X + COL_W - 16, ROW_Y[1] + ROW_H - V(26)), "°C", F_UNIT(FS(24)), UNIT, "ra")
 
     card(d, LEFT_X, ROW_Y[2], COL_W, ROW_H, AMBER)
 
     # 右欄
     card(d, RIGHT_X, ROW_Y[0], COL_W, ROW_H, ORANGE)
-    text(d, (RIGHT_X + 20, ROW_Y[0] + 10), "胎壓 (PSI)", F_TC(24), LABEL)
+    text(d, (RIGHT_X + 20, ROW_Y[0] + V(10)), "胎壓 (PSI)", F_TC(FS(24)), LABEL)
 
     card(d, RIGHT_X, ROW_Y[1], COL_W, ROW_H, CYAN)
-    text(d, (RIGHT_X + 20, ROW_Y[1] + 26), "里程", F_TC(24), LABEL)
-    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 32), "K", F_UNIT(22), UNIT, "ra")
-    d.line([RIGHT_X + 20, ROW_Y[1] + 72, RIGHT_X + COL_W - 20, ROW_Y[1] + 72], fill=DIVIDER)
-    text(d, (RIGHT_X + 20, ROW_Y[1] + 92), "油箱", F_TC(24), LABEL)
-    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 98), "%", F_UNIT(22), UNIT, "ra")
+    text(d, (RIGHT_X + 20, ROW_Y[1] + V(26)), "里程", F_TC(FS(24)), LABEL)
+    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + V(32)), "K", F_UNIT(FS(22)), UNIT, "ra")
+    d.line([RIGHT_X + 20, ROW_Y[1] + V(72), RIGHT_X + COL_W - 20, ROW_Y[1] + V(72)], fill=DIVIDER)
+    text(d, (RIGHT_X + 20, ROW_Y[1] + V(92)), "油箱", F_TC(FS(24)), LABEL)
+    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + V(98)), "%", F_UNIT(FS(22)), UNIT, "ra")
 
     card(d, RIGHT_X, ROW_Y[2], COL_W, ROW_H, RED)
-    text(d, (RIGHT_X + 20, ROW_Y[2] + 12), "道路速限", F_TC(24), LABEL)
+    text(d, (RIGHT_X + 20, ROW_Y[2] + V(12)), "道路速限", F_TC(FS(24)), LABEL)
 
     # 中央區的固定文字：單位貼在各自數值的右下角，與數值基線對齊
-    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_UNIT(34), UNIT, "ls")
-    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_UNIT(30), UNIT, "ls")
+    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_UNIT(FS(34)), UNIT, "ls")
+    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_UNIT(FS(30)), UNIT, "ls")
 
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
-                 TURBO_BAR_X + TURBO_BAR_W, TURBO_BAR_Y + 7], fill=BAR_BG)
+                 TURBO_BAR_X + TURBO_BAR_W, TURBO_BAR_Y + V(7)], fill=BAR_BG)
     d.line([CX, TURBO_BAR_Y - 4, CX, TURBO_BAR_Y + 11], fill=UNIT)
     for i, lbl in enumerate(["-1", "-0.5", "0", "+0.5", "+1"]):
-        text(d, (TURBO_BAR_X + i * TURBO_BAR_W // 4, TURBO_BAR_Y + 16),
-             lbl, F_UNIT(17), UNIT, "ma")
+        text(d, (TURBO_BAR_X + i * TURBO_BAR_W // 4, TURBO_BAR_Y + V(16)),
+             lbl, F_UNIT(FS(17)), UNIT, "ma")
 
 def draw_dynamic(d):
     """MCU 透過 VP 寫入、由螢幕疊上去的部分。僅供預覽。"""
     # 左欄
-    text(d, (LEFT_X + 26, ROW_Y[0] + 46), "65.5", F_NUM_MD(72), TEXT)
-    text(d, (LEFT_X + 26, ROW_Y[1] + 46), "88",   F_NUM_MD(72), TEXT)
-    text(d, (LEFT_X + 26, ROW_Y[2] + 20), "09/01 週一", F_TC(24), LABEL)
+    text(d, (LEFT_X + 26, ROW_Y[0] + V(46)), "65.5", F_NUM_MD(FS(72)), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[1] + V(46)), "88",   F_NUM_MD(FS(72)), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[2] + V(20)), "09/01 週一", F_TC(FS(24)), LABEL)
     # 60px 而非 64px：最寬的 "00:00:00" 在 64px 下是 276px，
     # 卡片可用寬度只有 278px，餘裕不足以吸收實機的字型渲染差異
-    text(d, (LEFT_X + 26, ROW_Y[2] + 56), "18:04:37", F_NUM_MD(60), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[2] + V(56)), "18:04:37", F_NUM_MD(FS(60)), TEXT)
 
     # 右欄
     for i, v in enumerate(["34", "34", "33", "33"]):
         # 列距 52 -> 44、起點上移，原本第二列數字底部距卡片下緣只剩 2px
-        text(d, (RIGHT_X + 30 + (i % 2) * 150, ROW_Y[0] + 42 + (i // 2) * 44),
-             v, F_NUM_MD(44), TEXT)
-    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 22), "33676", F_NUM_MD(38), TEXT, "ra")
-    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 88), "50",    F_NUM_MD(38), TEXT, "ra")
-    text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM_MD(72), TEXT)
+        text(d, (RIGHT_X + 30 + (i % 2) * 150, ROW_Y[0] + V(42) + (i // 2) * V(44)),
+             v, F_NUM_MD(FS(44)), TEXT)
+    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + V(22)), "33676", F_NUM_MD(FS(38)), TEXT, "ra")
+    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + V(88)), "50",    F_NUM_MD(FS(38)), TEXT, "ra")
+    text(d, (RIGHT_X + 26, ROW_Y[2] + V(46)), "90", F_NUM_MD(FS(72)), TEXT)
 
     # 中央：時速 → 轉速 → 增壓
-    text(d, (SPEED_RIGHT, SPEED_BASE), NOMINAL_SPEED, F_NUM_SB(230), TEXT, "rs")
-    text(d, (RPM_RIGHT, RPM_BASE), NOMINAL_RPM, F_NUM_SB(88), BLUE, "rs")
+    text(d, (SPEED_RIGHT, SPEED_BASE), NOMINAL_SPEED, F_NUM_SB(FS(230)), TEXT, "rs")
+    text(d, (RPM_RIGHT, RPM_BASE), NOMINAL_RPM, F_NUM_SB(FS(88)), BLUE, "rs")
 
-    text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM_SB(44), TEXT, "mm")
-    text(d, (CX + 44, TURBO_CY + 14), "BAR", F_UNIT(22), UNIT, "lm")
-    d.rectangle([CX, TURBO_BAR_Y, CX + 34, TURBO_BAR_Y + 7], fill=BLUE)
+    text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM_SB(FS(44)), TEXT, "mm")
+    text(d, (CX + 44, TURBO_CY + V(14)), "BAR", F_UNIT(FS(22)), UNIT, "lm")
+    d.rectangle([CX, TURBO_BAR_Y, CX + 34, TURBO_BAR_Y + V(7)], fill=BLUE)
 
 def draw_ev_icon():
     """EV 圖示：尺寸涵蓋轉速數值與 RPM 單位，底色與畫面背景一致。"""
     ico = Image.new("RGB", (EV_W, EV_H), BG)
     d = ImageDraw.Draw(ico)
-    text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(88), GREEN, "mm")
+    text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(FS(88)), GREEN, "mm")
     return ico
 
 os.makedirs(OUT, exist_ok=True)
 bg = Image.new("RGB", (W, H), BG)
 draw_static(ImageDraw.Draw(bg))
-bg.save(os.path.join(OUT, "background.png"))
+bg.save(os.path.join(OUT, "background%s.png" % SUFFIX))
 
 pv = bg.copy()
 draw_dynamic(ImageDraw.Draw(pv))
-pv.save(os.path.join(OUT, "preview.png"))
+pv.save(os.path.join(OUT, "preview%s.png" % SUFFIX))
 
 ev_icon = draw_ev_icon()
-ev_icon.save(os.path.join(OUT, "icon_ev.png"))
+ev_icon.save(os.path.join(OUT, "icon_ev%s.png" % SUFFIX))
 
 # EV 狀態預覽：一般畫面再把 EV 圖示疊上轉速那一列
 pv_ev = pv.copy()
 pv_ev.paste(ev_icon, (EV_X, EV_Y))
-pv_ev.save(os.path.join(OUT, "preview_ev.png"))
+pv_ev.save(os.path.join(OUT, "preview_ev%s.png" % SUFFIX))
 
-print("已輸出 background.png / preview.png / preview_ev.png / icon_ev.png (%dx%d)"
-      % (W, H))
+print("已輸出 %dx%d 的 background/preview/preview_ev/icon_ev%s" % (W, H, SUFFIX))
