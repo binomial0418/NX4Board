@@ -46,8 +46,14 @@ ACCENT_W = 5
 
 # ── 中央區：時速 / 轉速 / 增壓 由上而下垂直排列 ────────────────────────
 CX            = W // 2
-SPEED_CY      = 122      # 時速數字中心
-SPEED_UNIT_Y  = 216      # km/h
+# 單位是靜態的（畫在背景圖裡）位置不能動，所以數值一律「靠右對齊」，
+# 單位緊貼在它的右下角。若數值置中，位數變化時與單位的間距就會不一致。
+SPEED_RIGHT   = 796      # 時速數字的右緣
+SPEED_BASE    = 203      # 時速數字的基線
+SPEED_UNIT_X  = 810      # km/h 起點（貼在數字右下角）
+RPM_RIGHT     = 690
+RPM_BASE      = 317
+RPM_UNIT_X    = 702
 RPM_CY        = 297
 TURBO_CY      = 374
 TURBO_BAR_Y   = 420
@@ -95,8 +101,9 @@ def draw_static(d):
     card(d, RIGHT_X, ROW_Y[2], COL_W, ROW_H, RED)
     text(d, (RIGHT_X + 20, ROW_Y[2] + 12), "道路速限", F_TC(24), LABEL)
 
-    # 中央區的固定文字
-    text(d, (CX, SPEED_UNIT_Y), "km/h", F_NUM(28), UNIT, "ma")
+    # 中央區的固定文字：單位貼在各自數值的右下角，與數值基線對齊
+    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_NUM(34), UNIT, "ls")
+    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_NUM(22), UNIT, "ls")
 
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
@@ -123,10 +130,8 @@ def draw_dynamic(d):
     text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM(72), TEXT)
 
     # 中央：時速 → 轉速 → 增壓
-    text(d, (CX, SPEED_CY), "75", F_NUM_SB(230), TEXT, "mm")
-
-    text(d, (CX - 12, RPM_CY), "1750", F_NUM_SB(58), BLUE, "mm")
-    text(d, (CX + 78, RPM_CY + 16), "R", F_NUM(20), UNIT, "mm")
+    text(d, (SPEED_RIGHT, SPEED_BASE), "75", F_NUM_SB(230), TEXT, "rs")
+    text(d, (RPM_RIGHT, RPM_BASE), "1750", F_NUM_SB(58), BLUE, "rs")
 
     text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM(44), TEXT, "mm")
     text(d, (CX + 44, TURBO_CY + 14), "BAR", F_NUM(20), LABEL, "lm")
