@@ -116,7 +116,7 @@ def draw_static(d):
 
     # 右欄
     card(d, RIGHT_X, ROW_Y[0], COL_W, ROW_H, ORANGE)
-    text(d, (RIGHT_X + 20, ROW_Y[0] + 12), "胎壓 (PSI)", F_TC(24), LABEL)
+    text(d, (RIGHT_X + 20, ROW_Y[0] + 10), "胎壓 (PSI)", F_TC(24), LABEL)
 
     card(d, RIGHT_X, ROW_Y[1], COL_W, ROW_H, CYAN)
     text(d, (RIGHT_X + 20, ROW_Y[1] + 26), "里程", F_TC(24), LABEL)
@@ -152,7 +152,8 @@ def draw_dynamic(d):
 
     # 右欄
     for i, v in enumerate(["34", "34", "33", "33"]):
-        text(d, (RIGHT_X + 30 + (i % 2) * 150, ROW_Y[0] + 46 + (i // 2) * 52),
+        # 列距 52 -> 44、起點上移，原本第二列數字底部距卡片下緣只剩 2px
+        text(d, (RIGHT_X + 30 + (i % 2) * 150, ROW_Y[0] + 42 + (i // 2) * 44),
              v, F_NUM_MD(44), TEXT)
     text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 22), "33676", F_NUM_MD(38), TEXT, "ra")
     text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 88), "50",    F_NUM_MD(38), TEXT, "ra")
