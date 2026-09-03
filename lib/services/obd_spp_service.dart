@@ -148,6 +148,19 @@ class ObdSppService with ChangeNotifier {
   Timer? _longPollTimer;
   Timer? _reversePollTimer;
   Timer? _headlightPollTimer;
+
+  // 大燈 PID (22BC09) 的請求 Header 尚未確定：
+  //   ATSH302 — 沿用 22BC04（倒車）在實車驗證過的 IGMP Header
+  //   ATSH770 — OBD.csv 標註的 Header
+  // 兩個都試，哪個拿得到 62BC09 就鎖定，之後只送那一個。
+  static const List<String> _headlightHeaders = ['ATSH302', 'ATSH770'];
+  String? _headlightHeaderLocked;
+  bool _headlightPollBusy = false;
+  int _headlightFailStreak = 0;
+  // 兩個 Header 都試不出來時放棄，避免每 3 秒白跑 6 道指令、
+  // 排擠到 300ms 的時速/轉速快輪詢。重新連線時會重置。
+  bool _headlightGiveUp = false;
+  static const int _headlightMaxProbes = 10;
   
   // ── Moving Window Buffers ────────────────────────────────────────────────
   final List<int> _fuelBuffer = [];
@@ -638,6 +651,10 @@ class ObdSppService with ChangeNotifier {
     isLowBeamOn = false;
     isHighBeamOn = false;
     hasHeadlights = false;
+    _headlightHeaderLocked = null;
+    _headlightFailStreak = 0;
+    _headlightPollBusy = false;
+    _headlightGiveUp = false;
     _fuelBuffer.clear();
   }
 
@@ -998,13 +1015,66 @@ class ObdSppService with ChangeNotifier {
     _scheduleReversePoll();
 
     // 大燈狀態：每 3 秒一次（用於 ESP32 儀表的日/夜亮度切換，不需高頻）
-    _headlightPollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!_isConnected) return;
-      // 與 22BC04 同為 IGMP 模組，沿用相同的請求 Header
-      sendCommand('ATSH302');
-      sendCommand('22BC09');
-      sendCommand('ATSH7DF');
-    });
+    _headlightPollTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) => _pollHeadlights());
+  }
+
+  /// 大燈輪詢。Header 尚未鎖定時依序試 _headlightHeaders，
+  /// 哪個拿得到 62BC09 就鎖定；鎖定後連續失敗多次會解鎖重新探測。
+  Future<void> _pollHeadlights() async {
+    if (!_isConnected) return;
+    if (_headlightGiveUp) return;
+    if (_headlightPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
+    _headlightPollBusy = true;
+
+    try {
+      final List<String> headers = _headlightHeaderLocked != null
+          ? [_headlightHeaderLocked!]
+          : _headlightHeaders;
+
+      for (final String header in headers) {
+        if (!_isConnected) return;
+
+        await sendCommand(header);
+        final String resp = await sendCommand('22BC09');
+        await sendCommand('ATSH7DF');
+
+        final bool ok = resp
+            .toUpperCase()
+            .replaceAll(' ', '')
+            .replaceAll('\r', '')
+            .contains('62BC09');
+
+        if (ok) {
+          _headlightFailStreak = 0;
+          if (_headlightHeaderLocked == null) {
+            _headlightHeaderLocked = header;
+            _log('[Headlights] Header $header 有效，已鎖定');
+          }
+          return;
+        }
+
+        if (_headlightHeaderLocked == null) {
+          _log('[Headlights] Header $header 取不到 62BC09，改試下一個');
+        }
+      }
+
+      // 全部試過都失敗
+      _headlightFailStreak++;
+      if (_headlightHeaderLocked != null && _headlightFailStreak >= 5) {
+        _log('[Headlights] 已鎖定的 $_headlightHeaderLocked 連續失敗 '
+            '$_headlightFailStreak 次，解除鎖定重新探測');
+        _headlightHeaderLocked = null;
+        _headlightFailStreak = 0;
+      } else if (_headlightHeaderLocked == null &&
+          _headlightFailStreak >= _headlightMaxProbes) {
+        _log('[Headlights] 兩個 Header 各試 $_headlightMaxProbes 次都失敗，'
+            '停止大燈輪詢（本車可能不支援 22BC09）。重新連線後會再試');
+        _headlightGiveUp = true;
+      }
+    } finally {
+      _headlightPollBusy = false;
+    }
   }
 
   void _scheduleReversePoll() {

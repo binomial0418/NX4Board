@@ -55,7 +55,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const List<String> _headlightKeywords = [
     'BC09',      // 大燈 PID（TX / RX / NoData 都會帶到）
     'Headlights',
-    'ATSH302',   // 切到 IGMP 模組的 Header
+    'ATSH302',   // 切到 IGMP 模組的 Header（候選一）
+    'ATSH770',   // OBD.csv 標註的 Header（候選二）
     'ATSH7DF',   // 切回標準 Header
     'Timeout',   // 送出後沒回應
   ];
