@@ -24,7 +24,7 @@ BG      = (0x00, 0x00, 0x00)
 CARD    = (0x0D, 0x11, 0x17)
 TEXT    = (0xFF, 0xFF, 0xFF)
 LABEL   = (0xE2, 0xE8, 0xF0)
-UNIT    = (0x8B, 0x95, 0xA5)
+UNIT    = (0xB4, 0xBF, 0xCC)   # 單位/刻度。原為 0x8B95A5，在黑底上偏暗
 BLUE    = (0x2E, 0x7D, 0xF7)
 TEAL    = (0x14, 0xB8, 0xA6)
 CYAN    = (0x38, 0xBD, 0xF8)
@@ -78,6 +78,8 @@ F_NUM    = lambda s: f("Montserrat.ttf", s)          # 單位等次要文字
 F_NUM_MD = lambda s: f("Montserrat-Medium.ttf", s)   # 卡片數值
 F_NUM_SB = lambda s: f("Montserrat-SemiBold.ttf", s) # 中央區時速/轉速/增壓
 
+F_UNIT   = lambda s: f("Montserrat-Medium.ttf", s)   # 單位與刻度
+
 def tw(font, txt):
     b = font.getbbox(txt)
     return b[2] - b[0]
@@ -90,7 +92,7 @@ RPM_UNIT_X   = RPM_RIGHT + UNIT_GAP
 
 # EV 圖示需涵蓋轉速最寬情況與單位
 _ev_left  = RPM_RIGHT - tw(F_NUM_SB(88), "8888") - 20
-_ev_right = RPM_UNIT_X + tw(F_NUM(30), "RPM") + 20
+_ev_right = RPM_UNIT_X + tw(F_UNIT(30), "RPM") + 20
 EV_X, EV_Y = _ev_left, 245
 EV_W, EV_H = _ev_right - _ev_left, 90
 
@@ -106,11 +108,11 @@ def draw_static(d):
     # 左欄
     card(d, LEFT_X, ROW_Y[0], COL_W, ROW_H, TEAL)
     text(d, (LEFT_X + 20, ROW_Y[0] + 12), "Hev電池", F_TC(24), LABEL)
-    text(d, (LEFT_X + COL_W - 16, ROW_Y[0] + ROW_H - 26), "%", F_NUM(22), UNIT, "ra")
+    text(d, (LEFT_X + COL_W - 16, ROW_Y[0] + ROW_H - 26), "%", F_UNIT(24), UNIT, "ra")
 
     card(d, LEFT_X, ROW_Y[1], COL_W, ROW_H, CYAN)
     text(d, (LEFT_X + 20, ROW_Y[1] + 12), "水溫", F_TC(24), LABEL)
-    text(d, (LEFT_X + COL_W - 16, ROW_Y[1] + ROW_H - 26), "°C", F_NUM(22), UNIT, "ra")
+    text(d, (LEFT_X + COL_W - 16, ROW_Y[1] + ROW_H - 26), "°C", F_UNIT(24), UNIT, "ra")
 
     card(d, LEFT_X, ROW_Y[2], COL_W, ROW_H, AMBER)
 
@@ -120,17 +122,17 @@ def draw_static(d):
 
     card(d, RIGHT_X, ROW_Y[1], COL_W, ROW_H, CYAN)
     text(d, (RIGHT_X + 20, ROW_Y[1] + 26), "里程", F_TC(24), LABEL)
-    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 32), "K", F_NUM(20), UNIT, "ra")
+    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 32), "K", F_UNIT(22), UNIT, "ra")
     d.line([RIGHT_X + 20, ROW_Y[1] + 72, RIGHT_X + COL_W - 20, ROW_Y[1] + 72], fill=DIVIDER)
     text(d, (RIGHT_X + 20, ROW_Y[1] + 92), "油箱", F_TC(24), LABEL)
-    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 98), "%", F_NUM(20), UNIT, "ra")
+    text(d, (RIGHT_X + COL_W - 16, ROW_Y[1] + 98), "%", F_UNIT(22), UNIT, "ra")
 
     card(d, RIGHT_X, ROW_Y[2], COL_W, ROW_H, RED)
     text(d, (RIGHT_X + 20, ROW_Y[2] + 12), "道路速限", F_TC(24), LABEL)
 
     # 中央區的固定文字：單位貼在各自數值的右下角，與數值基線對齊
-    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_NUM(34), UNIT, "ls")
-    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_NUM(30), UNIT, "ls")
+    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_UNIT(34), UNIT, "ls")
+    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_UNIT(30), UNIT, "ls")
 
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
@@ -138,7 +140,7 @@ def draw_static(d):
     d.line([CX, TURBO_BAR_Y - 4, CX, TURBO_BAR_Y + 11], fill=UNIT)
     for i, lbl in enumerate(["-1", "-0.5", "0", "+0.5", "+1"]):
         text(d, (TURBO_BAR_X + i * TURBO_BAR_W // 4, TURBO_BAR_Y + 16),
-             lbl, F_NUM(15), UNIT, "ma")
+             lbl, F_UNIT(17), UNIT, "ma")
 
 def draw_dynamic(d):
     """MCU 透過 VP 寫入、由螢幕疊上去的部分。僅供預覽。"""
@@ -163,8 +165,8 @@ def draw_dynamic(d):
     text(d, (SPEED_RIGHT, SPEED_BASE), NOMINAL_SPEED, F_NUM_SB(230), TEXT, "rs")
     text(d, (RPM_RIGHT, RPM_BASE), NOMINAL_RPM, F_NUM_SB(88), BLUE, "rs")
 
-    text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM(44), TEXT, "mm")
-    text(d, (CX + 44, TURBO_CY + 14), "BAR", F_NUM(20), LABEL, "lm")
+    text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM_SB(44), TEXT, "mm")
+    text(d, (CX + 44, TURBO_CY + 14), "BAR", F_UNIT(22), UNIT, "lm")
     d.rectangle([CX, TURBO_BAR_Y, CX + 34, TURBO_BAR_Y + 7], fill=BLUE)
 
 def draw_ev_icon():
