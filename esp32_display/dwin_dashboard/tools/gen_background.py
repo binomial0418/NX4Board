@@ -44,11 +44,21 @@ ROW_GAP  = 12
 ROW_Y    = [PAD, PAD + ROW_H + ROW_GAP, PAD + 2 * (ROW_H + ROW_GAP)]
 ACCENT_W = 5
 
-GAUGE_CX, GAUGE_CY, GAUGE_R = 640, 190, 180
-TURBO_Y, TURBO_BAR_Y, TURBO_BAR_W = 382, 430, 460
+# 時速拱：上半橢圓（180°~360°）。橢圓比正圓更貼合 8:3 的長條螢幕，
+# 而且拱下方整塊空間可以讓給時速大字。
+GAUGE_CX, GAUGE_CY = 640, 185       # 橢圓中心（也是兩端點的高度）
+GAUGE_A, GAUGE_B   = 288, 135       # 水平/垂直半軸
+ARC_W              = 10             # 軌道線寬
+TICK_LEN_MAJOR     = 18
+TICK_LEN_MINOR     = 11
+LABEL_INSET        = 42             # 刻度數字距離軌道的內縮量
+
+# 轉速與增壓數值並排成一行，省下一整行的垂直空間給時速大字
+RPM_CX, TURBO_CX, ROW2_Y = 556, 764, 385
+TURBO_BAR_Y, TURBO_BAR_W = 440, 460
 
 SPEED_MAX = 180
-ROT, SPAN = 135, 270                # 起始角度與涵蓋角度（與 LVGL 版一致）
+ROT, SPAN = 180, 180                # PIL 角度：180=左端、270=正上、360=右端
 
 def f(name, size):
     return ImageFont.truetype(os.path.join(FONTS, name), size)
@@ -64,9 +74,13 @@ def card(d, x, y, w, h, accent):
 def text(d, xy, s, font, fill, anchor="la"):
     d.text(xy, s, font=font, fill=fill, anchor=anchor)
 
-def polar(cx, cy, r, deg):
-    a = math.radians(deg)
-    return cx + r * math.cos(a), cy + r * math.sin(a)
+def ellipse_pt(deg, a, b):
+    """橢圓參數式取點。a/b 縮小即可得到往內縮的同心橢圓。"""
+    t = math.radians(deg)
+    return GAUGE_CX + a * math.cos(t), GAUGE_CY + b * math.sin(t)
+
+def arc_box(a, b):
+    return [GAUGE_CX - a, GAUGE_CY - b, GAUGE_CX + a, GAUGE_CY + b]
 
 def draw_static(d):
     # ── 左欄 ──────────────────────────────────────────────────────────
@@ -94,10 +108,8 @@ def draw_static(d):
     card(d, RIGHT_X, ROW_Y[2], COL_W, ROW_H, RED)
     text(d, (RIGHT_X + 20, ROW_Y[2] + 12), "道路速限", F_TC(24), LABEL)
 
-    # ── 時速環：灰色軌道 + 刻度 ───────────────────────────────────────
-    d.arc([GAUGE_CX - GAUGE_R, GAUGE_CY - GAUGE_R,
-           GAUGE_CX + GAUGE_R, GAUGE_CY + GAUGE_R],
-          ROT, ROT + SPAN, fill=TRACK, width=9)
+    # ── 時速拱：灰色軌道 + 刻度 ────────────────────────────────────────
+    d.arc(arc_box(GAUGE_A, GAUGE_B), ROT, ROT + SPAN, fill=TRACK, width=ARC_W)
 
     for v in range(0, SPEED_MAX + 1, 10):
         ang = ROT + SPAN * v / SPEED_MAX
@@ -105,23 +117,20 @@ def draw_static(d):
         # 依速域上色：0-70 白、80-110 琥珀、120+ 紅
         col = (0xD8, 0xDE, 0xE9) if v <= 70 else (ORANGE if v <= 110 else RED)
         dim = (0x7A, 0x84, 0x94) if v <= 70 else ((0x8A, 0x6A, 0x2A) if v <= 110 else (0x8A, 0x3A, 0x3A))
-        r0 = GAUGE_R - 8
-        r1 = r0 - (16 if major else 10)
-        x0, y0 = polar(GAUGE_CX, GAUGE_CY, r0, ang)
-        x1, y1 = polar(GAUGE_CX, GAUGE_CY, r1, ang)
+        ln = TICK_LEN_MAJOR if major else TICK_LEN_MINOR
+        x0, y0 = ellipse_pt(ang, GAUGE_A - ARC_W, GAUGE_B - ARC_W)
+        x1, y1 = ellipse_pt(ang, GAUGE_A - ARC_W - ln, GAUGE_B - ARC_W - ln)
         d.line([x0, y0, x1, y1], fill=(col if major else dim), width=3 if major else 2)
         if major:
-            lx, ly = polar(GAUGE_CX, GAUGE_CY, r1 - 18, ang)
-            text(d, (lx, ly), str(v), F_NUM(17), col, "mm")
-
-    text(d, (GAUGE_CX, GAUGE_CY + 52), "km/h", F_NUM(20), UNIT, "ma")
+            lx, ly = ellipse_pt(ang, GAUGE_A - LABEL_INSET, GAUGE_B - LABEL_INSET)
+            text(d, (lx, ly), str(v), F_NUM(18), col, "mm")
 
     # ── 增壓：軌道與刻度 ─────────────────────────────────────────────
     bx = GAUGE_CX - TURBO_BAR_W // 2
     d.rectangle([bx, TURBO_BAR_Y, bx + TURBO_BAR_W, TURBO_BAR_Y + 7], fill=(0x2A, 0x30, 0x3B))
     d.line([GAUGE_CX, TURBO_BAR_Y - 4, GAUGE_CX, TURBO_BAR_Y + 11], fill=UNIT)
-    for i, s in enumerate(["-1", "-0.5", "0", "+0.5", "+1"]):
-        text(d, (bx + i * TURBO_BAR_W // 4, TURBO_BAR_Y + 16), s, F_NUM(15), UNIT, "ma")
+    for i, lbl in enumerate(["-1", "-0.5", "0", "+0.5", "+1"]):
+        text(d, (bx + i * TURBO_BAR_W // 4, TURBO_BAR_Y + 16), lbl, F_NUM(15), UNIT, "ma")
 
 def draw_dynamic(d):
     """MCU 透過 VP 寫入、由螢幕疊在背景上的部分。僅供預覽。"""
@@ -138,21 +147,23 @@ def draw_dynamic(d):
     text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM(72), TEXT)
 
     # 時速進度弧（0 -> 75）
-    end = ROT + SPAN * 75 / SPEED_MAX
-    d.arc([GAUGE_CX - GAUGE_R, GAUGE_CY - GAUGE_R,
-           GAUGE_CX + GAUGE_R, GAUGE_CY + GAUGE_R],
-          ROT, end, fill=BLUE, width=9)
+    d.arc(arc_box(GAUGE_A, GAUGE_B), ROT, ROT + SPAN * 75 / SPEED_MAX,
+          fill=BLUE, width=ARC_W)
 
-    text(d, (GAUGE_CX, GAUGE_CY - 18), "75", F_NUM_SB(120), TEXT, "mm")
-    text(d, (GAUGE_CX - 8, GAUGE_CY + 112), "1750", F_NUM_SB(56), BLUE, "mm")
-    text(d, (GAUGE_CX + 66, GAUGE_CY + 128), "R", F_NUM(20), UNIT, "mm")
+    # 時速大字放在拱「下方」而非拱內——拱內會頂到刻度，下方才放得大
+    text(d, (GAUGE_CX, 265), "75", F_NUM_SB(200), TEXT, "mm")
 
-    text(d, (GAUGE_CX - 32, TURBO_Y), "+0.15", F_NUM(40), TEXT, "ma")
-    text(d, (GAUGE_CX + 60, TURBO_Y + 12), "BAR", F_NUM(20), LABEL, "la")
+    text(d, (RPM_CX, ROW2_Y), "1750", F_NUM_SB(56), BLUE, "mm")
+    text(d, (RPM_CX + 74, ROW2_Y + 16), "R", F_NUM(20), UNIT, "mm")
+    text(d, (TURBO_CX - 32, ROW2_Y), "+0.15", F_NUM(40), TEXT, "mm")
+    text(d, (TURBO_CX + 58, ROW2_Y + 12), "BAR", F_NUM(20), LABEL, "mm")
+
     bx = GAUGE_CX - TURBO_BAR_W // 2
     d.rectangle([GAUGE_CX, TURBO_BAR_Y, GAUGE_CX + 22, TURBO_BAR_Y + 7], fill=BLUE)
 
-    text(d, (GAUGE_CX + 226, 462), "10.0.4.99", F_NUM(15), UNIT, "ra")
+    # 連線資訊放中央區左上角的空白處。實作時應該移到 DGUS 的設定分頁，
+    # 主畫面只留一個連線指示點即可。
+    text(d, (GAUGE_CX - GAUGE_A, 14), "10.0.4.99", F_NUM(15), UNIT, "la")
 
 os.makedirs(OUT, exist_ok=True)
 bg = Image.new("RGB", (W, H), BG)
