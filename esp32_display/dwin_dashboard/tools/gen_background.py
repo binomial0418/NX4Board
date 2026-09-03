@@ -49,12 +49,12 @@ ACCENT_W = 5
 CX            = W // 2
 # 單位是靜態的（畫在背景圖裡）位置不能動，所以數值一律「靠右對齊」，
 # 單位緊貼在它的右下角。若數值置中，位數變化時與單位的間距就會不一致。
-SPEED_RIGHT   = 796      # 時速數字的右緣
-SPEED_BASE    = 203      # 時速數字的基線
-SPEED_UNIT_X  = 810      # km/h 起點（貼在數字右下角）
-RPM_RIGHT     = 690
-RPM_BASE      = 317
-RPM_UNIT_X    = 702
+# 時速與轉速共用同一條右對齊基準線，單位也從同一個 x 起算，
+# 兩列才會看起來對齊（數值本身寬度會隨位數變動，無法靠置中對齊）。
+VALUE_RIGHT   = 740      # 數值右緣
+UNIT_X        = 754      # 單位起點（貼在數值右下角）
+SPEED_BASE    = 203      # 時速基線
+RPM_BASE      = 317      # 轉速基線
 
 # 轉速為 0（引擎熄火、HEV 純電）時顯示 EV。
 # 轉速數值是 Data Variable（只能顯示數字），而 "RPM" 單位是畫在背景圖裡的
@@ -62,7 +62,7 @@ RPM_UNIT_X    = 702
 # 圖示底色與畫面背景同為純黑，蓋上去看不出接縫。
 # DGUS 端用 Variable Icon (0x00) 或 Animation Icon (0x01)：
 # 把 V_Min/V_Max 都設為 0，轉速一大於 0 就自動不顯示。
-EV_X, EV_Y, EV_W, EV_H = 440, 245, 360, 90
+EV_X, EV_Y, EV_W, EV_H = 490, 245, 360, 90
 TURBO_CY      = 374
 TURBO_BAR_Y   = 420
 TURBO_BAR_W   = 460
@@ -110,8 +110,8 @@ def draw_static(d):
     text(d, (RIGHT_X + 20, ROW_Y[2] + 12), "道路速限", F_TC(24), LABEL)
 
     # 中央區的固定文字：單位貼在各自數值的右下角，與數值基線對齊
-    text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_NUM(34), UNIT, "ls")
-    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_NUM(30), UNIT, "ls")
+    text(d, (UNIT_X, SPEED_BASE), "km/h", F_NUM(34), UNIT, "ls")
+    text(d, (UNIT_X, RPM_BASE), "RPM", F_NUM(30), UNIT, "ls")
 
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
@@ -138,8 +138,8 @@ def draw_dynamic(d):
     text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM(72), TEXT)
 
     # 中央：時速 → 轉速 → 增壓
-    text(d, (SPEED_RIGHT, SPEED_BASE), "75", F_NUM_SB(230), TEXT, "rs")
-    text(d, (RPM_RIGHT, RPM_BASE), "1750", F_NUM_SB(88), BLUE, "rs")
+    text(d, (VALUE_RIGHT, SPEED_BASE), "75", F_NUM_SB(230), TEXT, "rs")
+    text(d, (VALUE_RIGHT, RPM_BASE), "1750", F_NUM_SB(88), BLUE, "rs")
 
     text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM(44), TEXT, "mm")
     text(d, (CX + 44, TURBO_CY + 14), "BAR", F_NUM(20), LABEL, "lm")
