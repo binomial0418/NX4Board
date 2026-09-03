@@ -55,7 +55,6 @@ SPEED_UNIT_X  = 810      # km/h 起點（貼在數字右下角）
 RPM_RIGHT     = 690
 RPM_BASE      = 317
 RPM_UNIT_X    = 702
-RPM_CY        = 297
 
 # 轉速為 0（引擎熄火、HEV 純電）時顯示 EV。
 # 轉速數值是 Data Variable（只能顯示數字），而 "RPM" 單位是畫在背景圖裡的
@@ -63,7 +62,7 @@ RPM_CY        = 297
 # 圖示底色與畫面背景同為純黑，蓋上去看不出接縫。
 # DGUS 端用 Variable Icon (0x00) 或 Animation Icon (0x01)：
 # 把 V_Min/V_Max 都設為 0，轉速一大於 0 就自動不顯示。
-EV_X, EV_Y, EV_W, EV_H = 500, 266, 280, 64
+EV_X, EV_Y, EV_W, EV_H = 440, 245, 360, 90
 TURBO_CY      = 374
 TURBO_BAR_Y   = 420
 TURBO_BAR_W   = 460
@@ -112,7 +111,7 @@ def draw_static(d):
 
     # 中央區的固定文字：單位貼在各自數值的右下角，與數值基線對齊
     text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_NUM(34), UNIT, "ls")
-    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_NUM(22), UNIT, "ls")
+    text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_NUM(30), UNIT, "ls")
 
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
@@ -140,7 +139,7 @@ def draw_dynamic(d):
 
     # 中央：時速 → 轉速 → 增壓
     text(d, (SPEED_RIGHT, SPEED_BASE), "75", F_NUM_SB(230), TEXT, "rs")
-    text(d, (RPM_RIGHT, RPM_BASE), "1750", F_NUM_SB(58), BLUE, "rs")
+    text(d, (RPM_RIGHT, RPM_BASE), "1750", F_NUM_SB(88), BLUE, "rs")
 
     text(d, (CX - 34, TURBO_CY), "+0.15", F_NUM(44), TEXT, "mm")
     text(d, (CX + 44, TURBO_CY + 14), "BAR", F_NUM(20), LABEL, "lm")
@@ -150,7 +149,7 @@ def draw_ev_icon():
     """EV 圖示：尺寸涵蓋轉速數值與 RPM 單位，底色與畫面背景一致。"""
     ico = Image.new("RGB", (EV_W, EV_H), BG)
     d = ImageDraw.Draw(ico)
-    text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(58), GREEN, "mm")
+    text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(88), GREEN, "mm")
     return ico
 
 os.makedirs(OUT, exist_ok=True)
