@@ -48,6 +48,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _appVersion = 'Loading...';
 
   StreamSubscription? _logSub;
+
+  // 日誌過濾。預設只看大燈，用來診斷 22BC09 到底有沒有抓到資料。
+  // _logs 保留全部，過濾只在顯示與匯出時套用。
+  bool _logHeadlightOnly = true;
+  static const List<String> _headlightKeywords = [
+    'BC09',      // 大燈 PID（TX / RX / NoData 都會帶到）
+    'Headlights',
+    'ATSH302',   // 切到 IGMP 模組的 Header
+    'ATSH7DF',   // 切回標準 Header
+    'Timeout',   // 送出後沒回應
+  ];
+
+  bool _matchesFilter(String log) {
+    if (!_logHeadlightOnly) return true;
+    return _headlightKeywords.any(log.contains);
+  }
+
+  List<String> get _visibleLogs =>
+      _logHeadlightOnly ? _logs.where(_matchesFilter).toList() : _logs;
   StreamSubscription? _volumeSub;
   final List<String> _logs = [];
   final ScrollController _scrollController = ScrollController();
@@ -482,7 +501,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _exportLogs() async {
     try {
-      if (_logs.isEmpty) {
+      if (_visibleLogs.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('無日誌可供匯出')),
         );
@@ -494,7 +513,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/$fileName');
 
-      final String content = _logs.join('\n');
+      final String content = _visibleLogs.join('\n');
       await file.writeAsString(content);
 
       final result = await Share.shareXFiles(
@@ -993,6 +1012,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     onPressed: _exportLogs,
                                   ),
                                   GestureDetector(
+                                    onTap: () => setState(
+                                        () => _logHeadlightOnly = !_logHeadlightOnly),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _logHeadlightOnly
+                                            ? Colors.orange.withValues(alpha: 0.2)
+                                            : Colors.grey.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: _logHeadlightOnly
+                                              ? Colors.orange
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            _logHeadlightOnly
+                                                ? Icons.lightbulb
+                                                : Icons.list,
+                                            color: _logHeadlightOnly
+                                                ? Colors.orange
+                                                : Colors.grey,
+                                            size: 14,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _logHeadlightOnly ? '只看大燈' : '全部日誌',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: _logHeadlightOnly
+                                                  ? Colors.orange
+                                                  : Colors.grey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  GestureDetector(
                                     onTap: () =>
                                         setState(() => _autoScroll = !_autoScroll),
                                     child: Container(
@@ -1043,17 +1106,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Expanded(
                             child: ListView.builder(
                               controller: _scrollController,
-                              itemCount: _logs.length,
+                              itemCount: _visibleLogs.length,
                               itemBuilder: (context, index) {
-                                final log = _logs[index];
+                                final log = _visibleLogs[index];
                                 Color textColor = Colors.greenAccent;
-                                if (log.contains('[Parser Error]')) {
+                                if (log.contains('[Parser Error]') ||
+                                    log.contains('[Parser NoData]')) {
                                   textColor = Colors.redAccent;
+                                } else if (log.contains('[Headlights]')) {
+                                  textColor = Colors.orangeAccent;
                                 } else if (log.contains('[Parser Result]')) {
                                   textColor = Colors.lightGreenAccent;
                                 } else if (log.contains('[Parser TX]')) {
                                   textColor = Colors.cyanAccent;
-                                } else if (log.contains('[Parser RX Raw]')) {
+                                } else if (log.contains('[Parser RX]')) {
                                   textColor = Colors.yellowAccent;
                                 }
                                 return Text(

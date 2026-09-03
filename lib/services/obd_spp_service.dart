@@ -826,7 +826,15 @@ class ObdSppService with ChangeNotifier {
         final String signature = '62$pid';
         final int index = sanitized.indexOf(signature);
 
-        if (index != -1) {
+        if (index == -1) {
+          // 沒有簽章代表 ECU 沒回應這個 PID（NO DATA / 負回應 7F / Header 不對）。
+          // 原本這裡靜默略過，看不出「到底有沒有抓到資料」。
+          _log('[Parser NoData] $lastCmd 無 $signature 回應 raw=$sanitized');
+          notifyListeners();
+          return;
+        }
+
+        {
           final int payloadStart = index + signature.length;
           final String data = sanitized.substring(payloadStart);
 
@@ -846,8 +854,11 @@ class ObdSppService with ChangeNotifier {
               isHighBeamOn = (g / 12.0) >= 0.5;
               isLowBeamOn = (h / 12.0) >= 0.5;
               hasHeadlights = true;
-              _log(
-                  '[Parser Result] Headlights Low=$isLowBeamOn High=$isHighBeamOn (G=$g H=$h)');
+              // 一併印出整段 payload，方便在實車上比對哪個 byte 才是大燈
+              _log('[Headlights] Low=$isLowBeamOn High=$isHighBeamOn '
+                  '(G=$g H=$h) payload=$data');
+            } else {
+              _log('[Headlights] 回應過短，無法取 G/H：payload=$data');
             }
           } else if (pid == 'C00B') {
             if (data.length >= 42) {
