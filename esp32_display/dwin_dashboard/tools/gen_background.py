@@ -144,7 +144,9 @@ def draw_dynamic(d):
     text(d, (LEFT_X + 26, ROW_Y[0] + 46), "65.5", F_NUM(72), TEXT)
     text(d, (LEFT_X + 26, ROW_Y[1] + 46), "88",   F_NUM(72), TEXT)
     text(d, (LEFT_X + 26, ROW_Y[2] + 20), "09/01 週一", F_TC(24), LABEL)
-    text(d, (LEFT_X + 26, ROW_Y[2] + 56), "18:04", F_NUM(64), TEXT)
+    # 60px 而非 64px：最寬的 "00:00:00" 在 64px 下是 276px，
+    # 卡片可用寬度只有 278px，餘裕不足以吸收實機的字型渲染差異
+    text(d, (LEFT_X + 26, ROW_Y[2] + 56), "18:04:37", F_NUM(60), TEXT)
 
     # 右欄
     for i, v in enumerate(["34", "34", "33", "33"]):
