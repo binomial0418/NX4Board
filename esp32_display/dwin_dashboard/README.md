@@ -21,9 +21,22 @@ python3 tools/gen_background.py <字型資料夾>
 #     assets/preview.png（疊上範例數值，僅供評估版面）
 ```
 
-字型只有產生 PNG 時需要（Montserrat / Noto Sans TC），**螢幕端不需要任何
-字型檔**：中文全是靜態的已畫進背景，動態值全是數字，用螢幕內建的 0# ASCII
-字型即可。
+字型只有產生 PNG 時需要，**螢幕端不需要任何字型檔**：中文全是靜態的
+已畫進背景，動態值全是數字，用螢幕內建的 0# ASCII 字型即可。
+
+字重層次：**中央區 SemiBold**（主角）> **卡片 Medium** > **單位 Regular**。
+
+Montserrat 與 Noto Sans TC 的官方發布是可變字型，取不到中間字重，
+需以 fonttools 抽出 Medium：
+
+```bash
+pip install fonttools brotli
+python3 -m fontTools.varLib.instancer Montserrat.ttf   wght=500 -o Montserrat-Medium.ttf
+python3 -m fontTools.varLib.instancer NotoSansTC.ttf   wght=500 -o NotoSansTC-Medium.ttf
+```
+
+所需字型檔：`Montserrat.ttf`、`Montserrat-Medium.ttf`、
+`Montserrat-SemiBold.ttf`、`NotoSansTC-Medium.ttf`。
 
 ## 目前的分工預期
 

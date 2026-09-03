@@ -72,9 +72,11 @@ TURBO_BAR_X   = CX - TURBO_BAR_W // 2
 def f(name, size):
     return ImageFont.truetype(os.path.join(FONTS, name), size)
 
-F_TC     = lambda s: f("NotoSansTC.ttf", s)
-F_NUM    = lambda s: f("Montserrat.ttf", s)
-F_NUM_SB = lambda s: f("Montserrat-SemiBold.ttf", s)
+# 字重層次：中央區 SemiBold（主角）> 卡片 Medium > 單位 Regular
+F_TC     = lambda s: f("NotoSansTC-Medium.ttf", s)   # 卡片標籤
+F_NUM    = lambda s: f("Montserrat.ttf", s)          # 單位等次要文字
+F_NUM_MD = lambda s: f("Montserrat-Medium.ttf", s)   # 卡片數值
+F_NUM_SB = lambda s: f("Montserrat-SemiBold.ttf", s) # 中央區時速/轉速/增壓
 
 def tw(font, txt):
     b = font.getbbox(txt)
@@ -141,20 +143,20 @@ def draw_static(d):
 def draw_dynamic(d):
     """MCU 透過 VP 寫入、由螢幕疊上去的部分。僅供預覽。"""
     # 左欄
-    text(d, (LEFT_X + 26, ROW_Y[0] + 46), "65.5", F_NUM(72), TEXT)
-    text(d, (LEFT_X + 26, ROW_Y[1] + 46), "88",   F_NUM(72), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[0] + 46), "65.5", F_NUM_MD(72), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[1] + 46), "88",   F_NUM_MD(72), TEXT)
     text(d, (LEFT_X + 26, ROW_Y[2] + 20), "09/01 週一", F_TC(24), LABEL)
     # 60px 而非 64px：最寬的 "00:00:00" 在 64px 下是 276px，
     # 卡片可用寬度只有 278px，餘裕不足以吸收實機的字型渲染差異
-    text(d, (LEFT_X + 26, ROW_Y[2] + 56), "18:04:37", F_NUM(60), TEXT)
+    text(d, (LEFT_X + 26, ROW_Y[2] + 56), "18:04:37", F_NUM_MD(60), TEXT)
 
     # 右欄
     for i, v in enumerate(["34", "34", "33", "33"]):
         text(d, (RIGHT_X + 30 + (i % 2) * 150, ROW_Y[0] + 46 + (i // 2) * 52),
-             v, F_NUM(44), TEXT)
-    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 22), "33676", F_NUM(38), TEXT, "ra")
-    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 88), "50",    F_NUM(38), TEXT, "ra")
-    text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM(72), TEXT)
+             v, F_NUM_MD(44), TEXT)
+    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 22), "33676", F_NUM_MD(38), TEXT, "ra")
+    text(d, (RIGHT_X + COL_W - 44, ROW_Y[1] + 88), "50",    F_NUM_MD(38), TEXT, "ra")
+    text(d, (RIGHT_X + 26, ROW_Y[2] + 46), "90", F_NUM_MD(72), TEXT)
 
     # 中央：時速 → 轉速 → 增壓
     text(d, (SPEED_RIGHT, SPEED_BASE), NOMINAL_SPEED, F_NUM_SB(230), TEXT, "rs")
