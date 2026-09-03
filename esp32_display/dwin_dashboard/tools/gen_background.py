@@ -31,6 +31,7 @@ CYAN    = (0x38, 0xBD, 0xF8)
 ORANGE  = (0xF5, 0x9E, 0x0B)
 RED     = (0xEF, 0x44, 0x44)
 AMBER   = (0xF9, 0x73, 0x16)
+GREEN   = (0x22, 0xC5, 0x5E)
 DIVIDER = (0x2A, 0x30, 0x3B)
 BAR_BG  = (0x2A, 0x30, 0x3B)
 
@@ -55,6 +56,14 @@ RPM_RIGHT     = 690
 RPM_BASE      = 317
 RPM_UNIT_X    = 702
 RPM_CY        = 297
+
+# 轉速為 0（引擎熄火、HEV 純電）時顯示 EV。
+# 轉速數值是 Data Variable（只能顯示數字），而 "RPM" 單位是畫在背景圖裡的
+# 靜態文字無法隱藏，因此改用一張「不透明」的圖示把整列蓋掉。
+# 圖示底色與畫面背景同為純黑，蓋上去看不出接縫。
+# DGUS 端用 Variable Icon (0x00) 或 Animation Icon (0x01)：
+# 把 V_Min/V_Max 都設為 0，轉速一大於 0 就自動不顯示。
+EV_X, EV_Y, EV_W, EV_H = 500, 266, 280, 64
 TURBO_CY      = 374
 TURBO_BAR_Y   = 420
 TURBO_BAR_W   = 460
@@ -137,6 +146,13 @@ def draw_dynamic(d):
     text(d, (CX + 44, TURBO_CY + 14), "BAR", F_NUM(20), LABEL, "lm")
     d.rectangle([CX, TURBO_BAR_Y, CX + 34, TURBO_BAR_Y + 7], fill=BLUE)
 
+def draw_ev_icon():
+    """EV 圖示：尺寸涵蓋轉速數值與 RPM 單位，底色與畫面背景一致。"""
+    ico = Image.new("RGB", (EV_W, EV_H), BG)
+    d = ImageDraw.Draw(ico)
+    text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(58), GREEN, "mm")
+    return ico
+
 os.makedirs(OUT, exist_ok=True)
 bg = Image.new("RGB", (W, H), BG)
 draw_static(ImageDraw.Draw(bg))
@@ -145,4 +161,14 @@ bg.save(os.path.join(OUT, "background.png"))
 pv = bg.copy()
 draw_dynamic(ImageDraw.Draw(pv))
 pv.save(os.path.join(OUT, "preview.png"))
-print("已輸出 background.png / preview.png (%dx%d)" % (W, H))
+
+ev_icon = draw_ev_icon()
+ev_icon.save(os.path.join(OUT, "icon_ev.png"))
+
+# EV 狀態預覽：一般畫面再把 EV 圖示疊上轉速那一列
+pv_ev = pv.copy()
+pv_ev.paste(ev_icon, (EV_X, EV_Y))
+pv_ev.save(os.path.join(OUT, "preview_ev.png"))
+
+print("已輸出 background.png / preview.png / preview_ev.png / icon_ev.png (%dx%d)"
+      % (W, H))
