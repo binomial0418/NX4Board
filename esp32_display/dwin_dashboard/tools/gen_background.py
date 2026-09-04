@@ -18,12 +18,14 @@ from PIL import Image, ImageDraw, ImageFont
 W = 1280
 # 第二參數可指定畫面高度（DMG12480C068=480、DMG12400C074=400）。
 # 兩者同為 1280 寬，因此只縮放垂直座標與字級。
-H = int(sys.argv[2]) if len(sys.argv) > 2 else 480
+# 也接受環境變數，讓 gen_dgus_config.py 能 import 本檔共用座標
+H = int(os.environ.get("NX4_HEIGHT") or
+        (sys.argv[2] if len(sys.argv) > 2 else 480))
 S = H / 480.0
 SUFFIX = "" if H == 480 else "_%d" % H
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
-FONTS = sys.argv[1] if len(sys.argv) > 1 else "fonts"
+FONTS = os.environ.get("NX4_FONTS") or (sys.argv[1] if len(sys.argv) > 1 else "fonts")
 
 def V(y):
     """垂直座標依畫面高度縮放"""
@@ -82,6 +84,45 @@ TURBO_CY      = V(374)
 TURBO_BAR_Y   = V(420)
 TURBO_BAR_W   = 460
 TURBO_BAR_X   = CX - TURBO_BAR_W // 2
+
+# ── 動態數值在 DGUS 端的字元格 ─────────────────────────────────────────
+# DGUS 的 0# ASCII 字型是等寬點陣：字高 = 字級、字寬 = 字級 / 2。
+# 時鐘的 ":" 與日期的 "/" 是分隔符號，Data Variable 顯示不出來，
+# 只能畫進背景圖；位置必須用 DGUS 的字元格算，不能用 Montserrat 的字寬，
+# 否則背景的冒號會跟螢幕疊上去的數字對不齊。
+def CW(fs):
+    """DGUS 0# ASCII 的字寬"""
+    return fs // 2
+
+def CELL(x0, fs, i):
+    """第 i 個字元格的左緣"""
+    return x0 + i * CW(fs)
+
+# 點陣字的基線大約落在字格高度的這個比例處。背景圖上的冒號、斜線與單位
+# 都要對到這條線，數值才不會浮起來。gen_dgus_config.py 也用同一個值算 Y。
+BASELINE_RATIO = 0.78
+
+def cell_text(d, x0, fs, top, i, sval, font, fill):
+    """把字串逐字放進字元格（每格置中），模擬 DGUS 的等寬點陣排版。
+
+    Montserrat 的數字比 DGUS 的 fs/2 寬，整串直接畫會越格、
+    把背景的冒號蓋掉，預覽就看不出實機的落點。
+    """
+    base = top + int(fs * BASELINE_RATIO)
+    for k, ch in enumerate(sval):
+        text(d, (CELL(x0, fs, i + k) + CW(fs) // 2, base), ch, font, fill, "ms")
+
+# 時鐘 HH:MM:SS 共 8 格，冒號在第 2、5 格
+CLOCK_FS  = FS(60)
+CLOCK_X0  = LEFT_X + 26
+CLOCK_TOP = ROW_Y[2] + V(56)
+# 日期 MM/DD 共 5 格，斜線在第 2 格；星期是圖示，接在第 6 格之後
+DATE_FS   = FS(24)
+DATE_X0   = LEFT_X + 26
+DATE_TOP  = ROW_Y[2] + V(20)
+WEEK_X    = CELL(DATE_X0, DATE_FS, 6)
+WEEK_W    = DATE_FS * 2       # 「週一」兩個中文字
+WEEK_H    = DATE_FS
 
 def f(name, size):
     return ImageFont.truetype(os.path.join(FONTS, name), size)
@@ -148,6 +189,12 @@ def draw_static(d):
     text(d, (SPEED_UNIT_X, SPEED_BASE), "km/h", F_UNIT(FS(34)), UNIT, "ls")
     text(d, (RPM_UNIT_X, RPM_BASE), "RPM", F_UNIT(FS(30)), UNIT, "ls")
 
+    # 時鐘與日期的分隔符號（數字由 DGUS 疊上去，分隔符號只能是靜態的）
+    for i in (2, 5):
+        cell_text(d, CLOCK_X0, CLOCK_FS, CLOCK_TOP, i, ":",
+                  F_NUM_MD(CLOCK_FS), TEXT)
+    cell_text(d, DATE_X0, DATE_FS, DATE_TOP, 2, "/", F_NUM_MD(DATE_FS), LABEL)
+
     # 增壓：軌道、中線、刻度
     d.rectangle([TURBO_BAR_X, TURBO_BAR_Y,
                  TURBO_BAR_X + TURBO_BAR_W, TURBO_BAR_Y + V(7)], fill=BAR_BG)
@@ -161,10 +208,14 @@ def draw_dynamic(d):
     # 左欄
     text(d, (LEFT_X + 26, ROW_Y[0] + V(46)), "65.5", F_NUM_MD(FS(72)), TEXT)
     text(d, (LEFT_X + 26, ROW_Y[1] + V(46)), "88",   F_NUM_MD(FS(72)), TEXT)
-    text(d, (LEFT_X + 26, ROW_Y[2] + V(20)), "09/01 週一", F_TC(FS(24)), LABEL)
+    # 日期與時鐘：數字逐格畫，位置與 DGUS 的等寬字元格一致
+    for i, v in ((0, "09"), (3, "01")):
+        cell_text(d, DATE_X0, DATE_FS, DATE_TOP, i, v, F_NUM_MD(DATE_FS), LABEL)
+    text(d, (WEEK_X, DATE_TOP), "週一", F_TC(DATE_FS), LABEL)
     # 60px 而非 64px：最寬的 "00:00:00" 在 64px 下是 276px，
     # 卡片可用寬度只有 278px，餘裕不足以吸收實機的字型渲染差異
-    text(d, (LEFT_X + 26, ROW_Y[2] + V(56)), "18:04:37", F_NUM_MD(FS(60)), TEXT)
+    for i, v in ((0, "18"), (3, "04"), (6, "37")):
+        cell_text(d, CLOCK_X0, CLOCK_FS, CLOCK_TOP, i, v, F_NUM_MD(CLOCK_FS), TEXT)
 
     # 右欄
     for i, v in enumerate(["34", "34", "33", "33"]):
@@ -190,21 +241,41 @@ def draw_ev_icon():
     text(d, (EV_W // 2, EV_H // 2), "EV", F_NUM_SB(FS(88)), GREEN, "mm")
     return ico
 
-os.makedirs(OUT, exist_ok=True)
-bg = Image.new("RGB", (W, H), BG)
-draw_static(ImageDraw.Draw(bg))
-bg.save(os.path.join(OUT, "background%s.png" % SUFFIX))
+def draw_week_icons():
+    """星期圖示 0..6（週一..週日）。
 
-pv = bg.copy()
-draw_dynamic(ImageDraw.Draw(pv))
-pv.save(os.path.join(OUT, "preview%s.png" % SUFFIX))
+    星期是中文，Data Variable 只能顯示數字，而螢幕端不放中文字庫，
+    所以做成 7 張圖示由 Variable Icon 依 VP 值切換。底色與畫面一致。
+    """
+    out = []
+    for name in ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]:
+        ico = Image.new("RGB", (WEEK_W, WEEK_H), CARD)
+        text(ImageDraw.Draw(ico), (WEEK_W // 2, WEEK_H // 2), name,
+             F_TC(DATE_FS), LABEL, "mm")
+        out.append(ico)
+    return out
 
-ev_icon = draw_ev_icon()
-ev_icon.save(os.path.join(OUT, "icon_ev%s.png" % SUFFIX))
+if __name__ == "__main__":
+    os.makedirs(OUT, exist_ok=True)
+    bg = Image.new("RGB", (W, H), BG)
+    draw_static(ImageDraw.Draw(bg))
+    bg.save(os.path.join(OUT, "background%s.png" % SUFFIX))
 
-# EV 狀態預覽：一般畫面再把 EV 圖示疊上轉速那一列
-pv_ev = pv.copy()
-pv_ev.paste(ev_icon, (EV_X, EV_Y))
-pv_ev.save(os.path.join(OUT, "preview_ev%s.png" % SUFFIX))
+    pv = bg.copy()
+    draw_dynamic(ImageDraw.Draw(pv))
+    pv.save(os.path.join(OUT, "preview%s.png" % SUFFIX))
 
-print("已輸出 %dx%d 的 background/preview/preview_ev/icon_ev%s" % (W, H, SUFFIX))
+    ev_icon = draw_ev_icon()
+    ev_icon.save(os.path.join(OUT, "icon_ev%s.png" % SUFFIX))
+
+    icon_dir = os.path.join(OUT, "icons%s" % SUFFIX)
+    os.makedirs(icon_dir, exist_ok=True)
+    for i, ico in enumerate(draw_week_icons()):
+        ico.save(os.path.join(icon_dir, "week_%d.png" % i))
+
+    # EV 狀態預覽：一般畫面再把 EV 圖示疊上轉速那一列
+    pv_ev = pv.copy()
+    pv_ev.paste(ev_icon, (EV_X, EV_Y))
+    pv_ev.save(os.path.join(OUT, "preview_ev%s.png" % SUFFIX))
+
+    print("已輸出 %dx%d 的 background/preview/preview_ev/icon_ev%s" % (W, H, SUFFIX))
