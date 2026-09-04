@@ -49,9 +49,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   StreamSubscription? _logSub;
 
-  // 日誌過濾。預設只看大燈，用來診斷 22BC09 到底有沒有抓到資料。
-  // _logs 保留全部，過濾只在顯示與匯出時套用。
-  bool _logHeadlightOnly = true;
+  // 日誌過濾。大燈已驗證可用，預設回到全部日誌；
+  // 切換鈕保留，日後要診斷大燈時仍可一鍵只看那條路徑。
+  // _logs 永遠保留全部，過濾只在顯示與匯出時套用。
+  bool _logHeadlightOnly = false;
   static const List<String> _headlightKeywords = [
     'BC09',      // 大燈 PID（TX / RX / NoData 都會帶到）
     'Headlights',
