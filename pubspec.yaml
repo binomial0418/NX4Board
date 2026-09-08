@@ -50,6 +50,7 @@ flutter:
   uses-material-design: true
   
   assets:
+    - assets/speed_tiles.bin
     - assets/省道速限圖資.csv
     - assets/camera_data.csv
     - assets/cd.html

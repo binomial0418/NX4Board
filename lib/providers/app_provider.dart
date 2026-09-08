@@ -64,6 +64,15 @@ class AppProvider extends ChangeNotifier {
   List<SpeedSign> get nearbySpeedSigns => _nearbySpeedSigns;
   int? get currentSpeedLimit => _currentSpeedLimit;
   int get roadSpeedLimit => _roadSpeedLimit;
+
+  /// 目前比對到的路名（OSM 圖資），無法判定時為空字串
+  String get currentRoadName => SpeedLimitService().currentRoadName;
+
+  /// 速限來源，供 UI 區分實測值與推定值
+  LimitSource get speedLimitSource => SpeedLimitService().source;
+
+  /// 速限是否為依道路分級推定，而非實際標註
+  bool get isSpeedLimitInferred => SpeedLimitService().isInferred;
   bool get isLoading => _isLoading;
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
@@ -295,17 +304,19 @@ class AppProvider extends ChangeNotifier {
     // ── 更新國道/快速道路旗標（快取 + 滑動分數，封裝於 RoadTypeService） ──
     RoadTypeService().addPosition(position.latitude, position.longitude);
 
-    // ── 道路速限牌面偵測，傳入路型旗標避免重複查表 ──
+    // ── 道路速限偵測：OSM 圖資比對 → 省道牌面 → 分級推定 → 路型 ──
     final speedLimitService = SpeedLimitService();
     final detectedLimit = speedLimitService.detectNearbyLimit(
       position.latitude,
       position.longitude,
       roadType: RoadTypeService().currentRoadType,
+      headingDeg: position.heading,
+      speedKmh: position.speed * 3.6,
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
     } else if (!speedLimitService.lastDetectedFromSign) {
-      // 上次來源為路型（國道/快速道路），現已離開且無牌面 → 退回預設 40
+      // 上次來源非牌面，且現在無法判定 → 退回預設 40
       _roadSpeedLimit = 40;
     }
     // 上次來源為省道牌面 → 保留最後牌面值，不更動
