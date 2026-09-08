@@ -66,16 +66,23 @@ class _NativeDashboardState extends State<NativeDashboard>
 
   // Clock
   String _timeStr = '';
+  String _dateStr = '';
   Timer? _clockTimer;
 
   @override
   void initState() {
     super.initState();
     _timeStr = _fmtTime(DateTime.now());
+    _dateStr = _fmtDate(DateTime.now());
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) {
-        if (mounted) setState(() => _timeStr = _fmtTime(DateTime.now()));
+        if (!mounted) return;
+        final now = DateTime.now();
+        setState(() {
+          _timeStr = _fmtTime(now);
+          _dateStr = _fmtDate(now);
+        });
       },
     );
     _cameraCheckTimer = Timer.periodic(
@@ -180,6 +187,10 @@ class _NativeDashboardState extends State<NativeDashboard>
 
   String _fmtTime(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  String _fmtDate(DateTime t) => '${t.year}/'
+      '${t.month.toString().padLeft(2, '0')}/'
+      '${t.day.toString().padLeft(2, '0')}';
 
   double _displaySpeed(AppProvider p) {
     if (p.obdSpeed != null) return p.obdSpeed!.toDouble();
@@ -331,18 +342,37 @@ class _NativeDashboardState extends State<NativeDashboard>
               borderColor: const Color(0xfffb923c), // orange-400
               highlightCtrl: null,
               child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    _timeStr,
-                    style: const TextStyle(
-                      fontSize: 200,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xffd1d5db), // gray-300
-                      letterSpacing: -2,
-                      height: 0.85,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 日期字級與里程數字一致（80）
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _dateStr,
+                        style: const TextStyle(
+                          fontSize: 80,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xffd1d5db), // gray-300
+                          height: 1.0,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _timeStr,
+                        style: const TextStyle(
+                          fontSize: 170,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xffd1d5db), // gray-300
+                          letterSpacing: -2,
+                          height: 0.85,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -397,14 +427,30 @@ class _NativeDashboardState extends State<NativeDashboard>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              '胎壓 (PSI)',
-              style: TextStyle(
-                fontSize: 51,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 2,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Text(
+                  '胎壓 (PSI)',
+                  style: TextStyle(
+                    fontSize: 51,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 2,
+                  ),
+                ),
+                // 大燈指示：關閉時整個隱藏，不佔位。
+                // 目前 OBD 只讀得到「大燈開啟」，小燈與遠燈拿不到，
+                // 因此不分燈種、只用單一顏色。
+                if (p.isLowBeamOn || p.isHighBeamOn) ...[
+                  const SizedBox(width: 20),
+                  const Icon(
+                    Icons.highlight,
+                    size: 52,
+                    color: Color(0xff22c55e), // green-500
+                  ),
+                ],
+              ],
             ),
             Expanded(
               child: Column(
