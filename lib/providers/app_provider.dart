@@ -44,6 +44,9 @@ class AppProvider extends ChangeNotifier {
   bool _demoIsReversing = false;
   bool _demoIsLowBeamOn = false;
   bool _demoIsHighBeamOn = false;
+  bool _demoIsAnyDoorOpen = false;
+  bool _demoIsDoorUnlocked = false;
+  bool _demoIsTrunkOpen = false;
   int _demoTicks = 0;
 
   // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
@@ -103,6 +106,14 @@ class AppProvider extends ChangeNotifier {
       _isDemoEnabled ? _demoIsLowBeamOn : _obdService.isLowBeamOn;
   bool get isHighBeamOn =>
       _isDemoEnabled ? _demoIsHighBeamOn : _obdService.isHighBeamOn;
+
+  // 車門 / 尾門 / 門鎖狀態（狀態區的四個指示燈）
+  bool get isAnyDoorOpen =>
+      _isDemoEnabled ? _demoIsAnyDoorOpen : _obdService.isAnyDoorOpen;
+  bool get isDoorUnlocked =>
+      _isDemoEnabled ? _demoIsDoorUnlocked : _obdService.isDoorUnlocked;
+  bool get isTrunkOpen =>
+      _isDemoEnabled ? _demoIsTrunkOpen : _obdService.isTrunkOpen;
   int? get tpmsFl => _isDemoEnabled ? 35 : _obdService.tpmsFl?.floor();
   int? get tpmsFr => _isDemoEnabled ? 36 : _obdService.tpmsFr?.floor();
   int? get tpmsRl => _isDemoEnabled ? 35 : _obdService.tpmsRl?.floor();
@@ -249,6 +260,13 @@ class AppProvider extends ChangeNotifier {
           _demoIsHighBeamOn = false;
         }
       }
+
+      // 8. 模擬車門 / 門鎖 / 尾門（狀態區的三個指示燈）。
+      // 週期刻意取互質，四個指示燈才不會同步閃、能看遍各種組合。
+      // tick = 100ms，所以是 3 / 5 / 7 秒各自翻轉一次。
+      if (_demoTicks % 30 == 0) _demoIsAnyDoorOpen = !_demoIsAnyDoorOpen;
+      if (_demoTicks % 50 == 0) _demoIsDoorUnlocked = !_demoIsDoorUnlocked;
+      if (_demoTicks % 70 == 0) _demoIsTrunkOpen = !_demoIsTrunkOpen;
 
       notifyListeners();
     });

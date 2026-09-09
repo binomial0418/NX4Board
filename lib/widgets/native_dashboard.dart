@@ -249,9 +249,12 @@ class _NativeDashboardState extends State<NativeDashboard>
               Row(
                 children: [
                   SizedBox(width: 600, child: _buildP1(provider)),
-                  SizedBox(width: 600, child: _buildP2(provider)),
+                  // P2 = 卡片 _kP2CardWidth + 8 + 狀態卡片 258 + 右側留白 64。
+                  // 錶盤半徑是 min(w, h) 算出來的、受高度封頂（直徑約 832），
+                  // P3 只要不窄於此都放得下；P2 收窄後 P3 起點左移，錶盤跟著左移。
+                  SizedBox(width: 755, child: _buildP2(provider)),
                   SizedBox(
-                    width: 1200,
+                    width: 1045,
                     child: _buildP3(provider, dialSpeed, turbo),
                   ),
                 ],
@@ -385,16 +388,39 @@ class _NativeDashboardState extends State<NativeDashboard>
   // P2: TPMS | ODO+Fuel | Speed Limit / Camera Alert
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// 胎壓 / 里程 / 道路速限三張卡片的共同寬度。
+  ///
+  /// 以里程列的內容量出來：色條 6 + 左內距 32 + 「里程」96（CJK 48 x2）
+  /// + 16 + 五位數里程 231.6（80px w900）+ 8 + 「K」30.7（48px w900）
+  /// = 420.3，右邊界再留 5px → 425。
+  /// 里程滿六位數時內容會多 46px，該列包了 FittedBox 會等比縮，不會溢出。
+  static const double _kP2CardWidth = 425;
+
   Widget _buildP2(AppProvider p) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 16, 64, 16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: _buildTpmsCard(p)),
+          Expanded(
+            child: Row(
+              children: [
+                SizedBox(width: _kP2CardWidth, child: _buildTpmsCard(p)),
+                const SizedBox(width: 8),
+                // 狀態卡片的左邊界即三張卡片的右邊界
+                SizedBox(width: 258, child: _buildStatusCard(p)),
+              ],
+            ),
+          ),
           const SizedBox(height: 8),
-          Expanded(child: _buildOdoFuelCard(p)),
+          Expanded(
+            child: SizedBox(width: _kP2CardWidth, child: _buildOdoFuelCard(p)),
+          ),
           const SizedBox(height: 8),
-          Expanded(child: _buildSpeedLimitCard(p)),
+          Expanded(
+            child:
+                SizedBox(width: _kP2CardWidth, child: _buildSpeedLimitCard(p)),
+          ),
         ],
       ),
     );
@@ -426,50 +452,107 @@ class _NativeDashboardState extends State<NativeDashboard>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Text(
-                  '胎壓 (PSI)',
-                  style: TextStyle(
-                    fontSize: 51,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 2,
-                  ),
+            const FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '胎壓 (PSI)',
+                style: TextStyle(
+                  fontSize: 51,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 2,
                 ),
-                // 大燈指示：關閉時整個隱藏，不佔位。
-                // 22BC09 只讀得出「大燈開啟」一個狀態（見 ObdSppService
-                // 的 BC09 解析），小燈與遠燈拿不到，故不分燈種、單一顏色。
-                if (p.isLowBeamOn) ...[
-                  const SizedBox(width: 20),
-                  const _HeadlightIcon(
-                    size: 52,
-                    color: Color(0xff22c55e), // green-500
-                  ),
-                ],
-              ],
+              ),
             ),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      SizedBox(width: 180, child: tpmsVal(p.tpmsFl)),
-                      tpmsVal(p.tpmsFr),
-                    ],
+                  // FittedBox 是三位數胎壓值時的安全網，正常兩位數不會縮
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        SizedBox(width: 180, child: tpmsVal(p.tpmsFl)),
+                        tpmsVal(p.tpmsFr),
+                      ],
+                    ),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      SizedBox(width: 180, child: tpmsVal(p.tpmsRl)),
-                      tpmsVal(p.tpmsRr),
-                    ],
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        SizedBox(width: 180, child: tpmsVal(p.tpmsRl)),
+                        tpmsVal(p.tpmsRr),
+                      ],
+                    ),
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 胎壓卡片右邊的狀態卡片：2x2 指示燈（大燈 / 車門 / 門鎖 / 尾門）。
+  ///
+  /// 每格固定佔位，圖示只在狀態成立時顯示（Visibility 保留尺寸）——
+  /// 若改成不成立就不放進 tree，四個格子會隨狀態互相推擠、位置跳來跳去。
+  Widget _buildStatusCard(AppProvider p) {
+    // 格寬要吃得下最寬的圖示：大燈的長寬比是 455:350，
+    // 高 84 時實際寬度約 109，所以格子不能只比 iconSize 大一點。
+    const double cellSize = 112;
+    const double iconSize = 84;
+    const Color warn = Color(0xfff59e0b); // amber-500
+    const Color ok = Color(0xff22c55e); // green-500
+
+    Widget slot(bool active, Widget icon) => SizedBox(
+          width: cellSize,
+          height: cellSize,
+          child: Center(
+            child: Visibility(
+              visible: active,
+              maintainSize: true,
+              maintainAnimation: true,
+              maintainState: true,
+              child: icon,
+            ),
+          ),
+        );
+
+    return _DataCard(
+      borderColor: const Color(0xfffbbf24), // amber-400
+      highlightCtrl: null,
+      child: Padding(
+        // 卡寬 258 扣掉左側 6px 色條與這裡的內距，剛好容得下 2 x 112
+        padding: const EdgeInsets.fromLTRB(14, 16, 8, 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                // 大燈：22BC09 只讀得出「開啟」，不分燈種
+                slot(p.isLowBeamOn,
+                    const _HeadlightIcon(size: iconSize, color: ok)),
+                // 任一車門開啟
+                slot(p.isAnyDoorOpen,
+                    const _DoorsOpenIcon(size: iconSize, color: warn)),
+              ],
+            ),
+            Row(
+              children: [
+                // 任一車門解鎖（22BC04 只有前兩門有訊號）
+                slot(p.isDoorUnlocked,
+                    const Icon(Icons.lock_open, size: iconSize, color: warn)),
+                // 後車廂開啟
+                slot(p.isTrunkOpen,
+                    const _TrunkOpenIcon(size: iconSize, color: warn)),
+              ],
             ),
           ],
         ),
@@ -501,32 +584,37 @@ class _NativeDashboardState extends State<NativeDashboard>
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                const Text('里程',
-                    style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
-                const SizedBox(width: 16),
-                Text(
-                  p.obdOdometer != null
-                      ? p.obdOdometer!.toStringAsFixed(0)
-                      : '--',
-                  style: const TextStyle(
-                      fontSize: 80,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white),
-                ),
-                const SizedBox(width: 8),
-                const Text('K',
-                    style: TextStyle(
-                        fontSize: 48,
+            // 卡片寬度是照五位數里程量的；滿六位數時等比縮，不溢出
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  const Text('里程',
+                      style: TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white)),
+                  const SizedBox(width: 16),
+                  Text(
+                    p.obdOdometer != null
+                        ? p.obdOdometer!.toStringAsFixed(0)
+                        : '--',
+                    style: const TextStyle(
+                        fontSize: 80,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xff6b7280))),
-              ],
+                        color: Colors.white),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('K',
+                      style: TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xff6b7280))),
+                ],
+              ),
             ),
             const Divider(color: Color(0xff1f2937), thickness: 2, height: 16),
             Row(
@@ -674,7 +762,6 @@ class _NativeDashboardState extends State<NativeDashboard>
                 padding: const EdgeInsets.only(top: 95), // 再度下移 20 單位 (累計下移 45)
                 child: _AnimatedDial(speed: speed),
               ),
-
 
               // Speed + RPM text，略偏下置於圓弧下半部
               Padding(
@@ -1122,8 +1209,7 @@ class _SpeedDialPainter extends CustomPainter {
       canvas.drawLine(
         Offset(center.dx + dx * (radius - currentTickLen),
             center.dy + dy * (radius - currentTickLen)),
-        Offset(center.dx + dx * radius,
-            center.dy + dy * radius),
+        Offset(center.dx + dx * radius, center.dy + dy * radius),
         Paint()
           ..color = color
           ..strokeWidth = isMajor ? 8 : 5 // 次刻度稍微細一點
@@ -1345,4 +1431,125 @@ class _HeadlightIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HeadlightIconPainter old) => old.color != color;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 車門開啟圖示（俯視車身 + 四扇向外張開的門）
+// Material 沒有對應符號，與大燈一樣用 CustomPainter 畫。
+// 車窗以 evenOdd 從車身挖空，這樣任何底色下都正確。
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DoorsOpenIcon extends StatelessWidget {
+  const _DoorsOpenIcon({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  static const double _refW = 200;
+  static const double _refH = 240;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size * _refW / _refH,
+      height: size,
+      child: CustomPaint(painter: _DoorsOpenPainter(color)),
+    );
+  }
+}
+
+class _DoorsOpenPainter extends CustomPainter {
+  const _DoorsOpenPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.height / _DoorsOpenIcon._refH);
+
+    // 車身：實心圓角矩形，車窗以 evenOdd 挖空
+    final body = Path()
+      ..addRRect(RRect.fromLTRBR(56, 16, 144, 224, const Radius.circular(36)))
+      ..addRRect(RRect.fromLTRBR(66, 42, 134, 100, const Radius.circular(16)))
+      ..addRRect(RRect.fromLTRBR(66, 146, 134, 202, const Radius.circular(16)))
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(body, Paint()..color = color);
+
+    // 左右各一扇門向外張開。四條門線在 60px 以下會糊成一團，
+    // 兩條反而看得出是車門。
+    final door = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 18
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(56, 122), const Offset(10, 92), door);
+    canvas.drawLine(const Offset(144, 122), const Offset(190, 92), door);
+  }
+
+  @override
+  bool shouldRepaint(_DoorsOpenPainter old) => old.color != color;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 後車廂開啟圖示（側視車身 + 掀起的尾門）
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TrunkOpenIcon extends StatelessWidget {
+  const _TrunkOpenIcon({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  static const double _refW = 240;
+  static const double _refH = 200;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size * _refW / _refH,
+      height: size,
+      child: CustomPaint(painter: _TrunkOpenPainter(color)),
+    );
+  }
+}
+
+class _TrunkOpenPainter extends CustomPainter {
+  const _TrunkOpenPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.height / _TrunkOpenIcon._refH);
+
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 12
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 車身側面（封閉輪廓）
+    final body = Path()
+      ..moveTo(22, 146)
+      ..lineTo(20, 120)
+      ..cubicTo(24, 110, 36, 106, 48, 104)
+      ..lineTo(76, 102)
+      ..lineTo(102, 60)
+      ..lineTo(166, 60)
+      ..lineTo(190, 146)
+      ..close();
+    canvas.drawPath(body, stroke);
+
+    // 掀起的尾門：自車頂後緣向右上翻起
+    canvas.drawLine(const Offset(166, 60), const Offset(216, 32), stroke);
+    canvas.drawLine(const Offset(216, 32), const Offset(226, 46), stroke);
+
+    // 車輪
+    canvas.drawCircle(const Offset(68, 152), 20, stroke);
+    canvas.drawCircle(const Offset(152, 152), 20, stroke);
+  }
+
+  @override
+  bool shouldRepaint(_TrunkOpenPainter old) => old.color != color;
 }

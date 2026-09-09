@@ -101,6 +101,42 @@ class ObdSppService with ChangeNotifier {
   bool isLowBeamOn = false;
   bool isHighBeamOn = false;
 
+  // ── 22BC09 byte G 的位元對應 ────────────────────────────────────────────
+  // OBD.csv 寫 High_Beam = G/12、Low_Beam = H/12，實車比對後兩者都不對：
+  // 隨大燈變動的是 G（data[6]），0x00 ↔ 0xC0；H（data[7]）恆為 0x00。
+  //   開: 32 20 03 CC 40 00 C0 00 AA AA
+  //   關: 32 20 03 CC 40 00 00 00 AA AA
+  // 車門那組訊號證實了 CSV 的 ">N" 其實是 ">>N"（位移），因此 G 是 bit field。
+  // 0xC0 是 bit7 + bit6 同時亮，很可能是兩個不同訊號，但尚未分離出來。
+
+  /// 大燈開啟（已實車驗證）
+  static const int _kBeamMaskOn = 0xC0;
+
+  /// 遠燈。對應位元尚未確認，填 0 代表「不判斷」——
+  /// 上車打一次遠燈，看 [Headlights][NEW] 印出哪個位元，填進來即可。
+  static const int _kBeamMaskHigh = 0x00;
+
+  /// 位元探勘：累計看過的 G 位元，出現沒看過的就明顯印一行
+  int _beamBitsSeen = 0;
+
+  // 車門與尾門開啟（OBD.csv: PID 22BC03，全部落在 byte E 的不同位元）
+  //   RL=bit0  RR=bit2  FR=bit4  FL=bit5  Trunk=bit7
+  // 空著的 bit1/bit3 用途不明，bit6 依 CSV 是手煞車。
+  bool isDoorFlOpen = false;
+  bool isDoorFrOpen = false;
+  bool isDoorRlOpen = false;
+  bool isDoorRrOpen = false;
+  bool isTrunkOpen = false;
+  bool hasDoors = false;
+
+  bool get isAnyDoorOpen =>
+      isDoorFlOpen || isDoorFrOpen || isDoorRlOpen || isDoorRrOpen;
+
+  // 車門解鎖（OBD.csv: PID 22BC04 byte E，位元設起來代表「未上鎖」）
+  // 只有前兩門有訊號，後門與尾門在 CSV 裡沒有對應項目。
+  bool isDoorUnlocked = false;
+  bool hasDoorLock = false;
+
   // TPMS (FL, FR, RL, RR)
   double? tpmsFl;
   double? tpmsFr;
@@ -147,20 +183,25 @@ class ObdSppService with ChangeNotifier {
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
   Timer? _reversePollTimer;
-  Timer? _headlightPollTimer;
+  Timer? _igmpPollTimer;
 
   // 大燈 PID (22BC09) 的請求 Header 尚未確定：
   //   ATSH302 — 沿用 22BC04（倒車）在實車驗證過的 IGMP Header
   //   ATSH770 — OBD.csv 標註的 Header
   // 兩個都試，哪個拿得到 62BC09 就鎖定，之後只送那一個。
-  static const List<String> _headlightHeaders = ['ATSH302', 'ATSH770'];
-  String? _headlightHeaderLocked;
-  bool _headlightPollBusy = false;
-  int _headlightFailStreak = 0;
+  static const List<String> _igmpHeaders = ['ATSH302', 'ATSH770'];
+  String? _igmpHeaderLocked;
+
+  // 22BC04 在兩個 Header 底下代表不同東西：302 是倒車、770 是門鎖/安全帶。
+  // 解析時光看 PID 分不出來，所以記住送出當下生效的 Header。
+  // 指令鏈是序列化的，回應抵達時這個值仍然是當初送出時的那一個。
+  String _activeHeader = '7DF';
+  bool _igmpPollBusy = false;
+  int _igmpFailStreak = 0;
   // 兩個 Header 都試不出來時放棄，避免每 3 秒白跑 6 道指令、
   // 排擠到 300ms 的時速/轉速快輪詢。重新連線時會重置。
-  bool _headlightGiveUp = false;
-  static const int _headlightMaxProbes = 10;
+  bool _igmpGiveUp = false;
+  static const int _igmpMaxProbes = 10;
   
   // ── Moving Window Buffers ────────────────────────────────────────────────
   final List<int> _fuelBuffer = [];
@@ -412,8 +453,8 @@ class ObdSppService with ChangeNotifier {
     _longPollTimer = null;
     _reversePollTimer?.cancel();
     _reversePollTimer = null;
-    _headlightPollTimer?.cancel();
-    _headlightPollTimer = null;
+    _igmpPollTimer?.cancel();
+    _igmpPollTimer = null;
 
     // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
@@ -500,6 +541,9 @@ class ObdSppService with ChangeNotifier {
       try {
         _log('[Parser TX] ${cmd.trim()}');
         _lastSentCmd = cmd.trim().toUpperCase().replaceAll(' ', '');
+        if (_lastSentCmd.startsWith('ATSH')) {
+          _activeHeader = _lastSentCmd.substring(4);
+        }
         await _methodChannel.invokeMethod('write', {'data': bytes});
       } catch (e) {
         _log('[OBD] Write error: $e');
@@ -651,10 +695,20 @@ class ObdSppService with ChangeNotifier {
     isLowBeamOn = false;
     isHighBeamOn = false;
     hasHeadlights = false;
-    _headlightHeaderLocked = null;
-    _headlightFailStreak = 0;
-    _headlightPollBusy = false;
-    _headlightGiveUp = false;
+    isDoorFlOpen = false;
+    isDoorFrOpen = false;
+    isDoorRlOpen = false;
+    isDoorRrOpen = false;
+    isTrunkOpen = false;
+    hasDoors = false;
+    isDoorUnlocked = false;
+    hasDoorLock = false;
+    _beamBitsSeen = 0;
+    _activeHeader = '7DF';
+    _igmpHeaderLocked = null;
+    _igmpFailStreak = 0;
+    _igmpPollBusy = false;
+    _igmpGiveUp = false;
     _fuelBuffer.clear();
   }
 
@@ -855,35 +909,70 @@ class ObdSppService with ChangeNotifier {
           final int payloadStart = index + signature.length;
           final String data = sanitized.substring(payloadStart);
 
-          if (pid == 'BC04') {
+          if (pid == 'BC03') {
+            // 四門 + 尾門開啟，全在 byte E（data[4]）的不同位元。
             if (data.length >= 10) {
-              final int rawByte = int.parse(data.substring(8, 10), radix: 16);
-              isReversing = rawByte != 0;
-              hasReversing = true;
-              _log('[Parser Result] Reversing=$isReversing (raw=$rawByte)');
+              final int e = int.parse(data.substring(8, 10), radix: 16);
+              isDoorRlOpen = (e & 0x01) != 0; // bit0
+              isDoorRrOpen = (e & 0x04) != 0; // bit2
+              isDoorFrOpen = (e & 0x10) != 0; // bit4
+              isDoorFlOpen = (e & 0x20) != 0; // bit5
+              isTrunkOpen = (e & 0x80) != 0; // bit7
+              hasDoors = true;
+              // E 以二進位印出，實車上一次開一道門就能核對位元對應
+              _log('[Doors] FL=$isDoorFlOpen FR=$isDoorFrOpen '
+                  'RL=$isDoorRlOpen RR=$isDoorRrOpen Trunk=$isTrunkOpen '
+                  '(E=0b${e.toRadixString(2).padLeft(8, '0')}) payload=$data');
+            } else {
+              _log('[Doors] 回應過短，無法取 E：payload=$data');
+            }
+          } else if (pid == 'BC04') {
+            // 同一個 PID 在兩個 Header 底下意義不同，必須靠送出時的 Header 區分：
+            //   302 → 目前用來判斷倒車（此 Header 未經實車驗證，見 TODO）
+            //   770 → OBD.csv 標註的 IGMP，byte E 裝的是門鎖
+            if (data.length >= 10) {
+              final int e = int.parse(data.substring(8, 10), radix: 16);
+              if (_activeHeader == '770') {
+                // CSV: lookup(((E&8)>>3):'U':0='L') —— 位元設起來代表未上鎖。
+                // 只有前兩門有訊號，任一未上鎖就視為整車未上鎖。
+                isDoorUnlocked = (e & 0x08) != 0 || (e & 0x04) != 0;
+                hasDoorLock = true;
+                _log('[DoorLock] Unlocked=$isDoorUnlocked '
+                    '(E=0b${e.toRadixString(2).padLeft(8, '0')}) payload=$data');
+              } else {
+                isReversing = e != 0;
+                hasReversing = true;
+                _log('[Parser Result] Reversing=$isReversing '
+                    '(header=$_activeHeader E=0b${e.toRadixString(2).padLeft(8, '0')})');
+              }
             }
           } else if (pid == 'BC09') {
-            // OBD.csv 寫 High_Beam = G/12、Low_Beam = H/12，但實車比對後
-            // 兩者都不對：隨大燈變動的是 G（data[6]），0x00 ↔ 0xC0；
-            // H（data[7]）在開與關兩種狀態下都是 0x00，拿不到近燈。
-            //   開: 32 20 03 CC 40 00 C0 00 AA AA
-            //   關: 32 20 03 CC 40 00 00 00 AA AA
-            // G 是 bit field 而非 0/12 的量值，所以要用遮罩而不是門檻比較——
-            // 原本的 (g / 12.0) >= 0.5 等於 g >= 6，G 只要有任何其他位元
-            // （例如 bit3）被別的訊號拉起來就會誤判成大燈亮著關不掉。
+            // 位元對應見 _kBeamMaskOn / _kBeamMaskHigh 的說明
             if (data.length >= 16) {
               final int g = int.parse(data.substring(12, 14), radix: 16);
               final int h = int.parse(data.substring(14, 16), radix: 16);
-              // 目前只認得出「大燈開啟」這一個狀態，掛在 isLowBeamOn 上
-              // （ESP32 的日/夜亮度切換也是吃這個旗標）。
-              isLowBeamOn = (g & 0xC0) != 0;
-              // 遠燈尚未找到對應位元，一律回報 false，不要拿 G 充數。
-              isHighBeamOn = false;
+
+              // 大燈開啟（ESP32 的日/夜亮度切換也是吃這個旗標）
+              isLowBeamOn = (g & _kBeamMaskOn) != 0;
+              // 遮罩為 0 代表位元還沒確認，一律回報 false，不拿 G 充數
+              isHighBeamOn =
+                  _kBeamMaskHigh != 0 && (g & _kBeamMaskHigh) != 0;
               hasHeadlights = true;
-              // 一併印出整段 payload，方便在實車上比對哪個 byte 才是大燈
-              _log('[Headlights] On=$isLowBeamOn '
-                  '(G=0x${g.toRadixString(16).padLeft(2, '0')} '
-                  'H=0x${h.toRadixString(16).padLeft(2, '0')}) payload=$data');
+
+              _log('[Headlights] On=$isLowBeamOn High=$isHighBeamOn '
+                  '(G=0b${g.toRadixString(2).padLeft(8, '0')} '
+                  'H=0b${h.toRadixString(2).padLeft(8, '0')}) payload=$data');
+
+              // 位元探勘：G 出現沒看過的位元就單獨印一行。
+              // 打一次遠燈，這行就會指出遠燈是哪個位元。
+              final int newBits = g & ~_beamBitsSeen & 0xFF;
+              if (newBits != 0) {
+                _beamBitsSeen |= g;
+                _log('[Headlights][NEW] G 出現新位元 '
+                    'bit${_bitList(newBits)} '
+                    '（G=0b${g.toRadixString(2).padLeft(8, '0')}，'
+                    '累計看過 0b${_beamBitsSeen.toRadixString(2).padLeft(8, '0')}）');
+              }
             } else {
               _log('[Headlights] 回應過短，無法取 G/H：payload=$data');
             }
@@ -957,6 +1046,15 @@ class ObdSppService with ChangeNotifier {
     }
   }
 
+  /// 把位元遮罩列成人看得懂的位元編號，例如 0b11000000 -> "7, 6"
+  static String _bitList(int mask) {
+    final List<int> bits = [];
+    for (int i = 7; i >= 0; i--) {
+      if ((mask >> i) & 1 == 1) bits.add(i);
+    }
+    return bits.join(', ');
+  }
+
   // ── AT 指令回應過濾器 ─────────────────────────────────────────────────────
 
   bool _isAtResponse(String compact) {
@@ -992,7 +1090,7 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
     _reversePollTimer?.cancel();
-    _headlightPollTimer?.cancel();
+    _igmpPollTimer?.cancel();
 
     _scheduleFastPoll();
 
@@ -1024,23 +1122,24 @@ class ObdSppService with ChangeNotifier {
     // 倒車狀態：速度 > 20 時每 5 秒，≤ 20 時每 2 秒（遞迴自調整）
     _scheduleReversePoll();
 
-    // 大燈狀態：每 3 秒一次（用於 ESP32 儀表的日/夜亮度切換，不需高頻）
-    _headlightPollTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) => _pollHeadlights());
+    // IGMP 模組（大燈 / 車門 / 門鎖）：每 3 秒一次。
+    // 三個 PID 共用同一個 Header，一次切換全部查完，比分開輪詢還省指令。
+    _igmpPollTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) => _pollIgmp());
   }
 
-  /// 大燈輪詢。Header 尚未鎖定時依序試 _headlightHeaders，
+  /// 大燈輪詢。Header 尚未鎖定時依序試 _igmpHeaders，
   /// 哪個拿得到 62BC09 就鎖定；鎖定後連續失敗多次會解鎖重新探測。
-  Future<void> _pollHeadlights() async {
+  Future<void> _pollIgmp() async {
     if (!_isConnected) return;
-    if (_headlightGiveUp) return;
-    if (_headlightPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
-    _headlightPollBusy = true;
+    if (_igmpGiveUp) return;
+    if (_igmpPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
+    _igmpPollBusy = true;
 
     try {
-      final List<String> headers = _headlightHeaderLocked != null
-          ? [_headlightHeaderLocked!]
-          : _headlightHeaders;
+      final List<String> headers = _igmpHeaderLocked != null
+          ? [_igmpHeaderLocked!]
+          : _igmpHeaders;
 
       for (final String header in headers) {
         if (!_isConnected) return;
@@ -1052,6 +1151,8 @@ class ObdSppService with ChangeNotifier {
         // 必然回 NODATA。先把三道掛好，再去等中間那道的結果。
         sendCommand(header);
         final Future<String> respFuture = sendCommand('22BC09');
+        sendCommand('22BC03'); // 四門 + 尾門開啟
+        sendCommand('22BC04'); // 門鎖（此 Header 底下 byte E 是門鎖不是倒車）
         sendCommand('ATSH7DF');
         final String resp = await respFuture;
 
@@ -1062,34 +1163,34 @@ class ObdSppService with ChangeNotifier {
             .contains('62BC09');
 
         if (ok) {
-          _headlightFailStreak = 0;
-          if (_headlightHeaderLocked == null) {
-            _headlightHeaderLocked = header;
+          _igmpFailStreak = 0;
+          if (_igmpHeaderLocked == null) {
+            _igmpHeaderLocked = header;
             _log('[Headlights] Header $header 有效，已鎖定');
           }
           return;
         }
 
-        if (_headlightHeaderLocked == null) {
+        if (_igmpHeaderLocked == null) {
           _log('[Headlights] Header $header 取不到 62BC09，改試下一個');
         }
       }
 
       // 全部試過都失敗
-      _headlightFailStreak++;
-      if (_headlightHeaderLocked != null && _headlightFailStreak >= 5) {
-        _log('[Headlights] 已鎖定的 $_headlightHeaderLocked 連續失敗 '
-            '$_headlightFailStreak 次，解除鎖定重新探測');
-        _headlightHeaderLocked = null;
-        _headlightFailStreak = 0;
-      } else if (_headlightHeaderLocked == null &&
-          _headlightFailStreak >= _headlightMaxProbes) {
-        _log('[Headlights] 兩個 Header 各試 $_headlightMaxProbes 次都失敗，'
+      _igmpFailStreak++;
+      if (_igmpHeaderLocked != null && _igmpFailStreak >= 5) {
+        _log('[Headlights] 已鎖定的 $_igmpHeaderLocked 連續失敗 '
+            '$_igmpFailStreak 次，解除鎖定重新探測');
+        _igmpHeaderLocked = null;
+        _igmpFailStreak = 0;
+      } else if (_igmpHeaderLocked == null &&
+          _igmpFailStreak >= _igmpMaxProbes) {
+        _log('[Headlights] 兩個 Header 各試 $_igmpMaxProbes 次都失敗，'
             '停止大燈輪詢（本車可能不支援 22BC09）。重新連線後會再試');
-        _headlightGiveUp = true;
+        _igmpGiveUp = true;
       }
     } finally {
-      _headlightPollBusy = false;
+      _igmpPollBusy = false;
     }
   }
 
