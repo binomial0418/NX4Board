@@ -863,17 +863,27 @@ class ObdSppService with ChangeNotifier {
               _log('[Parser Result] Reversing=$isReversing (raw=$rawByte)');
             }
           } else if (pid == 'BC09') {
-            // OBD.csv: High_Beam = G/12、Low_Beam = H/12
-            // G = data[6] (substring 12..14)、H = data[7] (substring 14..16)
+            // OBD.csv 寫 High_Beam = G/12、Low_Beam = H/12，但實車比對後
+            // 兩者都不對：隨大燈變動的是 G（data[6]），0x00 ↔ 0xC0；
+            // H（data[7]）在開與關兩種狀態下都是 0x00，拿不到近燈。
+            //   開: 32 20 03 CC 40 00 C0 00 AA AA
+            //   關: 32 20 03 CC 40 00 00 00 AA AA
+            // G 是 bit field 而非 0/12 的量值，所以要用遮罩而不是門檻比較——
+            // 原本的 (g / 12.0) >= 0.5 等於 g >= 6，G 只要有任何其他位元
+            // （例如 bit3）被別的訊號拉起來就會誤判成大燈亮著關不掉。
             if (data.length >= 16) {
               final int g = int.parse(data.substring(12, 14), radix: 16);
               final int h = int.parse(data.substring(14, 16), radix: 16);
-              isHighBeamOn = (g / 12.0) >= 0.5;
-              isLowBeamOn = (h / 12.0) >= 0.5;
+              // 目前只認得出「大燈開啟」這一個狀態，掛在 isLowBeamOn 上
+              // （ESP32 的日/夜亮度切換也是吃這個旗標）。
+              isLowBeamOn = (g & 0xC0) != 0;
+              // 遠燈尚未找到對應位元，一律回報 false，不要拿 G 充數。
+              isHighBeamOn = false;
               hasHeadlights = true;
               // 一併印出整段 payload，方便在實車上比對哪個 byte 才是大燈
-              _log('[Headlights] Low=$isLowBeamOn High=$isHighBeamOn '
-                  '(G=$g H=$h) payload=$data');
+              _log('[Headlights] On=$isLowBeamOn '
+                  '(G=0x${g.toRadixString(16).padLeft(2, '0')} '
+                  'H=0x${h.toRadixString(16).padLeft(2, '0')}) payload=$data');
             } else {
               _log('[Headlights] 回應過短，無法取 G/H：payload=$data');
             }

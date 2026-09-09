@@ -345,20 +345,19 @@ class _NativeDashboardState extends State<NativeDashboard>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 日期字級與里程數字一致（80）
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
                         _dateStr,
                         style: const TextStyle(
-                          fontSize: 80,
+                          fontSize: 58,
                           fontWeight: FontWeight.bold,
                           color: Color(0xffd1d5db), // gray-300
                           height: 1.0,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 28),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
@@ -440,12 +439,11 @@ class _NativeDashboardState extends State<NativeDashboard>
                   ),
                 ),
                 // 大燈指示：關閉時整個隱藏，不佔位。
-                // 目前 OBD 只讀得到「大燈開啟」，小燈與遠燈拿不到，
-                // 因此不分燈種、只用單一顏色。
-                if (p.isLowBeamOn || p.isHighBeamOn) ...[
+                // 22BC09 只讀得出「大燈開啟」一個狀態（見 ObdSppService
+                // 的 BC09 解析），小燈與遠燈拿不到，故不分燈種、單一顏色。
+                if (p.isLowBeamOn) ...[
                   const SizedBox(width: 20),
-                  const Icon(
-                    Icons.highlight,
+                  const _HeadlightIcon(
                     size: 52,
                     color: Color(0xff22c55e), // green-500
                   ),
@@ -1277,4 +1275,74 @@ class _TurboBarPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TurboBarPainter old) =>
       old.turbo != turbo || old.peakFraction != peakFraction;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 大燈圖示（車規近燈符號：D 形燈罩 + 五道向左下的光線）
+//
+// Material 內建沒有這個符號（Icons.highlight 是燈泡），改用 CustomPainter
+// 直接畫，省掉一份圖檔，也不會在大尺寸下糊掉。
+// 座標以 455×350 的參考畫布定義，繪製時等比縮放。
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _HeadlightIcon extends StatelessWidget {
+  const _HeadlightIcon({required this.size, required this.color});
+
+  /// 圖示高度；寬度依 455:350 的比例推得
+  final double size;
+  final Color color;
+
+  static const double _refW = 455;
+  static const double _refH = 350;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size * _refW / _refH,
+      height: size,
+      child: CustomPaint(painter: _HeadlightIconPainter(color)),
+    );
+  }
+}
+
+class _HeadlightIconPainter extends CustomPainter {
+  const _HeadlightIconPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double s = size.height / _HeadlightIcon._refH;
+    canvas.scale(s);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 30
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 燈罩：左邊直、右邊鼓成半圓的 D 形
+    final lamp = Path()
+      ..moveTo(238, 60)
+      ..lineTo(268, 60)
+      ..cubicTo(368, 60, 426, 112, 426, 174)
+      ..cubicTo(426, 236, 368, 288, 268, 288)
+      ..lineTo(238, 288)
+      ..close();
+    canvas.drawPath(lamp, paint);
+
+    // 五道光線，等距、一律向左下傾斜
+    for (int i = 0; i < 5; i++) {
+      final double yRight = 80.0 + i * 50.0;
+      canvas.drawLine(
+        Offset(196, yRight),
+        Offset(48, yRight + 38),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HeadlightIconPainter old) => old.color != color;
 }
