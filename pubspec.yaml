@@ -58,6 +58,7 @@ flutter:
     - assets/fonts/
     - assets/highway_landmarks.json
     - assets/expressway_landmarks.json
+    - assets/icons/
 
 flutter_launcher_icons:
   android: "launcher_icon"

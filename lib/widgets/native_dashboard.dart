@@ -248,14 +248,21 @@ class _NativeDashboardState extends State<NativeDashboard>
             children: [
               Row(
                 children: [
-                  SizedBox(width: 600, child: _buildP1(provider)),
-                  // P2 = 卡片 _kP2CardWidth + 8 + 狀態卡片 258 + 右側留白 64。
-                  // 錶盤半徑是 min(w, h) 算出來的、受高度封頂（直徑約 832），
-                  // P3 只要不窄於此都放得下；P2 收窄後 P3 起點左移，錶盤跟著左移。
+                  // P1 = 卡片寬 536，右側不留白；電池卡片的 % 落在 531，
+                  // 胎壓卡片從 536 開始，兩者相距 5px。
+                  SizedBox(width: 536, child: _buildP1(provider)),
+                  // P2 = 卡片 _kP2CardWidth + 8 + 狀態卡片 258 + 右側留白 64
                   SizedBox(width: 755, child: _buildP2(provider)),
+                  // P1 讓出的 64 全給 P3，再用右內距把內容往左推同樣的量——
+                  // 只是加寬的話錶盤置中只會左移一半。右下角的系統列與狀態列
+                  // 是 dashboard_screen 以 Positioned(right: 16) 貼在全螢幕上的，
+                  // 不受這裡影響。
                   SizedBox(
-                    width: 1045,
-                    child: _buildP3(provider, dialSpeed, turbo),
+                    width: 1109,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 64),
+                      child: _buildP3(provider, dialSpeed, turbo),
+                    ),
                   ),
                 ],
               ),
@@ -299,6 +306,7 @@ class _NativeDashboardState extends State<NativeDashboard>
   // P1: HEV Battery | Coolant | Time
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// P1 不再留右側空白：卡片直接切齊欄寬，右鄰的胎壓卡片緊接其後。
   Widget _buildP1(AppProvider p) {
     final coolant = p.obdCoolant;
     final hotAlert = coolant != null && coolant > 110;
@@ -308,7 +316,7 @@ class _NativeDashboardState extends State<NativeDashboard>
         : const Color(0xffff3333); // red
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 64, 16),
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 16),
       child: Column(
         children: [
           Expanded(
@@ -407,8 +415,8 @@ class _NativeDashboardState extends State<NativeDashboard>
               children: [
                 SizedBox(width: _kP2CardWidth, child: _buildTpmsCard(p)),
                 const SizedBox(width: 8),
-                // 狀態卡片的左邊界即三張卡片的右邊界
-                SizedBox(width: 258, child: _buildStatusCard(p)),
+                // 狀態燈區的左邊界即三張卡片的右邊界
+                SizedBox(width: 258, child: _buildStatusPanel(p)),
               ],
             ),
           ),
@@ -499,11 +507,12 @@ class _NativeDashboardState extends State<NativeDashboard>
     );
   }
 
-  /// 胎壓卡片右邊的狀態卡片：2x2 指示燈（大燈 / 車門 / 門鎖 / 尾門）。
+  /// 胎壓卡片右邊的狀態燈區：2x2 指示燈（大燈 / 車門 / 門鎖 / 尾門）。
+  /// 純黑底、無卡片外框，只有亮起的燈看得見。
   ///
   /// 每格固定佔位，圖示只在狀態成立時顯示（Visibility 保留尺寸）——
   /// 若改成不成立就不放進 tree，四個格子會隨狀態互相推擠、位置跳來跳去。
-  Widget _buildStatusCard(AppProvider p) {
+  Widget _buildStatusPanel(AppProvider p) {
     // 格寬要吃得下最寬的圖示：大燈的長寬比是 455:350，
     // 高 84 時實際寬度約 109，所以格子不能只比 iconSize 大一點。
     const double cellSize = 112;
@@ -525,12 +534,11 @@ class _NativeDashboardState extends State<NativeDashboard>
           ),
         );
 
-    return _DataCard(
-      borderColor: const Color(0xfffbbf24), // amber-400
-      highlightCtrl: null,
-      child: Padding(
-        // 卡寬 258 扣掉左側 6px 色條與這裡的內距，剛好容得下 2 x 112
-        padding: const EdgeInsets.fromLTRB(14, 16, 8, 16),
+    // 這裡刻意不用 _DataCard：它一定會畫左側色條與灰色漸層底。
+    // 狀態燈要的是純黑底、沒有色條，直接透出畫面背景即可。
+    return Center(
+      child: SizedBox(
+        width: cellSize * 2,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -978,7 +986,9 @@ class _NativeDashboardState extends State<NativeDashboard>
     if (pulse != null) row = FadeTransition(opacity: pulse, child: row);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 24, 24, 16),
+      // 右內距只留 5：數值撐滿 FittedBox 時單位會貼到卡片右緣附近，
+      // 「% 右方 5px」＝卡片右緣，胎壓卡片就從那裡開始。
+      padding: const EdgeInsets.fromLTRB(32, 24, 5, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1434,60 +1444,32 @@ class _HeadlightIconPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 車門開啟圖示（俯視車身 + 四扇向外張開的門）
-// Material 沒有對應符號，與大燈一樣用 CustomPainter 畫。
-// 車窗以 evenOdd 從車身挖空，這樣任何底色下都正確。
+// 車門開啟圖示
+//
+// 這個是圖檔不是 CustomPainter：手繪的版本怎麼調都像昆蟲，改用來源圖。
+// assets/icons/door_open.png 已預先處理成「純 alpha 遮罩」——
+// 去掉白底與浮水印、RGB 全填白，只有 alpha 記錄形狀，
+// 因此可以用 BlendMode.srcIn 任意上色，換顏色不必重做圖。
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DoorsOpenIcon extends StatelessWidget {
   const _DoorsOpenIcon({required this.size, required this.color});
 
+  /// 圖示高度；寬度依圖檔的 170:164 比例推得
   final double size;
   final Color color;
 
-  static const double _refW = 200;
-  static const double _refH = 240;
-
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size * _refW / _refH,
+    return Image.asset(
+      'assets/icons/door_open.png',
       height: size,
-      child: CustomPaint(painter: _DoorsOpenPainter(color)),
+      width: size * 170 / 164,
+      color: color,
+      colorBlendMode: BlendMode.srcIn,
+      filterQuality: FilterQuality.medium,
     );
   }
-}
-
-class _DoorsOpenPainter extends CustomPainter {
-  const _DoorsOpenPainter(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.scale(size.height / _DoorsOpenIcon._refH);
-
-    // 車身：實心圓角矩形，車窗以 evenOdd 挖空
-    final body = Path()
-      ..addRRect(RRect.fromLTRBR(56, 16, 144, 224, const Radius.circular(36)))
-      ..addRRect(RRect.fromLTRBR(66, 42, 134, 100, const Radius.circular(16)))
-      ..addRRect(RRect.fromLTRBR(66, 146, 134, 202, const Radius.circular(16)))
-      ..fillType = PathFillType.evenOdd;
-    canvas.drawPath(body, Paint()..color = color);
-
-    // 左右各一扇門向外張開。四條門線在 60px 以下會糊成一團，
-    // 兩條反而看得出是車門。
-    final door = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 18
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(const Offset(56, 122), const Offset(10, 92), door);
-    canvas.drawLine(const Offset(144, 122), const Offset(190, 92), door);
-  }
-
-  @override
-  bool shouldRepaint(_DoorsOpenPainter old) => old.color != color;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
