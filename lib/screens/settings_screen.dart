@@ -52,10 +52,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 日誌過濾。大燈已驗證可用，預設回到全部日誌；
   // 切換鈕保留，日後要診斷大燈時仍可一鍵只看那條路徑。
   // _logs 永遠保留全部，過濾只在顯示與匯出時套用。
-  bool _logHeadlightOnly = false;
-  static const List<String> _headlightKeywords = [
+  bool _logIgmpOnly = false;
+  // IGMP 模組（大燈、倒車、未來的車門）共用同一組 Header 切換，
+  // 出問題時通常是彼此踩到 Header，所以要一起看才判斷得出來。
+  static const List<String> _igmpKeywords = [
+    'BC03',      // 車門開啟 PID
+    'BC04',      // 倒車 / 門鎖 / 安全帶 PID
     'BC09',      // 大燈 PID（TX / RX / NoData 都會帶到）
     'Headlights',
+    'Reversing',
     'ATSH302',   // 切到 IGMP 模組的 Header（候選一）
     'ATSH770',   // OBD.csv 標註的 Header（候選二）
     'ATSH7DF',   // 切回標準 Header
@@ -63,14 +68,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ];
 
   bool _matchesFilter(String log) {
-    if (!_logHeadlightOnly) return true;
-    return _headlightKeywords.any(log.contains);
+    if (!_logIgmpOnly) return true;
+    return _igmpKeywords.any(log.contains);
   }
 
   List<String> get _visibleLogs =>
-      _logHeadlightOnly ? _logs.where(_matchesFilter).toList() : _logs;
+      _logIgmpOnly ? _logs.where(_matchesFilter).toList() : _logs;
   StreamSubscription? _volumeSub;
   final List<String> _logs = [];
+
+  // 暫停自動捲動期間收到的日誌先擱在這裡，恢復後才併入 _logs。
+  // 不能像以前那樣照常 add + removeAt(0)：ListView.builder 的子項沒有 key，
+  // 從頭移除會讓每一列往上位移一行，捲動位置沒變畫面卻一直在動，
+  // 看起來就是「暫停失效、日誌自己一直刷」。
+  final List<String> _pendingLogs = [];
+
+  /// 只給暫停徽章用，避免每筆日誌都 setState 整頁重建
+  final ValueNotifier<int> _pendingCount = ValueNotifier<int>(0);
+
+  static const int _logCap = 500;
+  static const int _pendingCap = 2000;
+
   final ScrollController _scrollController = ScrollController();
   bool _autoScroll = true;
 
@@ -104,20 +122,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _logs.addAll(ObdSppService().logHistory);
 
     _logSub = ObdSppService().logStream.listen((log) {
-      if (mounted) {
-        setState(() {
-          _logs.add(log);
-          if (_logs.length > 500) _logs.removeAt(0);
+      if (!mounted) return;
+
+      // 暫停中：完全不動已顯示的清單，畫面才會真的停住
+      if (!_autoScroll) {
+        _pendingLogs.add(log);
+        if (_pendingLogs.length > _pendingCap) _pendingLogs.removeAt(0);
+        _pendingCount.value = _pendingLogs.length;
+        return;
+      }
+
+      setState(() {
+        _logs.add(log);
+        if (_logs.length > _logCap) _logs.removeAt(0);
+      });
+      if (!_scrollPending) {
+        _scrollPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollPending = false;
+          if (_autoScroll && _scrollController.hasClients) {
+            _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+          }
         });
-        if (_autoScroll && !_scrollPending) {
-          _scrollPending = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _scrollPending = false;
-            if (_autoScroll && _scrollController.hasClients) {
-              _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-            }
-          });
-        }
       }
     });
 
@@ -152,8 +178,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _logSub?.cancel();
     _volumeSub?.cancel();
     _scrollController.dispose();
+    _pendingCount.dispose();
     _recordingCountdownTimer?.cancel();
     super.dispose();
+  }
+
+  /// 切換自動捲動。恢復時把暫停期間累積的日誌一次併入並捲到底。
+  void _toggleAutoScroll() {
+    final bool resuming = !_autoScroll;
+    setState(() {
+      _autoScroll = resuming;
+      if (resuming && _pendingLogs.isNotEmpty) {
+        _logs.addAll(_pendingLogs);
+        _pendingLogs.clear();
+        _pendingCount.value = 0;
+        if (_logs.length > _logCap) {
+          _logs.removeRange(0, _logs.length - _logCap);
+        }
+      }
+    });
+    if (resuming) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
+      });
+    }
   }
 
   Future<void> _initPackageInfo() async {
@@ -1015,17 +1065,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                   GestureDetector(
                                     onTap: () => setState(
-                                        () => _logHeadlightOnly = !_logHeadlightOnly),
+                                        () => _logIgmpOnly = !_logIgmpOnly),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: _logHeadlightOnly
+                                        color: _logIgmpOnly
                                             ? Colors.orange.withValues(alpha: 0.2)
                                             : Colors.grey.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(4),
                                         border: Border.all(
-                                          color: _logHeadlightOnly
+                                          color: _logIgmpOnly
                                               ? Colors.orange
                                               : Colors.grey,
                                         ),
@@ -1034,20 +1084,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Icon(
-                                            _logHeadlightOnly
+                                            _logIgmpOnly
                                                 ? Icons.lightbulb
                                                 : Icons.list,
-                                            color: _logHeadlightOnly
+                                            color: _logIgmpOnly
                                                 ? Colors.orange
                                                 : Colors.grey,
                                             size: 14,
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
-                                            _logHeadlightOnly ? '只看大燈' : '全部日誌',
+                                            _logIgmpOnly ? '只看 IGMP' : '全部日誌',
                                             style: TextStyle(
                                               fontSize: 11,
-                                              color: _logHeadlightOnly
+                                              color: _logIgmpOnly
                                                   ? Colors.orange
                                                   : Colors.grey,
                                             ),
@@ -1058,8 +1108,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                   const SizedBox(width: 6),
                                   GestureDetector(
-                                    onTap: () =>
-                                        setState(() => _autoScroll = !_autoScroll),
+                                    onTap: _toggleAutoScroll,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10, vertical: 4),
@@ -1087,13 +1136,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             size: 14,
                                           ),
                                           const SizedBox(width: 4),
-                                          Text(
-                                            _autoScroll ? '自動捲動 ON' : '自動捲動 OFF',
-                                            style: TextStyle(
-                                              color: _autoScroll
-                                                  ? Colors.green
-                                                  : Colors.grey,
-                                              fontSize: 12,
+                                          ValueListenableBuilder<int>(
+                                            valueListenable: _pendingCount,
+                                            builder: (context, pending, _) => Text(
+                                              _autoScroll
+                                                  ? '自動捲動 ON'
+                                                  : pending > 0
+                                                      ? '自動捲動 OFF +$pending'
+                                                      : '自動捲動 OFF',
+                                              style: TextStyle(
+                                                color: _autoScroll
+                                                    ? Colors.green
+                                                    : Colors.grey,
+                                                fontSize: 12,
+                                              ),
                                             ),
                                           ),
                                         ],

@@ -1045,9 +1045,15 @@ class ObdSppService with ChangeNotifier {
       for (final String header in headers) {
         if (!_isConnected) return;
 
-        await sendCommand(header);
-        final String resp = await sendCommand('22BC09');
-        await sendCommand('ATSH7DF');
+        // 三道必須「同步連續」掛進 _commandChain，中間不能 await。
+        // sendCommand 是在呼叫當下才把工作接到鏈上，一旦中途 await，
+        // 別的輪詢（例如倒車那組同步掛入的 ATSH302/22BC04/ATSH7DF）
+        // 就會整包插進 Header 與查詢之間，導致 22BC09 在 7DF 底下送出、
+        // 必然回 NODATA。先把三道掛好，再去等中間那道的結果。
+        sendCommand(header);
+        final Future<String> respFuture = sendCommand('22BC09');
+        sendCommand('ATSH7DF');
+        final String resp = await respFuture;
 
         final bool ok = resp
             .toUpperCase()
