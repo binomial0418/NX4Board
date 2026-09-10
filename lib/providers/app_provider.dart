@@ -49,6 +49,12 @@ class AppProvider extends ChangeNotifier {
   bool _demoIsTrunkOpen = false;
   int _demoTicks = 0;
 
+  // ── 遠燈語音提示 ────────────────────────────────────────────────────────
+  /// 最後播報過的遠燈狀態。null = 尚未取得有效資料，此時只記錄不播報，
+  /// 避免連線當下或斷線歸零時誤報一句「遠燈關閉」。
+  bool? _lastAnnouncedHighBeam;
+  Timer? _highBeamDebounce;
+
   // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
   bool get isOnHighway => RoadTypeService().isOnHighway;
   bool get isOnExpressway => RoadTypeService().isOnExpressway;
@@ -183,7 +189,39 @@ class AppProvider extends ChangeNotifier {
   }
 
   void _onObdServiceUpdated() {
+    _maybeAnnounceHighBeam();
     notifyListeners();
+  }
+
+  /// 遠燈開啟/關閉的語音提示。
+  ///
+  /// 用去抖而不是冷卻時間：對向來車時駕駛常會連續閃遠燈，若只做冷卻會被
+  /// 連珠炮唸；要求狀態穩定 1.5 秒才播報，閃燈全程都不會出聲，真正切換
+  /// 才會唸一次。
+  void _maybeAnnounceHighBeam() {
+    // 沒有有效資料就重置：斷線時 isHighBeamOn 會被歸零，
+    // 不重置的話重連後會誤報一句「遠燈關閉」。
+    final bool hasData = _isDemoEnabled || _obdService.hasHeadlights;
+    if (!hasData) {
+      _highBeamDebounce?.cancel();
+      _lastAnnouncedHighBeam = null;
+      return;
+    }
+
+    final bool current = isHighBeamOn;
+    if (_lastAnnouncedHighBeam == null) {
+      _lastAnnouncedHighBeam = current; // 首次取得狀態只記錄，不播報
+      return;
+    }
+    if (current == _lastAnnouncedHighBeam) return;
+
+    _highBeamDebounce?.cancel();
+    _highBeamDebounce = Timer(const Duration(milliseconds: 1500), () {
+      final bool stable = isHighBeamOn;
+      if (stable == _lastAnnouncedHighBeam) return; // 期間又切回去了
+      _lastAnnouncedHighBeam = stable;
+      TtsService().speak(stable ? '遠燈開啟' : '遠燈關閉');
+    });
   }
 
   @override
@@ -191,6 +229,7 @@ class AppProvider extends ChangeNotifier {
     _obdService.removeListener(_onObdServiceUpdated);
     _obdStatusTimer?.cancel();
     _demoTimer?.cancel();
+    _highBeamDebounce?.cancel();
     _gpsDataController.close();
     TtsService().dispose();
     DeviceStatusService().dispose();
@@ -268,6 +307,7 @@ class AppProvider extends ChangeNotifier {
       if (_demoTicks % 50 == 0) _demoIsDoorUnlocked = !_demoIsDoorUnlocked;
       if (_demoTicks % 70 == 0) _demoIsTrunkOpen = !_demoIsTrunkOpen;
 
+      _maybeAnnounceHighBeam();
       notifyListeners();
     });
   }
