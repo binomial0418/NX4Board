@@ -102,22 +102,32 @@ class ObdSppService with ChangeNotifier {
   bool isHighBeamOn = false;
 
   // ── 22BC09 byte G 的位元對應 ────────────────────────────────────────────
-  // OBD.csv 寫 High_Beam = G/12、Low_Beam = H/12，實車比對後兩者都不對：
-  // 隨大燈變動的是 G（data[6]），0x00 ↔ 0xC0；H（data[7]）恆為 0x00。
-  //   開: 32 20 03 CC 40 00 C0 00 AA AA
-  //   關: 32 20 03 CC 40 00 00 00 AA AA
-  // 車門那組訊號證實了 CSV 的 ">N" 其實是 ">>N"（位移），因此 G 是 bit field。
-  // 0xC0 是 bit7 + bit6 同時亮，很可能是兩個不同訊號，但尚未分離出來。
+  // OBD.csv 寫 High_Beam = G/12、Low_Beam = H/12，實車比對後**標註是反的**：
+  // G（data[6]）是大燈總開關，H（data[7]）才是遠燈。兩者都是 bit field，
+  // 不是 CSV 那種除以 12 的量值（車門那組訊號證實 ">N" 其實是位移 ">>N"）。
+  //
+  //   大燈關:          32 20 03 CC 40 00 00 00 AA AA
+  //   大燈開、遠燈關:  32 20 03 CC 40 04 C0 00 AA AA
+  //   大燈開、遠燈開:  32 20 03 CC 40 04 C0 03 AA AA
+  //                                   ^^ ^^
+  //                                    G  H
+  // byte5 會在 0x00/0x04 之間變動，是別的訊號，與燈無關。
 
-  /// 大燈開啟（已實車驗證）
+  /// 大燈開啟：G 的 bit7 + bit6（實車驗證）
   static const int _kBeamMaskOn = 0xC0;
 
-  /// 遠燈。對應位元尚未確認，填 0 代表「不判斷」——
-  /// 上車打一次遠燈，看 [Headlights][NEW] 印出哪個位元，填進來即可。
-  static const int _kBeamMaskHigh = 0x00;
+  /// 遠燈：H 的 bit1 + bit0（實車驗證，兩個位元同進同出）
+  static const int _kBeamMaskHigh = 0x03;
 
-  /// 位元探勘：累計看過的 G 位元，出現沒看過的就明顯印一行
-  int _beamBitsSeen = 0;
+  /// 倒車。位於 22BC04（header 770）的 byte E，與門鎖同一個 byte。
+  /// 非倒車時實測 E = 0b00000001，但還沒取得打 R 檔時的樣本，
+  /// 所以遮罩填 0 代表「不判斷」，isReversing 維持 false。
+  /// 上車打一次 R 檔，看 [DoorLock] 那行的 E 變成什麼，填進來即可。
+  static const int _kReverseMask = 0x00;
+
+  /// 位元探勘：累計看過的 G / H 位元，出現沒看過的就明顯印一行
+  int _beamBitsSeenG = 0;
+  int _beamBitsSeenH = 0;
 
   // 車門與尾門開啟（OBD.csv: PID 22BC03，全部落在 byte E 的不同位元）
   //   RL=bit0  RR=bit2  FR=bit4  FL=bit5  Trunk=bit7
@@ -182,11 +192,14 @@ class ObdSppService with ChangeNotifier {
   Timer? _slowPollTimer;
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
-  Timer? _reversePollTimer;
   Timer? _igmpPollTimer;
 
+  /// 上次 IGMP 輪詢的時刻，用來依車速決定要不要跳過這一拍
+  int _lastIgmpPollMs = 0;
+
   // 大燈 PID (22BC09) 的請求 Header 尚未確定：
-  //   ATSH302 — 沿用 22BC04（倒車）在實車驗證過的 IGMP Header
+  //   ATSH302 — 早期的猜測。實車 log 顯示它對 22BC04 一律回 NODATA，
+  //              留著只是萬一 770 失效時的備援，正常情況第一次探測就會被淘汰。
   //   ATSH770 — OBD.csv 標註的 Header
   // 兩個都試，哪個拿得到 62BC09 就鎖定，之後只送那一個。
   static const List<String> _igmpHeaders = ['ATSH302', 'ATSH770'];
@@ -451,8 +464,6 @@ class ObdSppService with ChangeNotifier {
     _minutePollTimer = null;
     _longPollTimer?.cancel();
     _longPollTimer = null;
-    _reversePollTimer?.cancel();
-    _reversePollTimer = null;
     _igmpPollTimer?.cancel();
     _igmpPollTimer = null;
 
@@ -703,7 +714,8 @@ class ObdSppService with ChangeNotifier {
     hasDoors = false;
     isDoorUnlocked = false;
     hasDoorLock = false;
-    _beamBitsSeen = 0;
+    _beamBitsSeenG = 0;
+    _beamBitsSeenH = 0;
     _activeHeader = '7DF';
     _igmpHeaderLocked = null;
     _igmpFailStreak = 0;
@@ -937,7 +949,13 @@ class ObdSppService with ChangeNotifier {
                 // 只有前兩門有訊號，任一未上鎖就視為整車未上鎖。
                 isDoorUnlocked = (e & 0x08) != 0 || (e & 0x04) != 0;
                 hasDoorLock = true;
+                // 倒車也在同一個 byte，遮罩確認前不判斷（見 _kReverseMask）
+                if (_kReverseMask != 0) {
+                  isReversing = (e & _kReverseMask) != 0;
+                  hasReversing = true;
+                }
                 _log('[DoorLock] Unlocked=$isDoorUnlocked '
+                    'Reversing=$isReversing '
                     '(E=0b${e.toRadixString(2).padLeft(8, '0')}) payload=$data');
               } else {
                 isReversing = e != 0;
@@ -954,24 +972,28 @@ class ObdSppService with ChangeNotifier {
 
               // 大燈開啟（ESP32 的日/夜亮度切換也是吃這個旗標）
               isLowBeamOn = (g & _kBeamMaskOn) != 0;
-              // 遮罩為 0 代表位元還沒確認，一律回報 false，不拿 G 充數
-              isHighBeamOn =
-                  _kBeamMaskHigh != 0 && (g & _kBeamMaskHigh) != 0;
+              // 遠燈在 H 不在 G
+              isHighBeamOn = (h & _kBeamMaskHigh) != 0;
               hasHeadlights = true;
 
               _log('[Headlights] On=$isLowBeamOn High=$isHighBeamOn '
                   '(G=0b${g.toRadixString(2).padLeft(8, '0')} '
                   'H=0b${h.toRadixString(2).padLeft(8, '0')}) payload=$data');
 
-              // 位元探勘：G 出現沒看過的位元就單獨印一行。
-              // 打一次遠燈，這行就會指出遠燈是哪個位元。
-              final int newBits = g & ~_beamBitsSeen & 0xFF;
-              if (newBits != 0) {
-                _beamBitsSeen |= g;
-                _log('[Headlights][NEW] G 出現新位元 '
-                    'bit${_bitList(newBits)} '
-                    '（G=0b${g.toRadixString(2).padLeft(8, '0')}，'
-                    '累計看過 0b${_beamBitsSeen.toRadixString(2).padLeft(8, '0')}）');
+              // 位元探勘：G / H 出現沒看過的位元就單獨印一行。
+              // 兩個遮罩都已實車確認，這行留著是為了抓「還有沒有別的燈號
+              // 藏在同一個 byte」——例如小燈、日行燈。
+              final int newG = g & ~_beamBitsSeenG & 0xFF;
+              if (newG != 0) {
+                _beamBitsSeenG |= g;
+                _log('[Headlights][NEW] G 出現新位元 bit${_bitList(newG)} '
+                    '（G=0b${g.toRadixString(2).padLeft(8, '0')}）');
+              }
+              final int newH = h & ~_beamBitsSeenH & 0xFF;
+              if (newH != 0) {
+                _beamBitsSeenH |= h;
+                _log('[Headlights][NEW] H 出現新位元 bit${_bitList(newH)} '
+                    '（H=0b${h.toRadixString(2).padLeft(8, '0')}）');
               }
             } else {
               _log('[Headlights] 回應過短，無法取 G/H：payload=$data');
@@ -1089,7 +1111,6 @@ class ObdSppService with ChangeNotifier {
     _slowPollTimer?.cancel();
     _minutePollTimer?.cancel();
     _longPollTimer?.cancel();
-    _reversePollTimer?.cancel();
     _igmpPollTimer?.cancel();
 
     _scheduleFastPoll();
@@ -1119,13 +1140,17 @@ class ObdSppService with ChangeNotifier {
       sendCommand('ATSH7DF');
     });
 
-    // 倒車狀態：速度 > 20 時每 5 秒，≤ 20 時每 2 秒（遞迴自調整）
-    _scheduleReversePoll();
-
-    // IGMP 模組（大燈 / 車門 / 門鎖）：每 3 秒一次。
+    // IGMP 模組（大燈 / 車門 / 門鎖）：固定每秒一拍，
+    // 實際間隔由 _pollIgmp 依車速決定（見該處說明）。
     // 三個 PID 共用同一個 Header，一次切換全部查完，比分開輪詢還省指令。
+    //
+    // 原本這裡還有一組 header 302 的倒車輪詢（22BC04），實車 log 證實
+    // 11 次查詢全部 NODATA、從未運作過，而 NODATA 要等滿 ELM 的逾時，
+    // 單次成本是正常指令的 3~5 倍，等於整條匯流排有六成耗在空轉，
+    // 因此整組移除。倒車狀態改由 header 770 的 22BC04 取得（已在下面一起查），
+    // 只差實車確認是哪個位元 —— 見 _kReverseMask。
     _igmpPollTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) => _pollIgmp());
+        Timer.periodic(const Duration(seconds: 1), (_) => _pollIgmp());
   }
 
   /// 大燈輪詢。Header 尚未鎖定時依序試 _igmpHeaders，
@@ -1134,6 +1159,17 @@ class ObdSppService with ChangeNotifier {
     if (!_isConnected) return;
     if (_igmpGiveUp) return;
     if (_igmpPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
+
+    // 依車速決定實際間隔：車門與門鎖幾乎只在靜止時變動，行進間查得再勤
+    // 也不會有事情發生，不如把匯流排讓給 300ms 的時速/轉速快輪詢。
+    // 用「固定每秒一拍 + 跳拍」而不是遞迴重排，是為了避免某一拍提早
+    // return 就再也不排程（舊的倒車輪詢就有這個死角）。
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    final bool moving = (speed ?? 0) > 5;
+    final int minGapMs = moving ? 3000 : 1000;
+    if (nowMs - _lastIgmpPollMs < minGapMs) return;
+    _lastIgmpPollMs = nowMs;
+
     _igmpPollBusy = true;
 
     try {
@@ -1146,9 +1182,9 @@ class ObdSppService with ChangeNotifier {
 
         // 三道必須「同步連續」掛進 _commandChain，中間不能 await。
         // sendCommand 是在呼叫當下才把工作接到鏈上，一旦中途 await，
-        // 別的輪詢（例如倒車那組同步掛入的 ATSH302/22BC04/ATSH7DF）
-        // 就會整包插進 Header 與查詢之間，導致 22BC09 在 7DF 底下送出、
-        // 必然回 NODATA。先把三道掛好，再去等中間那道的結果。
+        // 別的輪詢（例如 30 秒那組同步掛入的 ATSH7C6/22B002/ATSH7DF）
+        // 就會整包插進 Header 與查詢之間，導致 22BC09 在別的 Header 底下
+        // 送出、必然回 NODATA。先把五道掛好，再去等中間那道的結果。
         sendCommand(header);
         final Future<String> respFuture = sendCommand('22BC09');
         sendCommand('22BC03'); // 四門 + 尾門開啟
@@ -1192,17 +1228,6 @@ class ObdSppService with ChangeNotifier {
     } finally {
       _igmpPollBusy = false;
     }
-  }
-
-  void _scheduleReversePoll() {
-    final int intervalMs = (speed != null && speed! > 20) ? 5000 : 2000;
-    _reversePollTimer = Timer(Duration(milliseconds: intervalMs), () {
-      if (!_isConnected) return;
-      sendCommand('ATSH302');
-      sendCommand('22BC04');
-      sendCommand('ATSH7DF');
-      _scheduleReversePoll();
-    });
   }
 
   void _scheduleFastPoll() {

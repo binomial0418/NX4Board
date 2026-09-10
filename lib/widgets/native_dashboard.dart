@@ -188,9 +188,22 @@ class _NativeDashboardState extends State<NativeDashboard>
   String _fmtTime(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+  /// DateTime.weekday 是 1(一) ~ 7(日)，索引 0 空著不用
+  static const List<String> _weekdayNames = [
+    '',
+    '週一',
+    '週二',
+    '週三',
+    '週四',
+    '週五',
+    '週六',
+    '週日',
+  ];
+
   String _fmtDate(DateTime t) => '${t.year}/'
       '${t.month.toString().padLeft(2, '0')}/'
-      '${t.day.toString().padLeft(2, '0')}';
+      '${t.day.toString().padLeft(2, '0')} '
+      '${_weekdayNames[t.weekday]}';
 
   double _displaySpeed(AppProvider p) {
     if (p.obdSpeed != null) return p.obdSpeed!.toDouble();
@@ -519,6 +532,7 @@ class _NativeDashboardState extends State<NativeDashboard>
     const double iconSize = 84;
     const Color warn = Color(0xfff59e0b); // amber-500
     const Color ok = Color(0xff22c55e); // green-500
+    const Color high = Color(0xff3b82f6); // blue-500
 
     Widget slot(bool active, Widget icon) => SizedBox(
           width: cellSize,
@@ -544,9 +558,15 @@ class _NativeDashboardState extends State<NativeDashboard>
           children: [
             Row(
               children: [
-                // 大燈：22BC09 只讀得出「開啟」，不分燈種
-                slot(p.isLowBeamOn,
-                    const _HeadlightIcon(size: iconSize, color: ok)),
+                // 大燈。遠燈時轉藍，比照車規儀表的慣例；
+                // 遠燈一定伴隨大燈開啟，所以顯示條件仍是 isLowBeamOn。
+                slot(
+                  p.isLowBeamOn,
+                  _HeadlightIcon(
+                    size: iconSize,
+                    color: p.isHighBeamOn ? high : ok,
+                  ),
+                ),
                 // 任一車門開啟
                 slot(p.isAnyDoorOpen,
                     const _DoorsOpenIcon(size: iconSize, color: warn)),
