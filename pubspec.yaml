@@ -53,9 +53,6 @@ flutter:
     - assets/speed_tiles.bin
     - assets/省道速限圖資.csv
     - assets/camera_data.csv
-    - assets/cd.html
-    - assets/tailwind.min.js
-    - assets/fonts/
     - assets/highway_landmarks.json
     - assets/expressway_landmarks.json
     - assets/icons/

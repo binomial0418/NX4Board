@@ -31,10 +31,15 @@ class _NativeDashboardState extends State<NativeDashboard>
   bool _wakeupActive = false;
 
   // Alert pulse (800 ms repeat, opacity 0.5 ↔ 1.0)
+  //
+  // 刻意不在這裡 repeat()：repeat 中的 AnimationController 會透過 Ticker
+  // 每個 vsync 呼叫 scheduleFrame()，即使沒有任何 widget 監聽這個動畫，
+  // 引擎也會持續跑完整的 frame pipeline 並 composite，永遠無法閒置。
+  // 改由 _syncPulse() 依「是否有任何警示」開關，見 build()。
   late final AnimationController _pulseCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 800),
-  )..repeat(reverse: true);
+  );
   late final Animation<double> _pulseAnim = Tween(begin: 0.5, end: 1.0).animate(
     CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
   );
@@ -151,6 +156,16 @@ class _NativeDashboardState extends State<NativeDashboard>
     if (visible != _cameraAlertVisible) {
       setState(() => _cameraAlertVisible = visible);
     }
+
+    // 警示結束且已離開該相機 → 解除武裝，讓下一台相機能重新觸發。
+    // 少了這段，_alertStartTime 會一直留著，本次 session 第一次警示
+    // 的 60 秒後 timedOut 就永遠成立，測速警告再也不會出現。
+    // 塞車停在相機旁時 hasCam 仍為 true，不重設，才不會每分鐘閃一次。
+    if (!visible && !hasCam) {
+      _alertStartTime = null;
+      _lastCameraLimit = null;
+      _isZoneAlert = false;
+    }
   }
 
   // ── Turbo peak detection ───────────────────────────────────────────────────
@@ -205,6 +220,27 @@ class _NativeDashboardState extends State<NativeDashboard>
       '${t.day.toString().padLeft(2, '0')} '
       '${_weekdayNames[t.weekday]}';
 
+  /// 四個警示條件分散在各張卡片的 build 方法裡，這裡集中判斷一次。
+  /// 門檻若在別處調整，記得一併更新這裡，否則閃爍會與紅字對不上。
+  bool _anyAlertActive(AppProvider p) {
+    final coolant = p.obdCoolant;
+    if (coolant != null && (coolant > 110 || coolant < 40)) return true;
+    if (p.obdFuel != null && p.obdFuel! < 20) return true;
+    for (final psi in [p.tpmsFl, p.tpmsFr, p.tpmsRl, p.tpmsRr]) {
+      if (psi != null && psi > 0 && psi < 32) return true;
+    }
+    return _cameraAlertVisible;
+  }
+
+  /// 有警示才讓 ticker 跑；解除就停，讓畫面能回到閒置不出 frame
+  void _syncPulse(bool anyAlert) {
+    if (anyAlert && !_pulseCtrl.isAnimating) {
+      _pulseCtrl.repeat(reverse: true);
+    } else if (!anyAlert && _pulseCtrl.isAnimating) {
+      _pulseCtrl.stop();
+    }
+  }
+
   double _displaySpeed(AppProvider p) {
     if (p.obdSpeed != null) return p.obdSpeed!.toDouble();
     final pos = p.currentPosition;
@@ -236,6 +272,9 @@ class _NativeDashboardState extends State<NativeDashboard>
     _maybeHighlight('odo', provider.obdOdometer, 'odofuel');
     _maybeHighlight('fuel', provider.obdFuel, 'odofuel');
     _maybeHighlight('roadLimit', provider.roadSpeedLimit, 'speedlimit');
+
+    // 警示閃爍的 ticker 只在有警示時才跑（見 _pulseCtrl 的說明）
+    _syncPulse(_anyAlertActive(provider));
 
     final speed = _displaySpeed(provider);
     final turbo = _processTurbo(provider.obdTurbo, provider.obdRpm);

@@ -767,7 +767,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ──────────────────────────────────────────────
-  // 同步 BLE 資料至 WebView
+  // 顯示用數值
   // ──────────────────────────────────────────────
   /// 速度來源：OBD 優先，GPS 備援（低於 1.5 m/s 視為靜止歸零）
   double get _currentDisplaySpeed {
