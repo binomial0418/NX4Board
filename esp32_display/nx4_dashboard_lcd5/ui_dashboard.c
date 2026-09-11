@@ -18,25 +18,26 @@
 // 卡片則在移除時速外環、COL_W 由 272 加寬到 356 之後重新逐項算過上限
 // （見 README「每張卡片各自的字級」）。
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_122);
-LV_FONT_DECLARE(nx4_font_num_150);
-LV_FONT_DECLARE(nx4_font_num_110);
 LV_FONT_DECLARE(nx4_font_num_106);
-LV_FONT_DECLARE(nx4_font_num_80);
-LV_FONT_DECLARE(nx4_font_num_60);
-LV_FONT_DECLARE(nx4_font_num_184s);
-LV_FONT_DECLARE(nx4_font_num_92s);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
+LV_FONT_DECLARE(nx4_font_num_248s);
+LV_FONT_DECLARE(nx4_font_num_124s);
+LV_FONT_DECLARE(nx4_font_num_145);
+LV_FONT_DECLARE(nx4_font_num_112);
+LV_FONT_DECLARE(nx4_font_num_96);
+LV_FONT_DECLARE(nx4_font_num_86);
+LV_FONT_DECLARE(nx4_font_num_64t);
+LV_FONT_DECLARE(nx4_font_num_50);
 LV_FONT_DECLARE(nx4_font_tc_26);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_80);
 
-#define F_SPEED &nx4_font_num_184s
-#define F_RPM &nx4_font_num_92s
-#define F_VALUE &nx4_font_num_122
-#define F_CLOCK &nx4_font_num_110
+#define F_SPEED &nx4_font_num_248s
+#define F_RPM &nx4_font_num_124s
+#define F_VALUE &nx4_font_num_112
+#define F_CLOCK &nx4_font_num_96
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
 // 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
 // 害水溫、胎壓、油箱都陪著一起縮。各自拆開後，以 fontTools 逐項算出
@@ -46,11 +47,12 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 //   油箱 "100"  上限 92  -> 取 88
 // Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
 // 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
-#define F_TIRE &nx4_font_num_80
+#define F_TIRE &nx4_font_num_86
 #define F_FUEL &nx4_font_num_106
-#define F_COOLANT &nx4_font_num_150
-#define F_ODO &nx4_font_num_60
-#define F_LIMIT &nx4_font_num_150
+#define F_COOLANT &nx4_font_num_145
+#define F_TURBO &nx4_font_num_64t
+#define F_ODO &nx4_font_num_50
+#define F_LIMIT &nx4_font_num_145
 #define F_LABEL &nx4_font_tc_26
 #define F_ICON &nx4_font_icons_80
 
@@ -62,19 +64,19 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
-#define LS_SPEED 7
-#define LS_RPM 4
+#define LS_SPEED 9
+#define LS_RPM 5
 
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 132
-#define H_RPM 68
-#define H_VALUE 88
-#define H_CLOCK 79
-#define H_TIRE 57
+#define H_SPEED 179
+#define H_RPM 90
+#define H_VALUE 80
+#define H_CLOCK 69
+#define H_TIRE 63
 #define H_FUEL 76
-#define H_COOLANT 108
-#define H_ODO 42
-#define H_LIMIT 108
+#define H_COOLANT 104
+#define H_ODO 36
+#define H_LIMIT 104
 #define H_LABEL 32
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
@@ -99,7 +101,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 由 nx4_dashboard（1024x600）等比重算：x 約 x1.25、y 約 x1.2。
 // 字型維持原本的點陣尺寸不變，多出來的空間全部給卡片與錶盤留白。
 #define PAD 18
-#define COL_W 356
+#define COL_W 310
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 10)
 #define CARDS_Y 36
@@ -125,12 +127,12 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // "00:00" 在 110px 下佔 315px，起點 16 → 右緣 331，卡片寬 356 還留 25px。
 #define CLOCK_X 16
 // 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
-#define CLOCK_Y 102
+#define CLOCK_Y 107
 #define TIRE_X0 (ACCENT_W + 18)
 #define TIRE_Y0 50
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
 // 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
-#define TIRE_DX 180
+#define TIRE_DX 150
 // 列距。標題佔到 y=44，卡片高 205，兩列各 57 高：
 // 列1 50..107、列2 128..185，上緣留 6、中間 21、下緣 20。
 #define TIRE_DY 78
@@ -146,23 +148,23 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原本是 0-180 的圓形錶盤。拿掉外環與刻度後改成單純由上而下堆疊，
 // 版面語彙與兩側卡片一致，也把橫向空間還給卡片（COL_W 272 -> 356）。
 //
-// 為什麼只還得出這麼多：錶盤直徑 560，但它本來就裝著一條 328px 寬的時速列
-// （"180" 在 184px 加字距），真正浪費的只有約 190px。中央區現在取 390，
-// 是被增壓刻度列（370 的長條加上兩端標籤）決定的，不是被時速決定的。
+// 中央區寬 482 是拿卡片換來的：COL_W 由 356 收到 310。原本 356 的卡片把
+// 字級推到被「卡片高度」卡住，橫向就吃不滿、留白過多；收窄之後多數卡片的
+// 字級幾乎不用動，時速反而從 184 放大到 248（+35%）。
 //
 // 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
-#define STACK_X 768
-#define STACK_W 390
+#define STACK_X 676
+#define STACK_W 482
 #define STACK_CX (STACK_X + STACK_W / 2)
 
 // 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
 // 因此這裡給的是每一列的「頂端 y」。
-#define SPEED_Y 164
-#define RPM_Y 324
-#define TURBO_Y 442
+#define SPEED_Y 122
+#define RPM_Y 338
+#define TURBO_Y 482
 #define TURBO_CX STACK_CX
-#define TURBO_BAR_W 370
-#define TURBO_BAR_Y 514
+#define TURBO_BAR_W 450
+#define TURBO_BAR_Y 554
 
 // 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
 #define STATUS_RIGHT 1258
@@ -442,12 +444,12 @@ static void build_speed_stack(void) {
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "--", F_RPM, C_BLUE);
   lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
-  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_22, C_UNIT);
+  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_30, C_UNIT);
   lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
   // 渦輪增壓
-  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_48, C_TEXT);
-  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_26, C_LABEL);
+  s_turbo_value = make_label(s_scr, "+0.00", F_TURBO, C_TEXT);
+  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_34, C_LABEL);
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
@@ -464,12 +466,12 @@ static void build_speed_stack(void) {
 
   static const char *ticks[5] = {"-1", "-0.5", "0", "+0.5", "+1"};
   for (int i = 0; i < 5; i++) {
-    lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_18, C_UNIT);
+    lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_22, C_UNIT);
     lv_obj_update_layout(tl);
     lv_obj_set_pos(tl,
                    TURBO_CX - TURBO_BAR_W / 2 + i * (TURBO_BAR_W / 4) -
                        lv_obj_get_width(tl) / 2,
-                   TURBO_BAR_Y + 16);
+                   TURBO_BAR_Y + 20);
   }
 }
 
@@ -630,7 +632,7 @@ static void anim_rpm_cb(void *var, int32_t v) {
   // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
   lv_coord_t rx = STACK_CX - rw / 2 - (ev ? 0 : 10);
   lv_obj_set_pos(s_rpm_value, rx, RPM_Y);
-  lv_obj_set_pos(s_rpm_unit, rx + rw + 12, RPM_Y + H_RPM - 26);
+  lv_obj_set_pos(s_rpm_unit, rx + rw + 16, RPM_Y + H_RPM - 34);
 }
 
 /// 增壓補間（單位為百分之一 Bar）
@@ -649,7 +651,7 @@ static void anim_turbo_cb(void *var, int32_t v) {
   const lv_coord_t gap = 24, unit_w = 48;
   lv_coord_t tx = TURBO_CX - (tw + gap + unit_w) / 2;
   lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
-  lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 20);
+  lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 27);
 }
 
 /// 啟動一段補間。同一組 (var, exec_cb) 再次啟動會自動取代前一段動畫，
