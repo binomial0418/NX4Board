@@ -108,10 +108,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define PAD 18
 // COL_W 是「左欄」的寬度；右欄另有 COL2_W，兩欄不必一樣寬。
 // 左欄（Hev電池 / 水溫 / 時鐘）被時鐘的 "00:00" 與水溫的 "120" 綁在 310；
-// 右欄（胎壓 / 里程油箱 / 速限）的內容較窄，收到 296 還有餘裕，
-// 省下的 14px 直接變成中央區的寬度。
+// 右欄（胎壓 / 里程油箱 / 速限）的內容較窄，里程改成緊湊的一組、油箱只需
+// 兩位數之後收到 284，省下的 26px 直接變成中央區的寬度。
 #define COL_W 310
-#define COL2_W 296
+#define COL2_W 284
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 10)
 #define CARDS_RIGHT (COL2_X + COL2_W)
@@ -156,7 +156,17 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
+// 里程排成緊湊的一組「里程 XXXXXX K」。數字欄是固定寬度、靠右對齊，
+// 未達六位時前方自然留空，因此位數變動時 K 不會左右跑。
+// 78 = 標籤起點 20 + 「里程」26px 寬 52 + 間距 6；168 = "999999" 在 46px 的寬度。
+#define ODO_VALUE_X 78
+#define ODO_FIELD_W 168
+#define ODO_UNIT_X (ODO_VALUE_X + ODO_FIELD_W + 6)
 #define DIVIDER_Y 101
+// 油箱實際只會是 1-99（外加未取得資料時的 "--"），所以數字欄置中，
+// 一位數與兩位數切換時視覺重心不會跳動。欄位右界留給靠右的 % 單位。
+#define FUEL_VALUE_X 78
+#define FUEL_FIELD_W 174
 #define FUEL_LABEL_Y 135
 #define FUEL_VALUE_Y 118
 #define FUEL_UNIT_Y (FUEL_VALUE_Y + H_FUEL - 24)
@@ -434,11 +444,13 @@ static void build_column2(void) {
 
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
-  // 靠右對齊，位數變多時往左長，不會壓到單位
+  // 固定寬度 + 靠右對齊 = 前方補空。位數變動時 K 不會跟著移動。
   s_odo_value = make_label(card, "--", F_ODO, C_TEXT);
-  lv_obj_align(s_odo_value, LV_ALIGN_TOP_RIGHT, -32, ODO_VALUE_Y);
+  lv_obj_set_width(s_odo_value, ODO_FIELD_W);
+  lv_obj_set_style_text_align(s_odo_value, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ODO_VALUE_X, ODO_VALUE_Y);
   lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_20, C_UNIT);
-  lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -10, ODO_UNIT_Y);
+  lv_obj_align(odo_unit, LV_ALIGN_TOP_LEFT, ODO_UNIT_X, ODO_UNIT_Y);
 
   lv_obj_t *divider = lv_obj_create(card);
   lv_obj_set_pos(divider, ACCENT_W + 14, DIVIDER_Y);
@@ -451,10 +463,11 @@ static void build_column2(void) {
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, FUEL_LABEL_Y);
+  // 只會是 1-99，固定寬度 + 置中，位數變動時重心不跳。
   s_fuel_value = make_label(card, "--", F_FUEL, C_TEXT);
-  // 與里程同樣靠右對齊到 -32。原本再往左縮排 61px 是為了和里程錯開，
-  // 但 88px 下 "100" 寬 149，再縮排就會壓到左邊的「油箱」標籤（右緣 72）。
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -32, FUEL_VALUE_Y);
+  lv_obj_set_width(s_fuel_value, FUEL_FIELD_W);
+  lv_obj_set_style_text_align(s_fuel_value, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_LEFT, FUEL_VALUE_X, FUEL_VALUE_Y);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_20, C_UNIT);
   lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -10, FUEL_UNIT_Y);
 
@@ -464,7 +477,7 @@ static void build_column2(void) {
   s_limit_card = make_value_card(COL2_X, ROW3_Y, COL2_W, CARD_H, C_RED, "道路速限",
                                  NULL, F_LIMIT, H_LIMIT, &s_limit_value,
                                  &s_limit_title);
-  lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 24, VALUE_Y);
+  lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X, VALUE_Y);
 }
 
 // ── 中央：時速 / 轉速 / 增壓的垂直堆疊 ──────────────────────────────────
