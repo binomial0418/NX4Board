@@ -30,6 +30,7 @@ LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
 LV_FONT_DECLARE(nx4_font_num_46);
 LV_FONT_DECLARE(nx4_font_tc_26);
+LV_FONT_DECLARE(nx4_font_tc_32);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_80);
@@ -53,7 +54,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define F_TURBO &nx4_font_num_64t
 #define F_ODO &nx4_font_num_46
 #define F_LIMIT &nx4_font_num_145
+// 卡片抬頭用 32px，比內文標籤大一級。里程與油箱是「行內標籤」不是抬頭，
+// 維持 26px——它們與右側的數值同一列，放大會擠掉數值的位置。
 #define F_LABEL &nx4_font_tc_26
+#define F_TITLE &nx4_font_tc_32
 #define F_ICON &nx4_font_icons_80
 
 // 圖示字元（UTF-8）。順序與產生腳本的 --range 對應，改動時要一起改。
@@ -78,6 +82,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define H_ODO 33
 #define H_LIMIT 104
 #define H_LABEL 32
+#define H_TITLE 38
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
 #define C_BG 0x000000
@@ -135,7 +140,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
 #define CLOCK_Y 107
 #define TIRE_X0 (ACCENT_W + 18)
-#define TIRE_Y0 64
+#define TIRE_Y0 66
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
 // 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
 #define TIRE_DX 120
@@ -144,8 +149,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 這張卡的垂直空間是固定的（161px），上緣、兩個行高、列距、下緣要共用它，
 // 所以「標題到數值的間隔」「兩列的間隔」「字級」三者是同一筆預算：
 //   86px → 上緣 8、列距 17     76px → 上緣 8、列距 35
-//   70px → 上緣 20、列距 34   ← 現在這組，標題間隔與列距同時拉開
-#define TIRE_DY 83
+//   70px → 上緣 16、列距 31   ← 現在這組
+// 抬頭由 26px 放大到 32px 之後（行高 32→38），可用高度少了 6px，
+// 上緣與列距各退 1~3px 吸收掉。
+#define TIRE_DY 80
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
@@ -370,7 +377,7 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
 
   lv_obj_t *title = NULL;
   if (label != NULL) {
-    title = make_label(card, label, F_LABEL, C_LABEL);
+    title = make_label(card, label, F_TITLE, C_LABEL);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, TITLE_Y);
   }
   if (out_title != NULL) *out_title = title;
@@ -401,7 +408,7 @@ static void build_column1(void) {
 
   // 時鐘：上方日期 + 下方時間（HH:MM 大字 + :SS 小字）
   lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
-  s_date_value = make_label(card, "--/--", F_LABEL, C_LABEL);
+  s_date_value = make_label(card, "--/--", F_TITLE, C_LABEL);
   lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, DATE_Y);
 
   // 只顯示 HH:MM。字型已放大到 86px，是這張卡片寬度容得下的極限。
@@ -413,7 +420,7 @@ static void build_column1(void) {
 static void build_column2(void) {
   // 胎壓 (PSI)：2x2
   lv_obj_t *card = make_card(COL2_X, ROW1_Y, COL2_W, CARD_H, C_ORANGE);
-  lv_obj_t *t = make_label(card, "胎壓 (PSI)", F_LABEL, C_LABEL);
+  lv_obj_t *t = make_label(card, "胎壓 (PSI)", F_TITLE, C_LABEL);
   lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, TITLE_Y);
 
   for (int i = 0; i < 4; i++) {
