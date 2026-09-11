@@ -21,12 +21,12 @@
 LV_FONT_DECLARE(nx4_font_num_106);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
-LV_FONT_DECLARE(nx4_font_num_248s);
+LV_FONT_DECLARE(nx4_font_num_272s);
 LV_FONT_DECLARE(nx4_font_num_96s);
 LV_FONT_DECLARE(nx4_font_num_145);
 LV_FONT_DECLARE(nx4_font_num_112);
 LV_FONT_DECLARE(nx4_font_num_96);
-LV_FONT_DECLARE(nx4_font_num_76);
+LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
 LV_FONT_DECLARE(nx4_font_num_50);
 LV_FONT_DECLARE(nx4_font_tc_26);
@@ -34,7 +34,7 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_80);
 
-#define F_SPEED &nx4_font_num_248s
+#define F_SPEED &nx4_font_num_272s
 #define F_RPM &nx4_font_num_96s
 #define F_VALUE &nx4_font_num_112
 #define F_CLOCK &nx4_font_num_96
@@ -47,7 +47,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 //   油箱 "100"  上限 92  -> 取 88
 // Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
 // 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
-#define F_TIRE &nx4_font_num_76
+#define F_TIRE &nx4_font_num_70
 #define F_FUEL &nx4_font_num_106
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
@@ -64,15 +64,15 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
-#define LS_SPEED 9
+#define LS_SPEED 10
 #define LS_RPM 4
 
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 179
+#define H_SPEED 196
 #define H_RPM 70
 #define H_VALUE 80
 #define H_CLOCK 69
-#define H_TIRE 53
+#define H_TIRE 49
 #define H_FUEL 76
 #define H_COOLANT 104
 #define H_ODO 36
@@ -129,15 +129,17 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
 #define CLOCK_Y 107
 #define TIRE_X0 (ACCENT_W + 18)
-#define TIRE_Y0 52
+#define TIRE_Y0 64
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
 // 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
 #define TIRE_DX 150
 // 列距。標題佔到 y=44，卡片高 205 → 可用 161px。兩列各 53 高時：
 //   列1 52..105、列2 140..193，上緣 8、**列距 35**、下緣 12。
-// 這張卡的垂直空間是固定的，要拉開兩列就只能縮字級：86px 時列距只有 15，
-// 76px 才換得到 35。字級與列距是同一筆預算。
-#define TIRE_DY 88
+// 這張卡的垂直空間是固定的（161px），上緣、兩個行高、列距、下緣要共用它，
+// 所以「標題到數值的間隔」「兩列的間隔」「字級」三者是同一筆預算：
+//   86px → 上緣 8、列距 17     76px → 上緣 8、列距 35
+//   70px → 上緣 20、列距 34   ← 現在這組，標題間隔與列距同時拉開
+#define TIRE_DY 83
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
@@ -150,7 +152,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原本是 0-180 的圓形錶盤。拿掉外環與刻度後改成單純由上而下堆疊，
 // 版面語彙與兩側卡片一致，也把橫向空間還給卡片（COL_W 272 -> 356）。
 //
-// 中央區寬 482 是拿卡片換來的：COL_W 由 356 收到 310。原本 356 的卡片把
+// 中央區從卡片右緣 648 一路到圖示條左緣 1178，共 530px。先前寫成 676..1158
+// （482）是自己多畫的界線，白白浪費了兩側各 24px——時速因此得以再放大到 272。
+//
+// 這 530 是拿卡片換來的：COL_W 由 356 收到 310。原本 356 的卡片把
 // 字級推到被「卡片高度」卡住，橫向就吃不滿、留白過多；收窄之後多數卡片的
 // 字級幾乎不用動，時速反而從 184 放大到 248（+35%）。
 //
@@ -158,18 +163,24 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原始設計是 150/76 = 1.97，兩者差不多大，在拿掉錶環之後主從就不夠分明。
 //
 // 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
-#define STACK_X 676
-#define STACK_W 482
+#define STACK_X 648
+#define STACK_W 530
 #define STACK_CX (STACK_X + STACK_W / 2)
 
 // 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
 // 因此這裡給的是每一列的「頂端 y」。
-#define SPEED_Y 132
-#define RPM_Y 348
-#define TURBO_Y 472
+//
+// 轉速與增壓刻意對齊到右欄第三張卡（道路速限，ROW3_Y 482..687）的上下緣：
+//   轉速頂端 = ROW3_Y = 482          （貼卡片上緣）
+//   增壓刻度底端 = 643 + 20 + 24 = 687（貼卡片下緣）
+// 這樣中央堆疊與兩側卡片在視覺上有共同的基準線。
+// 時速則置中於第一、二列卡片所在的 36..482 之間。
+#define SPEED_Y 161
+#define RPM_Y ROW3_Y
+#define TURBO_Y 580
 #define TURBO_CX STACK_CX
 #define TURBO_BAR_W 450
-#define TURBO_BAR_Y 544
+#define TURBO_BAR_Y 643
 
 // 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
 #define STATUS_RIGHT 1258
