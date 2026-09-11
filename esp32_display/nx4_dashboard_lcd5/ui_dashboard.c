@@ -22,11 +22,11 @@ LV_FONT_DECLARE(nx4_font_num_106);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
 LV_FONT_DECLARE(nx4_font_num_248s);
-LV_FONT_DECLARE(nx4_font_num_124s);
+LV_FONT_DECLARE(nx4_font_num_96s);
 LV_FONT_DECLARE(nx4_font_num_145);
 LV_FONT_DECLARE(nx4_font_num_112);
 LV_FONT_DECLARE(nx4_font_num_96);
-LV_FONT_DECLARE(nx4_font_num_86);
+LV_FONT_DECLARE(nx4_font_num_76);
 LV_FONT_DECLARE(nx4_font_num_64t);
 LV_FONT_DECLARE(nx4_font_num_50);
 LV_FONT_DECLARE(nx4_font_tc_26);
@@ -35,7 +35,7 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_icons_80);
 
 #define F_SPEED &nx4_font_num_248s
-#define F_RPM &nx4_font_num_124s
+#define F_RPM &nx4_font_num_96s
 #define F_VALUE &nx4_font_num_112
 #define F_CLOCK &nx4_font_num_96
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
@@ -47,7 +47,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 //   油箱 "100"  上限 92  -> 取 88
 // Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
 // 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
-#define F_TIRE &nx4_font_num_86
+#define F_TIRE &nx4_font_num_76
 #define F_FUEL &nx4_font_num_106
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
@@ -65,14 +65,14 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
 #define LS_SPEED 9
-#define LS_RPM 5
+#define LS_RPM 4
 
 // 由字型的 line_height 推得，用於排版時預留高度
 #define H_SPEED 179
-#define H_RPM 90
+#define H_RPM 70
 #define H_VALUE 80
 #define H_CLOCK 69
-#define H_TIRE 63
+#define H_TIRE 53
 #define H_FUEL 76
 #define H_COOLANT 104
 #define H_ODO 36
@@ -129,13 +129,15 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
 #define CLOCK_Y 107
 #define TIRE_X0 (ACCENT_W + 18)
-#define TIRE_Y0 50
+#define TIRE_Y0 52
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
 // 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
 #define TIRE_DX 150
-// 列距。標題佔到 y=44，卡片高 205，兩列各 57 高：
-// 列1 50..107、列2 128..185，上緣留 6、中間 21、下緣 20。
-#define TIRE_DY 78
+// 列距。標題佔到 y=44，卡片高 205 → 可用 161px。兩列各 53 高時：
+//   列1 52..105、列2 140..193，上緣 8、**列距 35**、下緣 12。
+// 這張卡的垂直空間是固定的，要拉開兩列就只能縮字級：86px 時列距只有 15，
+// 76px 才換得到 35。字級與列距是同一筆預算。
+#define TIRE_DY 88
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
@@ -152,6 +154,9 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 字級推到被「卡片高度」卡住，橫向就吃不滿、留白過多；收窄之後多數卡片的
 // 字級幾乎不用動，時速反而從 184 放大到 248（+35%）。
 //
+// 轉速刻意壓到 96（時速/轉速 = 2.58），讓時速在堆疊裡明顯是主角。
+// 原始設計是 150/76 = 1.97，兩者差不多大，在拿掉錶環之後主從就不夠分明。
+//
 // 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
 #define STACK_X 676
 #define STACK_W 482
@@ -159,12 +164,12 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 
 // 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
 // 因此這裡給的是每一列的「頂端 y」。
-#define SPEED_Y 122
-#define RPM_Y 338
-#define TURBO_Y 482
+#define SPEED_Y 132
+#define RPM_Y 348
+#define TURBO_Y 472
 #define TURBO_CX STACK_CX
 #define TURBO_BAR_W 450
-#define TURBO_BAR_Y 554
+#define TURBO_BAR_Y 544
 
 // 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
 #define STATUS_RIGHT 1258
@@ -444,7 +449,7 @@ static void build_speed_stack(void) {
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "--", F_RPM, C_BLUE);
   lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
-  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_30, C_UNIT);
+  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_24, C_UNIT);
   lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
   // 渦輪增壓
@@ -632,7 +637,7 @@ static void anim_rpm_cb(void *var, int32_t v) {
   // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
   lv_coord_t rx = STACK_CX - rw / 2 - (ev ? 0 : 10);
   lv_obj_set_pos(s_rpm_value, rx, RPM_Y);
-  lv_obj_set_pos(s_rpm_unit, rx + rw + 16, RPM_Y + H_RPM - 34);
+  lv_obj_set_pos(s_rpm_unit, rx + rw + 14, RPM_Y + H_RPM - 26);
 }
 
 /// 增壓補間（單位為百分之一 Bar）
