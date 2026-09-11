@@ -307,29 +307,72 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 
 ## 六、字型
 
-本專案內附三個以 `lv_font_conv` 產生的字型：
+本專案內附六個以 `lv_font_conv` 產生的字型：
 
-| 檔案 | 內容 | 用途 |
-|---|---|---|
-| `nx4_font_num_150s.c` | Montserrat **SemiBold** 150 px，`0-9` `-` | 儀表中央時速大字 |
-| `nx4_font_num_76s.c` | Montserrat **SemiBold** 76 px，`0-9` `E` `V` `-` | 轉速（含 `EV`） |
-| `nx4_font_num_80.c` | Montserrat 80 px，`0-9` `.` `:` `%` `-` | 卡片大數值 |
-| `nx4_font_num_64.c` | Montserrat 64 px，`0-9` `:` `-` | 時鐘 `HH:MM` |
-| `nx4_font_tc_22.c` | Noto Sans TC 22 px，ASCII + 所需漢字 | 中文標籤 |
+| 檔案 | 內容 | line_height | 用途 |
+|---|---|---|---|
+| `nx4_font_num_184s.c` | Montserrat **SemiBold** 184 px，`0-9` `-` | 132 | 儀表中央時速大字 |
+| `nx4_font_num_92s.c` | Montserrat **SemiBold** 92 px，`0-9` `E` `V` `-` | 68 | 轉速（含 `EV`） |
+| `nx4_font_num_96.c` | Montserrat 96 px，`0-9` `.` `:` `%` `-` | 69 | 卡片大數值 |
+| `nx4_font_num_77.c` | Montserrat 77 px，`0-9` `:` `-` | 54 | 時鐘 `HH:MM` |
+| `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `-` | 37 | 胎壓四格與油箱 |
+| `nx4_font_tc_26.c` | Noto Sans TC 26 px，ASCII + 57 個漢字 | 32 | 中文標籤 |
+
+### 字級為什麼是這些數字
+
+相對 `nx4_dashboard`（1024x600 / 7 吋）的放大倍率，取自各元件**容器**的
+放大倍率，不是憑感覺挑的：
+
+| 容器 | 舊 | 新 | 倍率 | 內容字型 |
+|---|---|---|---|---|
+| 錶盤 `GAUGE_SIZE` | 460 | 560 | 1.217 | 時速 150→184、轉速 76→92 |
+| 卡片 `CARD_H` | 170 | 205 | 1.2 | 大數值 80→96、時鐘 64→77、標籤 22→26 |
+
+這樣每個元件佔畫面的比例與原設計一致，只是用上了新面板多出來的 50% 像素。
+LVGL 內建字型也一併跟上：里程 38→46、單位 16→20 與 18→22、`BAR` 22→26、
+增壓刻度與 IP 14→18。增壓數值含 `+` 與 `.`，只能用內建字型，44→48 是
+LVGL 內建的上限。
+
+**注意物理尺寸仍然變小了。** 舊板 7 吋是 6.61 px/mm，新板 5 吋橫放是
+11.56 px/mm，要維持相同的實體大小得放大 1.75 倍，但 1280 px 的畫布放不下
+（1024 x 1.75 = 1792）。5 吋螢幕無法重現 7 吋的實體版面，上述倍率是在
+可用像素內的最佳解，實際字高約為舊板的 0.7 倍。
+
+### 版面驗算
+
+改字級後務必重算相依尺寸。已知的邊界條件：
+
+| 項目 | 最壞字串 | 寬度 | 可用 |
+|---|---|---|---|
+| Hev 電池 | `99.9` | 196 | 232 |
+| 時鐘 | `00:00` | 220 | 258 |
+| 時速 | `180` | 328 | 錶盤內圈約 456 |
+| 轉速 | `7000` | 254 | 該高度處約 271 |
+
+`VALUE_DX` 是唯一**不能**跟著放大的常數：字級到 96px 後，`99.9` 的右緣會
+壓到靠右對齊的 `%`，所以由 20 收窄成 12。程式對 SOC ≥ 100 已特判成不帶
+小數的 `100`，因此 `100.0` 不會出現。
 
 兩份字型皆為 SIL Open Font License 1.1，授權全文見
 `OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。
 
-> Regular 以外的字重必須用**靜態**的 TTF（例如 `Montserrat-SemiBold.ttf`，
-> 取自 Montserrat 上游 repo）。`Montserrat[wght].ttf` 是可變字型，
-> lv_font_conv 只會取到預設的 Regular 字重，指定粗體是沒有作用的。
+> Regular 以外的字重必須用**靜態**的 TTF。Google Fonts 上游發布的
+> `Montserrat[wght].ttf` 與 `NotoSansTC[wght].ttf` 都是可變字型，而且**預設
+> 字重是 100（Thin）不是 400**，直接餵給 lv_font_conv 會得到極細的字。
+> 先用 fontTools 抽出靜態字重：
+>
+> ```bash
+> python3 -m fontTools.varLib.instancer Montserrat[wght].ttf wght=600 -o Montserrat-SemiBold.ttf
+> python3 -m fontTools.varLib.instancer Montserrat[wght].ttf wght=400 -o Montserrat-Regular.ttf
+> python3 -m fontTools.varLib.instancer NotoSansTC[wght].ttf wght=400 -o NotoSansTC-Regular.ttf
+> ```
 
 > 每個數字字型都必須收錄 `-`：畫面在尚未取得資料時以 `--` 當佔位符，
 > 字型少了它會顯示成空白方框。新增任何佔位符或單位字元時，
 > 記得檢查對應字型有沒有收錄該字元。
 
 > 時速與轉速另外以 `lv_obj_set_style_text_letter_space()` 加上字距
-> （`LS_SPEED` 6px、`LS_RPM` 3px）。字重負責「粗細」、字距負責「疏密」，
+> （`LS_SPEED` 7px、`LS_RPM` 4px）。字重負責「粗細」、字距負責「疏密」，
 > 兩者是分開的：光調字重解決不了數字擠在一起的問題。
 
 > **產生時務必加 `--no-compress`。** lv_font_conv 預設會壓縮點陣，
@@ -337,20 +380,43 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 > 字寬與行高都正確（版面看起來有預留位置），但**一個像素都畫不出來**，
 > 非常容易誤判成版面或顏色問題。字型檔裡的 `.bitmap_format` 必須是 `0`。
 
-重新產生（需 node）：
+重新產生全部六個（需 node 與 fontTools，`$F` 指向上面抽出的靜態 TTF）：
 
 ```bash
-npx lv_font_conv@1.5.2 --no-compress --font Montserrat[wght].ttf \
-  --size 112 --bpp 4 --format lvgl --lv-include lvgl.h \
-  --range 0x30-0x39 --range 0x2D -o nx4_font_num_112.c
+conv() { npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 \
+           --format lvgl --lv-include lvgl.h "$@"; }
 
-npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
-  --size 22 --bpp 4 --format lvgl --lv-include lvgl.h --range 0x20-0x7E \
-  --symbols "電池水溫胎壓里程油箱道路速限測照相遠近燈週一二三四五六日月" \\
-  -o nx4_font_tc_22.c
+conv --font $F/Montserrat-SemiBold.ttf --size 184 \
+     --range 0x30-0x39 --range 0x2D -o nx4_font_num_184s.c
+conv --font $F/Montserrat-SemiBold.ttf --size 92 \
+     --range 0x30-0x39 --range 0x2D --range 0x45 --range 0x56 -o nx4_font_num_92s.c
+conv --font $F/Montserrat-Regular.ttf --size 96 \
+     --range 0x30-0x39 --range 0x2D --range 0x2E --range 0x3A --range 0x25 -o nx4_font_num_96.c
+conv --font $F/Montserrat-Regular.ttf --size 77 \
+     --range 0x30-0x39 --range 0x2D --range 0x3A -o nx4_font_num_77.c
+conv --font $F/Montserrat-Regular.ttf --size 52 \
+     --range 0x30-0x39 --range 0x2D -o nx4_font_num_52.c
+conv --font $F/NotoSansTC-Regular.ttf --size 26 --range 0x20-0x7E \
+     --symbols "一三下不並二五儲入六到取名四壓失存定密已找按掃描擇敗日月水池油消測溫照燈相碼程稱箱網胎設請路輸近速週道遠選里限電點" \
+     -o nx4_font_tc_26.c
 ```
 
-若要新增中文字，把字加進 `--symbols` 後重新產生即可。
+`--symbols` 那一串是目前介面實際用到的 57 個漢字。**新增中文字時必須把字
+加進去重新產生**，否則畫面上會是空白方框。可以用這段從原始碼撈出完整字集：
+
+```bash
+python3 -c "
+import re
+c=set()
+for f in ['ui_dashboard.c','ui_settings.c']:
+    for s in re.findall(r'\"((?:[^\"\\\\]|\\\\.)*)\"', open(f,encoding='utf-8').read()):
+        c |= {x for x in s if ord(x) > 0x2E80}
+print(''.join(sorted(c)))
+"
+```
+
+> 注意這只撈得到原始碼裡的字面字串。星期用字（`週一` 到 `週日`）來自手機
+> 推送的 `date` 欄位，不在原始碼裡，所以上面的 `--symbols` 清單才是準的。
 
 ---
 
@@ -361,7 +427,7 @@ npx lv_font_conv@1.5.2 --no-compress --font NotoSansTC[wght].ttf \
 | `nx4_dashboard_lcd5.ino` | 主程式：LCD/觸控/LVGL 初始化、**PPA 旋轉**、WiFi、WebSocket Server |
 | `ui_dashboard.h/.c` | 儀表 UI 建立與數值更新 |
 | `ui_settings.h/.c` | WiFi 設定面板（掃描清單、輸入欄位、螢幕鍵盤） |
-| `nx4_font_num_160.c` / `nx4_font_num_80.c` / `nx4_font_tc_22.c` | 專用字型，見「六、字型」 |
+| `nx4_font_num_*.c` / `nx4_font_tc_26.c` | 專用字型，六個，見「六、字型」 |
 | `pins_config.h` | 邏輯/實體解析度與腳位（依原廠 `docs/IO_ZH.md`） |
 | `lv_conf.h` | LVGL 設定（原廠 Demo + 開啟大字型） |
 | `config.h.example` | WiFi / Port / 靜態 IP / 逾時設定範本 |

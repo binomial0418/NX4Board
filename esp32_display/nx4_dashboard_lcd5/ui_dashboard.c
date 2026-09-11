@@ -6,34 +6,43 @@
 
 // ─────────────────────────────────────────────────────────────────────────
 // 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
-//   nx4_font_num_150s — 時速大字，Montserrat SemiBold（line_height 108）
-//   nx4_font_num_76s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 56）
-//   nx4_font_num_80   — 卡片大數值，Regular（line_height 57）
-//   nx4_font_num_64   — 時鐘 HH:MM，Regular（line_height 44）
-//   nx4_font_tc_22    — 中文標籤 + 基本 ASCII（line_height 25）
+//   nx4_font_num_184s — 時速大字，Montserrat SemiBold（line_height 132）
+//   nx4_font_num_92s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 68）
+//   nx4_font_num_96   — 卡片大數值，Regular（line_height 69）
+//   nx4_font_num_77   — 時鐘 HH:MM，Regular（line_height 54）
+//   nx4_font_num_52   — 胎壓與油箱，Regular（line_height 37）
+//   nx4_font_tc_26    — 中文標籤 + 基本 ASCII（line_height 32）
+//
+// 尺寸相對 nx4_dashboard（1024x600 / 7 吋）的放大倍率，是各元件「容器」
+// 的放大倍率，不是憑感覺挑的：錶盤 GAUGE_SIZE 460→560 是 1.217 倍，
+// 卡片 CARD_H 170→205 是 1.2 倍。這樣每個元件佔畫面的比例與原設計一致，
+// 只是用上了新面板多出來的 50% 像素，邊緣更銳利。
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_150s);
-LV_FONT_DECLARE(nx4_font_num_76s);
-LV_FONT_DECLARE(nx4_font_num_80);
-LV_FONT_DECLARE(nx4_font_num_64);
-LV_FONT_DECLARE(nx4_font_tc_22);
+LV_FONT_DECLARE(nx4_font_num_184s);
+LV_FONT_DECLARE(nx4_font_num_92s);
+LV_FONT_DECLARE(nx4_font_num_96);
+LV_FONT_DECLARE(nx4_font_num_77);
+LV_FONT_DECLARE(nx4_font_num_52);
+LV_FONT_DECLARE(nx4_font_tc_26);
 
-#define F_SPEED &nx4_font_num_150s
-#define F_RPM &nx4_font_num_76s
-#define F_VALUE &nx4_font_num_80
-#define F_CLOCK &nx4_font_num_64
-#define F_LABEL &nx4_font_tc_22
+#define F_SPEED &nx4_font_num_184s
+#define F_RPM &nx4_font_num_92s
+#define F_VALUE &nx4_font_num_96
+#define F_CLOCK &nx4_font_num_77
+#define F_TIRE &nx4_font_num_52
+#define F_LABEL &nx4_font_tc_26
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
-#define LS_SPEED 6
-#define LS_RPM 3
+#define LS_SPEED 7
+#define LS_RPM 4
 
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 108
-#define H_RPM 56
-#define H_VALUE 57
-#define H_CLOCK 44
-#define H_LABEL 25
+#define H_SPEED 132
+#define H_RPM 68
+#define H_VALUE 69
+#define H_CLOCK 54
+#define H_TIRE 37
+#define H_LABEL 32
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
 #define C_BG 0x000000
@@ -70,8 +79,10 @@ LV_FONT_DECLARE(nx4_font_tc_22);
 #define ACCENT_W 6
 #define VALUE_X (ACCENT_W + 14)
 #define VALUE_Y 80
-// Hev電池 / 水溫 / 時間的數值往右挪，與標籤錯開（日期不動）
-#define VALUE_DX 20
+// Hev電池 / 水溫 / 時間的數值往右挪，與標籤錯開（日期不動）。
+// 字級放大到 96px 後這個位移不能再跟著放大：Hev 電池最寬的 "99.9" 寬 196px，
+// 起點 20+20 會讓右緣壓到靠右的 "%" 單位，收窄到 12 才留得下 8px 間隙。
+#define VALUE_DX 12
 
 // ── 卡片內部的相對位移 ──────────────────────────────────────────────────
 // 全部相對於卡片左上角。改 CARD_H 時這一組要一起重算，
@@ -284,7 +295,7 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
   lv_obj_align(value, LV_ALIGN_TOP_LEFT, VALUE_X, VALUE_Y);
 
   if (unit != NULL) {
-    lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_18, C_UNIT);
+    lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_22, C_UNIT);
     lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -14, VALUE_Y + H_VALUE - 24);
   }
 
@@ -321,7 +332,7 @@ static void build_column2(void) {
   lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, TITLE_Y);
 
   for (int i = 0; i < 4; i++) {
-    s_tire_value[i] = make_label(card, "--", &lv_font_montserrat_44, C_TEXT);
+    s_tire_value[i] = make_label(card, "--", F_TIRE, C_TEXT);
     // 左欄 (FL/RL) 右移 20px、右欄 (FR/RR) 右移 10px
     const lv_coord_t dx = (i % 2 == 0) ? 20 : 10;
     lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
@@ -334,9 +345,9 @@ static void build_column2(void) {
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
   // 靠右對齊，位數變多時往左長，不會壓到單位
-  s_odo_value = make_label(card, "--", &lv_font_montserrat_38, C_TEXT);
+  s_odo_value = make_label(card, "--", &lv_font_montserrat_46, C_TEXT);
   lv_obj_align(s_odo_value, LV_ALIGN_TOP_RIGHT, -32, ODO_VALUE_Y);
-  lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_16, C_UNIT);
+  lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_20, C_UNIT);
   lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -10, ODO_UNIT_Y);
 
   lv_obj_t *divider = lv_obj_create(card);
@@ -350,10 +361,10 @@ static void build_column2(void) {
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, FUEL_LABEL_Y);
-  s_fuel_value = make_label(card, "--", &lv_font_montserrat_42, C_TEXT);
-  // 比里程再往左兩個字元（montserrat_38 數字寬約 25.4px）
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -32 - 51, FUEL_VALUE_Y);
-  lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_16, C_UNIT);
+  s_fuel_value = make_label(card, "--", F_TIRE, C_TEXT);
+  // 比里程再往左兩個字元（montserrat_46 數字寬約 30.7px）
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -32 - 61, FUEL_VALUE_Y);
+  lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_20, C_UNIT);
   lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -10, FUEL_UNIT_Y);
 
   // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
@@ -371,7 +382,7 @@ static void build_gauge(void) {
   lv_obj_set_style_bg_opa(s_meter, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(s_meter, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(s_meter, 0, LV_PART_MAIN);
-  lv_obj_set_style_text_font(s_meter, &lv_font_montserrat_16, LV_PART_TICKS);
+  lv_obj_set_style_text_font(s_meter, &lv_font_montserrat_20, LV_PART_TICKS);
   // lv_meter 會在 LV_PART_INDICATOR 無條件畫出指針樞紐的小圓點；
   // 本儀表沒有指針，把它的尺寸與不透明度歸零藏起來
   lv_obj_set_style_size(s_meter, 0, LV_PART_INDICATOR);
@@ -421,12 +432,12 @@ static void build_gauge(void) {
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "--", F_RPM, C_BLUE);
   lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
-  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_18, C_UNIT);
+  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_22, C_UNIT);
   lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
   // 渦輪增壓
-  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_44, C_TEXT);
-  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_22, C_LABEL);
+  s_turbo_value = make_label(s_scr, "+0.00", &lv_font_montserrat_48, C_TEXT);
+  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_26, C_LABEL);
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
@@ -443,7 +454,7 @@ static void build_gauge(void) {
 
   static const char *ticks[5] = {"-1", "-0.5", "0", "+0.5", "+1"};
   for (int i = 0; i < 5; i++) {
-    lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_14, C_UNIT);
+    lv_obj_t *tl = make_label(s_scr, ticks[i], &lv_font_montserrat_18, C_UNIT);
     lv_obj_update_layout(tl);
     lv_obj_set_pos(tl,
                    TURBO_CX - TURBO_BAR_W / 2 + i * (TURBO_BAR_W / 4) -
@@ -465,7 +476,7 @@ static void build_status(void) {
   s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
   lv_obj_set_pos(s_status_lights, STATUS_RIGHT - 44, STATUS_LIGHTS_Y);
 
-  s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_14, C_UNIT);
+  s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_18, C_UNIT);
   lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, STATUS_IP_Y);
 
   // 點 IP 開啟 WiFi 設定面板。字很小，把可點範圍往外擴 24px 才好按。
@@ -584,7 +595,7 @@ static void anim_rpm_cb(void *var, int32_t v) {
   // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
   lv_coord_t rx = GAUGE_CX - rw / 2 - (ev ? 0 : 10);
   lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + RPM_DY);
-  lv_obj_set_pos(s_rpm_unit, rx + rw + 10, GAUGE_CY + RPM_DY + H_RPM - 22);
+  lv_obj_set_pos(s_rpm_unit, rx + rw + 12, GAUGE_CY + RPM_DY + H_RPM - 26);
 }
 
 /// 增壓補間（單位為百分之一 Bar）

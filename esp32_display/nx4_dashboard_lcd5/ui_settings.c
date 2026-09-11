@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-LV_FONT_DECLARE(nx4_font_tc_22);
-#define F_LABEL &nx4_font_tc_22
+LV_FONT_DECLARE(nx4_font_tc_26);
+#define F_LABEL &nx4_font_tc_26
 
 // ── 配色（與主畫面一致）────────────────────────────────────────────────
 #define C_BG 0x0B0F14
@@ -244,7 +244,7 @@ void ui_settings_add_network(const char *ssid, int rssi, bool locked) {
   lv_obj_t *r = lv_label_create(btn);
   lv_snprintf(buf, sizeof(buf), "%d", rssi);
   lv_label_set_text(r, buf);
-  lv_obj_set_style_text_font(r, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(r, &lv_font_montserrat_18, 0);
   lv_obj_set_style_text_color(r, lv_color_hex(C_UNIT), 0);
   lv_obj_align(r, LV_ALIGN_RIGHT_MID, 0, 0);
 }
