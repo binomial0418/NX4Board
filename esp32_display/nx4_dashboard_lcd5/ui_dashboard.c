@@ -14,20 +14,20 @@
 //   nx4_font_tc_26    — 中文標籤 + 基本 ASCII（line_height 32）
 //
 // 尺寸相對 nx4_dashboard（1024x600 / 7 吋）的放大倍率，是各元件「容器」
-// 的放大倍率，不是憑感覺挑的：錶盤 GAUGE_SIZE 460→560 是 1.217 倍，
-// 卡片 CARD_H 170→205 是 1.2 倍。這樣每個元件佔畫面的比例與原設計一致，
-// 只是用上了新面板多出來的 50% 像素，邊緣更銳利。
+// 的放大倍率，不是憑感覺挑的。時速與轉速沿用當初依錶盤尺寸算出的 184/92；
+// 卡片則在移除時速外環、COL_W 由 272 加寬到 356 之後重新逐項算過上限
+// （見 README「每張卡片各自的字級」）。
 // ─────────────────────────────────────────────────────────────────────────
+LV_FONT_DECLARE(nx4_font_num_122);
+LV_FONT_DECLARE(nx4_font_num_150);
+LV_FONT_DECLARE(nx4_font_num_110);
+LV_FONT_DECLARE(nx4_font_num_106);
+LV_FONT_DECLARE(nx4_font_num_80);
+LV_FONT_DECLARE(nx4_font_num_60);
 LV_FONT_DECLARE(nx4_font_num_184s);
 LV_FONT_DECLARE(nx4_font_num_92s);
-LV_FONT_DECLARE(nx4_font_num_96);
-LV_FONT_DECLARE(nx4_font_num_86);
-LV_FONT_DECLARE(nx4_font_num_74);
-LV_FONT_DECLARE(nx4_font_num_88);
-LV_FONT_DECLARE(nx4_font_num_120);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
-LV_FONT_DECLARE(nx4_font_num_125);
 LV_FONT_DECLARE(nx4_font_tc_26);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
@@ -35,8 +35,8 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 
 #define F_SPEED &nx4_font_num_184s
 #define F_RPM &nx4_font_num_92s
-#define F_VALUE &nx4_font_num_96
-#define F_CLOCK &nx4_font_num_86
+#define F_VALUE &nx4_font_num_122
+#define F_CLOCK &nx4_font_num_110
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
 // 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
 // 害水溫、胎壓、油箱都陪著一起縮。各自拆開後，以 fontTools 逐項算出
@@ -46,10 +46,11 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 //   油箱 "100"  上限 92  -> 取 88
 // Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
 // 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
-#define F_TIRE &nx4_font_num_74
-#define F_FUEL &nx4_font_num_88
-#define F_COOLANT &nx4_font_num_120
-#define F_LIMIT &nx4_font_num_125
+#define F_TIRE &nx4_font_num_80
+#define F_FUEL &nx4_font_num_106
+#define F_COOLANT &nx4_font_num_150
+#define F_ODO &nx4_font_num_60
+#define F_LIMIT &nx4_font_num_150
 #define F_LABEL &nx4_font_tc_26
 #define F_ICON &nx4_font_icons_80
 
@@ -67,12 +68,13 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 由字型的 line_height 推得，用於排版時預留高度
 #define H_SPEED 132
 #define H_RPM 68
-#define H_VALUE 69
-#define H_CLOCK 63
-#define H_TIRE 52
-#define H_FUEL 64
-#define H_COOLANT 87
-#define H_LIMIT 89
+#define H_VALUE 88
+#define H_CLOCK 79
+#define H_TIRE 57
+#define H_FUEL 76
+#define H_COOLANT 108
+#define H_ODO 42
+#define H_LIMIT 108
 #define H_LABEL 32
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
@@ -81,7 +83,6 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define C_TEXT 0xFFFFFF
 #define C_LABEL 0xE2E8F0
 #define C_UNIT 0x8B95A5
-#define C_TRACK 0x3A3F47
 
 #define C_BLUE 0x2E7DF7   // 時速進度弧、RPM
 #define C_TEAL 0x14B8A6   // Hev 電池色條
@@ -98,7 +99,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 由 nx4_dashboard（1024x600）等比重算：x 約 x1.25、y 約 x1.2。
 // 字型維持原本的點陣尺寸不變，多出來的空間全部給卡片與錶盤留白。
 #define PAD 18
-#define COL_W 272
+#define COL_W 356
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 10)
 #define CARDS_Y 36
@@ -121,60 +122,59 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define TITLE_Y 12
 #define DATE_Y 46
 // 時鐘是少數被「寬度」而非高度卡死的：'0' 是最寬的數字（0.662 em），
-// "00:00" 在 86px 下佔 246px。起點必須從 32 往左挪到 16，右邊才留得下
-// 10px 留白（卡片寬 272）。再大就會切到。
+// "00:00" 在 110px 下佔 315px，起點 16 → 右緣 331，卡片寬 356 還留 25px。
 #define CLOCK_X 16
-// 日期佔到 y=78，時鐘 63 高，在 78..205 之間置中 -> 110
-#define CLOCK_Y 110
+// 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
+#define CLOCK_Y 102
 #define TIRE_X0 (ACCENT_W + 18)
-#define TIRE_Y0 56
-// 74px 下 "88" 寬 94，右欄要落在卡片內界 258 之前，故欄距取 138
-#define TIRE_DX 138
-// 列距。標題佔到 y=44，卡片高 205，兩列各 52 高：
-// 列1 56..108、列2 140..192，上緣留 12、中間 32、下緣 13，視覺才平衡。
-#define TIRE_DY 84
+#define TIRE_Y0 50
+// 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
+// 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
+#define TIRE_DX 180
+// 列距。標題佔到 y=44，卡片高 205，兩列各 57 高：
+// 列1 50..107、列2 128..185，上緣留 6、中間 21、下緣 20。
+#define TIRE_DY 78
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
 #define DIVIDER_Y 101
 #define FUEL_LABEL_Y 135
-#define FUEL_VALUE_Y 120
+#define FUEL_VALUE_Y 118
 #define FUEL_UNIT_Y (FUEL_VALUE_Y + H_FUEL - 24)
 
-// 狀態欄置右下角後，右半部整片留給錶盤
-#define GAUGE_SIZE 560
-// 錶盤比原設計再左移 60px（660→600），把畫面最右側 120px 讓給指示燈條。
-// 錶盤是圓形，左緣只有在垂直中央才真的到 x=600，與第二欄卡片（右緣 572）
-// 在該高度仍有 28px 間隙，其餘高度更寬。
-#define GAUGE_X 600
-#define GAUGE_Y 44
-#define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
-#define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
-// 時速大字與轉速相對錶心的偏移，隨 GAUGE_SIZE 等比調整
-#define SPEED_DY (-24)
-#define RPM_DY 136
+// ── 中央：時速 / 轉速 / 增壓的垂直堆疊 ──────────────────────────────────
+// 原本是 0-180 的圓形錶盤。拿掉外環與刻度後改成單純由上而下堆疊，
+// 版面語彙與兩側卡片一致，也把橫向空間還給卡片（COL_W 272 -> 356）。
+//
+// 為什麼只還得出這麼多：錶盤直徑 560，但它本來就裝著一條 328px 寬的時速列
+// （"180" 在 184px 加字距），真正浪費的只有約 190px。中央區現在取 390，
+// 是被增壓刻度列（370 的長條加上兩端標籤）決定的，不是被時速決定的。
+//
+// 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
+#define STACK_X 768
+#define STACK_W 390
+#define STACK_CX (STACK_X + STACK_W / 2)
 
-// 增壓區：錶盤下方，中心與時速環一致。
-// 上移後會落在錶弧底部的缺口內，該處沒有弧線也沒有刻度，不會互相干擾。
-#define TURBO_CX GAUGE_CX
-#define TURBO_Y (GAUGE_Y + GAUGE_SIZE - 26)
+// 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
+// 因此這裡給的是每一列的「頂端 y」。
+#define SPEED_Y 164
+#define RPM_Y 324
+#define TURBO_Y 442
+#define TURBO_CX STACK_CX
 #define TURBO_BAR_W 370
-#define TURBO_BAR_Y (TURBO_Y + 62)
+#define TURBO_BAR_Y 514
 
 // 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
-#define STATUS_RIGHT 1262
+#define STATUS_RIGHT 1258
 #define STATUS_IP_Y 660
 
 // ── 右側指示燈條（大燈 / 車門 / 門鎖 / 後車廂，由上到下）──────────────
-// 圖示字型每個字都是 80x80 的字框，實際 line_height 64。
-// 錶盤右緣在 1160，圖示左緣 1180，留 20px 間隙；最下一格 494+64=558，
-// 在 IP（y=660）之上，兩者不會打架。
-#define ICON_X 1180
+// 圖示字型每個字都是 80x80 的字框，實際 line_height 71。
+#define ICON_X 1178
 #define ICON_H 71
 #define ICON_Y0 170
 #define ICON_DY 108
 
-#define SPEED_MAX 180
 #define RPM_MAX 7000
 
 // ── 警示門檻（達到即以紅字標示）─────────────────────────────────────────
@@ -198,8 +198,6 @@ static lv_obj_t *s_limit_card;
 static lv_obj_t *s_limit_title;
 static lv_obj_t *s_limit_value;
 
-static lv_obj_t *s_meter;
-static lv_meter_indicator_t *s_speed_arc;
 static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
 static lv_obj_t *s_rpm_unit;
@@ -399,7 +397,7 @@ static void build_column2(void) {
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
   // 靠右對齊，位數變多時往左長，不會壓到單位
-  s_odo_value = make_label(card, "--", &lv_font_montserrat_46, C_TEXT);
+  s_odo_value = make_label(card, "--", F_ODO, C_TEXT);
   lv_obj_align(s_odo_value, LV_ALIGN_TOP_RIGHT, -32, ODO_VALUE_Y);
   lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_20, C_UNIT);
   lv_obj_align(odo_unit, LV_ALIGN_TOP_RIGHT, -10, ODO_UNIT_Y);
@@ -431,55 +429,9 @@ static void build_column2(void) {
   lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 24, VALUE_Y);
 }
 
-// ── 右側 0-180 圓形時速錶 ───────────────────────────────────────────────
-static void build_gauge(void) {
-  s_meter = lv_meter_create(s_scr);
-  lv_obj_set_pos(s_meter, GAUGE_X, GAUGE_Y);
-  lv_obj_set_size(s_meter, GAUGE_SIZE, GAUGE_SIZE);
-  lv_obj_clear_flag(s_meter, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_opa(s_meter, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(s_meter, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(s_meter, 0, LV_PART_MAIN);
-  lv_obj_set_style_text_font(s_meter, &lv_font_montserrat_20, LV_PART_TICKS);
-  // lv_meter 會在 LV_PART_INDICATOR 無條件畫出指針樞紐的小圓點；
-  // 本儀表沒有指針，把它的尺寸與不透明度歸零藏起來
-  lv_obj_set_style_size(s_meter, 0, LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(s_meter, LV_OPA_TRANSP, LV_PART_INDICATOR);
-
-  // 無刻度的隱藏 scale，僅用來畫背景軌道與時速進度弧（涵蓋完整 0-180）
-  lv_meter_scale_t *arc_scale = lv_meter_add_scale(s_meter);
-  lv_meter_set_scale_ticks(s_meter, arc_scale, 0, 0, 0, lv_color_black());
-  lv_meter_set_scale_range(s_meter, arc_scale, 0, SPEED_MAX, 270, 135);
-
-  lv_meter_indicator_t *track =
-      lv_meter_add_arc(s_meter, arc_scale, 9, lv_color_hex(C_TRACK), 0);
-  lv_meter_set_indicator_start_value(s_meter, track, 0);
-  lv_meter_set_indicator_end_value(s_meter, track, SPEED_MAX);
-
-  s_speed_arc = lv_meter_add_arc(s_meter, arc_scale, 9, lv_color_hex(C_BLUE), 0);
-  lv_meter_set_indicator_start_value(s_meter, s_speed_arc, 0);
-  lv_meter_set_indicator_end_value(s_meter, s_speed_arc, 0);
-
-  // 刻度分成三段，讓刻度線與數字能依速域上色（白 → 琥珀 → 紅）
-  // 三段的角度是依 270° / 180 km/h = 1.5°每單位換算，彼此不重疊也不留空。
-  lv_meter_scale_t *s1 = lv_meter_add_scale(s_meter);
-  lv_meter_set_scale_ticks(s_meter, s1, 8, 2, 9, lv_color_hex(0x7A8494));
-  lv_meter_set_scale_major_ticks(s_meter, s1, 2, 3, 15, lv_color_hex(0xD8DEE9),
-                                 14);
-  lv_meter_set_scale_range(s_meter, s1, 0, 70, 105, 135);
-
-  lv_meter_scale_t *s2 = lv_meter_add_scale(s_meter);
-  lv_meter_set_scale_ticks(s_meter, s2, 4, 2, 9, lv_color_hex(0x8A6A2A));
-  lv_meter_set_scale_major_ticks(s_meter, s2, 2, 3, 15, lv_color_hex(C_ORANGE),
-                                 14);
-  lv_meter_set_scale_range(s_meter, s2, 80, 110, 45, 255);
-
-  lv_meter_scale_t *s3 = lv_meter_add_scale(s_meter);
-  lv_meter_set_scale_ticks(s_meter, s3, 7, 2, 9, lv_color_hex(0x8A3A3A));
-  lv_meter_set_scale_major_ticks(s_meter, s3, 2, 3, 15, lv_color_hex(C_RED), 14);
-  lv_meter_set_scale_range(s_meter, s3, 120, 180, 90, 315);
-
-  // 中央時速大字。
+// ── 中央：時速 / 轉速 / 增壓的垂直堆疊 ──────────────────────────────────
+static void build_speed_stack(void) {
+  // 時速大字。
   // 注意：這些標籤一律不呼叫 lv_obj_align()，因為 LVGL v8 中只要設過
   // align，之後的 lv_obj_set_pos() 就會被當成「相對於該對齊點的偏移」，
   // 我們在 update 裡是以絕對座標置中的。
@@ -620,7 +572,7 @@ void ui_dashboard_create(void) {
 
   build_column1();
   build_column2();
-  build_gauge();
+  build_speed_stack();
   build_status();
   build_indicators();
   ui_settings_create();
@@ -628,11 +580,11 @@ void ui_dashboard_create(void) {
   // 這兩個 label 平常由補間的 callback 定位；開機時還沒有資料，
   // 先手動擺一次，否則會停在 (0,0)
   lv_obj_update_layout(s_speed_value);
-  lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                 GAUGE_CY - H_SPEED / 2 + SPEED_DY);
+  lv_obj_set_pos(s_speed_value, STACK_CX - lv_obj_get_width(s_speed_value) / 2,
+                 SPEED_Y);
   lv_obj_update_layout(s_rpm_value);
-  lv_obj_set_pos(s_rpm_value, GAUGE_CX - lv_obj_get_width(s_rpm_value) / 2,
-                 GAUGE_CY + RPM_DY);
+  lv_obj_set_pos(s_rpm_value, STACK_CX - lv_obj_get_width(s_rpm_value) / 2,
+                 RPM_Y);
 
   lv_timer_create(cam_blink_cb, 500, NULL);
   lv_timer_create(clock_tick_cb, 1000, NULL);
@@ -643,19 +595,17 @@ void ui_dashboard_create(void) {
 
 // ── 更新 ────────────────────────────────────────────────────────────────
 
-/// 時速補間：同時驅動進度弧與中央大字
+/// 時速補間。外環移除後只剩大字，不再驅動進度弧。
 static void anim_speed_cb(void *var, int32_t v) {
   LV_UNUSED(var);
   if (v == s_speed_shown) return;
   s_speed_shown = v;
 
-  lv_meter_set_indicator_end_value(s_meter, s_speed_arc,
-                                   v > SPEED_MAX ? SPEED_MAX : v);
   lv_label_set_text_fmt(s_speed_value, "%d", v);
-  // 位數改變時字寬會變，重新對齊到錶盤圓心
+  // 位數改變時字寬會變，重新對齊到堆疊中線
   lv_obj_update_layout(s_speed_value);
-  lv_obj_set_pos(s_speed_value, GAUGE_CX - lv_obj_get_width(s_speed_value) / 2,
-                 GAUGE_CY - H_SPEED / 2 + SPEED_DY);
+  lv_obj_set_pos(s_speed_value, STACK_CX - lv_obj_get_width(s_speed_value) / 2,
+                 SPEED_Y);
 }
 
 /// 轉速補間。引擎熄火（轉速 0）時改顯示 EV — HEV 以純電行駛的狀態。
@@ -678,9 +628,9 @@ static void anim_rpm_cb(void *var, int32_t v) {
   lv_obj_update_layout(s_rpm_value);
   lv_coord_t rw = lv_obj_get_width(s_rpm_value);
   // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
-  lv_coord_t rx = GAUGE_CX - rw / 2 - (ev ? 0 : 10);
-  lv_obj_set_pos(s_rpm_value, rx, GAUGE_CY + RPM_DY);
-  lv_obj_set_pos(s_rpm_unit, rx + rw + 12, GAUGE_CY + RPM_DY + H_RPM - 26);
+  lv_coord_t rx = STACK_CX - rw / 2 - (ev ? 0 : 10);
+  lv_obj_set_pos(s_rpm_value, rx, RPM_Y);
+  lv_obj_set_pos(s_rpm_unit, rx + rw + 12, RPM_Y + H_RPM - 26);
 }
 
 /// 增壓補間（單位為百分之一 Bar）
