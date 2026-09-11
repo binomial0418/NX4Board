@@ -22,7 +22,9 @@ LV_FONT_DECLARE(nx4_font_num_184s);
 LV_FONT_DECLARE(nx4_font_num_92s);
 LV_FONT_DECLARE(nx4_font_num_96);
 LV_FONT_DECLARE(nx4_font_num_77);
-LV_FONT_DECLARE(nx4_font_num_52);
+LV_FONT_DECLARE(nx4_font_num_74);
+LV_FONT_DECLARE(nx4_font_num_88);
+LV_FONT_DECLARE(nx4_font_num_120);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
 LV_FONT_DECLARE(nx4_font_num_125);
@@ -35,7 +37,18 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define F_RPM &nx4_font_num_92s
 #define F_VALUE &nx4_font_num_96
 #define F_CLOCK &nx4_font_num_77
-#define F_TIRE &nx4_font_num_52
+// 每張卡片各自的字級，不再共用一個 F_VALUE。
+// 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
+// 害水溫、胎壓、油箱都陪著一起縮。各自拆開後，以 fontTools 逐項算出
+// 「中文標籤佔位、靠右單位、卡片高度」三重限制下的最大字級再退一點：
+//   水溫 "120"  上限 125 -> 取 120
+//   胎壓 "88"   上限 76  -> 取 74
+//   油箱 "100"  上限 92  -> 取 88
+// Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
+// 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
+#define F_TIRE &nx4_font_num_74
+#define F_FUEL &nx4_font_num_88
+#define F_COOLANT &nx4_font_num_120
 #define F_LIMIT &nx4_font_num_125
 #define F_LABEL &nx4_font_tc_26
 #define F_ICON &nx4_font_icons_80
@@ -56,7 +69,9 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define H_RPM 68
 #define H_VALUE 69
 #define H_CLOCK 54
-#define H_TIRE 37
+#define H_TIRE 52
+#define H_FUEL 64
+#define H_COOLANT 87
 #define H_LIMIT 89
 #define H_LABEL 32
 
@@ -108,15 +123,18 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define CLOCK_Y 92
 #define TIRE_X0 (ACCENT_W + 18)
 #define TIRE_Y0 56
-#define TIRE_DX 120
-#define TIRE_DY 70
+// 74px 下 "88" 寬 94，右欄要落在卡片內界 258 之前，故欄距取 138
+#define TIRE_DX 138
+// 列距。標題佔到 y=44，卡片高 205，兩列各 52 高：
+// 列1 56..108、列2 140..192，上緣留 12、中間 32、下緣 13，視覺才平衡。
+#define TIRE_DY 84
 #define ODO_LABEL_Y 41
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
 #define DIVIDER_Y 101
 #define FUEL_LABEL_Y 135
 #define FUEL_VALUE_Y 120
-#define FUEL_UNIT_Y 140
+#define FUEL_UNIT_Y (FUEL_VALUE_Y + H_FUEL - 24)
 
 // 狀態欄置右下角後，右半部整片留給錶盤
 #define GAUGE_SIZE 560
@@ -311,7 +329,8 @@ static lv_obj_t *make_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
 /// 「標籤 + 大數值 + 單位」的標準卡片（Hev電池 / 水溫 / 道路速限）
 static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
                                  uint32_t accent, const char *label,
-                                 const char *unit, lv_obj_t **out_value,
+                                 const char *unit, const lv_font_t *vfont,
+                                 lv_coord_t vh, lv_obj_t **out_value,
                                  lv_obj_t **out_title) {
   lv_obj_t *card = make_card(x, y, COL_W, h, accent);
 
@@ -323,12 +342,13 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
   if (out_title != NULL) *out_title = title;
 
   // 數值緊接在標籤下方（靠上），單位對齊數值下緣
-  lv_obj_t *value = make_label(card, "--", F_VALUE, C_TEXT);
+  lv_obj_t *value = make_label(card, "--", vfont, C_TEXT);
   lv_obj_align(value, LV_ALIGN_TOP_LEFT, VALUE_X, VALUE_Y);
 
+  // 單位貼齊數值下緣，因此要用該卡片自己的行高，不能用共用常數
   if (unit != NULL) {
     lv_obj_t *u = make_label(card, unit, &lv_font_montserrat_22, C_UNIT);
-    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -14, VALUE_Y + H_VALUE - 24);
+    lv_obj_align(u, LV_ALIGN_TOP_RIGHT, -14, VALUE_Y + vh - 24);
   }
 
   *out_value = value;
@@ -337,10 +357,10 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
 // ── 左側第一欄：Hev電池 / 水溫 / 時鐘 ───────────────────────────────────
 static void build_column1(void) {
-  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", &s_soc_value,
-                  NULL);
-  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C", &s_coolant_value,
-                  NULL);
+  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", F_VALUE,
+                  H_VALUE, &s_soc_value, NULL);
+  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C", F_COOLANT,
+                  H_COOLANT, &s_coolant_value, NULL);
   // 只有這兩張卡的數值右移，道路速限維持原位
   lv_obj_align(s_soc_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, VALUE_Y);
   lv_obj_align(s_coolant_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, VALUE_Y);
@@ -365,10 +385,8 @@ static void build_column2(void) {
 
   for (int i = 0; i < 4; i++) {
     s_tire_value[i] = make_label(card, "--", F_TIRE, C_TEXT);
-    // 左欄 (FL/RL) 右移 20px、右欄 (FR/RR) 右移 10px
-    const lv_coord_t dx = (i % 2 == 0) ? 20 : 10;
     lv_obj_align(s_tire_value[i], LV_ALIGN_TOP_LEFT,
-                 TIRE_X0 + (i % 2) * TIRE_DX + dx, TIRE_Y0 + (i / 2) * TIRE_DY);
+                 TIRE_X0 + (i % 2) * TIRE_DX, TIRE_Y0 + (i / 2) * TIRE_DY);
   }
 
   // 里程 + 油箱：兩列，中間一條細分隔線
@@ -393,18 +411,19 @@ static void build_column2(void) {
 
   lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, FUEL_LABEL_Y);
-  s_fuel_value = make_label(card, "--", F_TIRE, C_TEXT);
-  // 比里程再往左兩個字元（montserrat_46 數字寬約 30.7px）
-  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -32 - 61, FUEL_VALUE_Y);
+  s_fuel_value = make_label(card, "--", F_FUEL, C_TEXT);
+  // 與里程同樣靠右對齊到 -32。原本再往左縮排 61px 是為了和里程錯開，
+  // 但 88px 下 "100" 寬 149，再縮排就會壓到左邊的「油箱」標籤（右緣 72）。
+  lv_obj_align(s_fuel_value, LV_ALIGN_TOP_RIGHT, -32, FUEL_VALUE_Y);
   lv_obj_t *fuel_unit = make_label(card, "%", &lv_font_montserrat_20, C_UNIT);
   lv_obj_align(fuel_unit, LV_ALIGN_TOP_RIGHT, -10, FUEL_UNIT_Y);
 
   // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
-  s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
-                                 NULL, &s_limit_value, &s_limit_title);
-  // 速限數值單獨放大 1.3 倍。VALUE_Y 不用動：標題佔到 y=44，卡片高 205，
+  // 速限數值比其它卡片大 1.3 倍。VALUE_Y 不用動：標題佔到 y=44、卡片高 205，
   // 89px 的數值置中後起點正好還是 80。
-  lv_obj_set_style_text_font(s_limit_value, F_LIMIT, 0);
+  s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
+                                 NULL, F_LIMIT, H_LIMIT, &s_limit_value,
+                                 &s_limit_title);
   lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 24, VALUE_Y);
 }
 
