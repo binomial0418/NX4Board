@@ -351,8 +351,9 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 | `nx4_font_num_96.c` | Montserrat 96 px，`0-9` `.` `:` `%` `-` | 69 | 卡片大數值 |
 | `nx4_font_num_77.c` | Montserrat 77 px，`0-9` `:` `-` | 54 | 時鐘 `HH:MM` |
 | `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `-` | 37 | 胎壓四格與油箱 |
+| `nx4_font_num_125.c` | Montserrat 125 px，`0-9` `-` `!` | 89 | 道路速限（比其它卡片大 1.3 倍） |
 | `nx4_font_tc_26.c` | Noto Sans TC 26 px，ASCII + 57 個漢字 | 32 | 中文標籤 |
-| `nx4_font_icons_80.c` | Material Design Icons 80 px，5 個車用符號 | 64 | 右側指示燈條 |
+| `nx4_font_icons_80.c` | MDI 4 個 + 自製 1 個，80 px | 71 | 右側指示燈條 |
 
 ### 字級為什麼是這些數字
 
@@ -363,6 +364,11 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 |---|---|---|---|---|
 | 錶盤 `GAUGE_SIZE` | 460 | 560 | 1.217 | 時速 150→184、轉速 76→92 |
 | 卡片 `CARD_H` | 170 | 205 | 1.2 | 大數值 80→96、時鐘 64→77、標籤 22→26 |
+
+**道路速限是例外**，刻意再放大到 1.3 倍（96→125）。行車時最需要一眼看到的
+就是這個數字，而且它同時是測速照相警示的欄位。`VALUE_Y` 不用跟著改：標題
+佔到 y=44、卡片高 205，89px 的數值置中後起點仍是 80。最寬的 `120` 佔 199px，
+起點 44、右緣 243，卡片內界 258，還有餘裕。
 
 這樣每個元件佔畫面的比例與原設計一致，只是用上了新面板多出來的 50% 像素。
 LVGL 內建字型也一併跟上：里程 38→46、單位 16→20 與 18→22、`BAR` 22→26、
@@ -400,20 +406,46 @@ MDI 的碼位落在 Plane 15 私有區（如 `U+F0C4A`），是 4-byte UTF-8。�
 lv_font_conv 的 `=>` 語法重映到 `U+E000`-`U+E004`，換成 3-byte UTF-8 並讓
 整個範圍連續，cmap 就能收成單一個 `FORMAT0_TINY` 子表：
 
-| 重映後 | MDI 名稱 | 原碼位 | 用途 |
+| 重映後 | 來源 | 原碼位 | 用途 |
 |---|---|---|---|
-| `U+E000` | `car-light-dimmed` | `U+F0C4A` | 近燈 |
-| `U+E001` | `car-light-high` | `U+F0C4C` | 遠燈 |
-| `U+E002` | `car-door` | `U+F0B6B` | 車門開啟 |
-| `U+E003` | `car-door-lock-open` | `U+F1C81` | 車門解鎖 |
-| `U+E004` | `car-back` | `U+F0E1B` | 後車廂開啟 |
+| `U+E000` | MDI `car-light-dimmed` | `U+F0C4A` | 近燈 |
+| `U+E001` | MDI `car-light-high` | `U+F0C4C` | 遠燈 |
+| `U+E002` | MDI `car-door` | `U+F0B6B` | 車門開啟 |
+| `U+E003` | MDI `lock-open-variant` | `U+F0FC6` | 車門解鎖 |
+| `U+E004` | **自製** `nx4-trunk-open` | `U+F0000` | 後車廂開啟 |
+
+### 後車廂圖示是自己畫的
+
+MDI 的 164 個 Automotive 圖示、以及 Google Material Symbols 全集，都沒有
+「後車廂／尾門開啟」。原本借用 `car-back`（車尾正視圖），但它完全沒有
+「開啟」的線索，看不出是什麼。
+
+`tools/build_trunk_icon.py` 會畫一個出來並塞進 MDI 字型的空碼位 `U+F0000`，
+輸出 `mdi-nx4.ttf`：
+
+```bash
+pip install fonttools skia-pathops
+cd tools && python3 build_trunk_icon.py     # 需要同目錄下的 mdi.ttf
+```
+
+造型取自手機端 `native_dashboard.dart` 的 `_TrunkOpenPainter`（側視車身 +
+掀起的尾門），但改成**實心剪影**。在 80px 的實際尺寸下反覆比對過：
+
+- 細線稿完全讀不出來，加粗到看得見又會糊成一團
+- 輪子要大且實心，挖輪轂會消失
+- 尾門要鉸接在車頂後緣，留縫會看起來像飛走的蓋子
+- 拿掉輪子就不像車了
+
+腳本會把描邊與多邊形用 skia-pathops 聯集成單一外框，再以 fontTools 寫成
+glyph。注意 `U+F0000` 只能寫進 format 12/13 的 cmap 子表，format 4 只吃
+16-bit，塞進去會在 compile 時 `OverflowError`。
 
 ```bash
 npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
-  --lv-include lvgl.h --font materialdesignicons-webfont.ttf --size 80 \
+  --lv-include lvgl.h --font mdi-nx4.ttf --size 80 \
   --range '0xF0C4A=>0xE000' --range '0xF0C4C=>0xE001' \
-  --range '0xF0B6B=>0xE002' --range '0xF1C81=>0xE003' \
-  --range '0xF0E1B=>0xE004' -o nx4_font_icons_80.c
+  --range '0xF0B6B=>0xE002' --range '0xF0FC6=>0xE003' \
+  --range '0xF0000=>0xE004' -o nx4_font_icons_80.c
 ```
 
 `ui_dashboard.c` 上方的 `ICO_*` 巨集是這五個碼位的 UTF-8 字面值，

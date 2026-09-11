@@ -23,6 +23,9 @@ LV_FONT_DECLARE(nx4_font_num_92s);
 LV_FONT_DECLARE(nx4_font_num_96);
 LV_FONT_DECLARE(nx4_font_num_77);
 LV_FONT_DECLARE(nx4_font_num_52);
+// 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
+// 一眼看到的數字，也是測速照相警示共用的欄位。
+LV_FONT_DECLARE(nx4_font_num_125);
 LV_FONT_DECLARE(nx4_font_tc_26);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
@@ -33,6 +36,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define F_VALUE &nx4_font_num_96
 #define F_CLOCK &nx4_font_num_77
 #define F_TIRE &nx4_font_num_52
+#define F_LIMIT &nx4_font_num_125
 #define F_LABEL &nx4_font_tc_26
 #define F_ICON &nx4_font_icons_80
 
@@ -40,8 +44,8 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ICO_LOW_BEAM "\xEE\x80\x80"  // U+E000 car-light-dimmed
 #define ICO_HIGH_BEAM "\xEE\x80\x81" // U+E001 car-light-high
 #define ICO_DOOR "\xEE\x80\x82"      // U+E002 car-door
-#define ICO_UNLOCK "\xEE\x80\x83"    // U+E003 car-door-lock-open
-#define ICO_TRUNK "\xEE\x80\x84"     // U+E004 car-back
+#define ICO_UNLOCK "\xEE\x80\x83"    // U+E003 lock-open-variant（純鎖頭，不帶車門背景）
+#define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
 #define LS_SPEED 7
@@ -53,6 +57,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define H_VALUE 69
 #define H_CLOCK 54
 #define H_TIRE 37
+#define H_LIMIT 89
 #define H_LABEL 32
 
 // ── 配色（比照 rec.gif：純黑底、白字、色條分類）────────────────────────
@@ -142,7 +147,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 錶盤右緣在 1160，圖示左緣 1180，留 20px 間隙；最下一格 494+64=558，
 // 在 IP（y=660）之上，兩者不會打架。
 #define ICON_X 1180
-#define ICON_H 64
+#define ICON_H 71
 #define ICON_Y0 170
 #define ICON_DY 108
 
@@ -397,6 +402,9 @@ static void build_column2(void) {
   // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
   s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
                                  NULL, &s_limit_value, &s_limit_title);
+  // 速限數值單獨放大 1.3 倍。VALUE_Y 不用動：標題佔到 y=44，卡片高 205，
+  // 89px 的數值置中後起點正好還是 80。
+  lv_obj_set_style_text_font(s_limit_value, F_LIMIT, 0);
   lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 24, VALUE_Y);
 }
 
