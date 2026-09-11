@@ -22,3 +22,5 @@ esp32_display/硬體規格與範例/
 esp32_display/nx4_dashboard/config.h
 __pycache__/
 esp32_display/dwin_dashboard/dwin_set*/00.bmp
+
+esp32_display/nx4_dashboard_lcd5/config.h
