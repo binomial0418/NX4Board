@@ -9,7 +9,7 @@
 //   nx4_font_num_184s — 時速大字，Montserrat SemiBold（line_height 132）
 //   nx4_font_num_92s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 68）
 //   nx4_font_num_96   — 卡片大數值，Regular（line_height 69）
-//   nx4_font_num_77   — 時鐘 HH:MM，Regular（line_height 54）
+//   nx4_font_num_86   — 時鐘 HH:MM，Regular（line_height 63）
 //   nx4_font_num_52   — 胎壓與油箱，Regular（line_height 37）
 //   nx4_font_tc_26    — 中文標籤 + 基本 ASCII（line_height 32）
 //
@@ -21,7 +21,7 @@
 LV_FONT_DECLARE(nx4_font_num_184s);
 LV_FONT_DECLARE(nx4_font_num_92s);
 LV_FONT_DECLARE(nx4_font_num_96);
-LV_FONT_DECLARE(nx4_font_num_77);
+LV_FONT_DECLARE(nx4_font_num_86);
 LV_FONT_DECLARE(nx4_font_num_74);
 LV_FONT_DECLARE(nx4_font_num_88);
 LV_FONT_DECLARE(nx4_font_num_120);
@@ -36,7 +36,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define F_SPEED &nx4_font_num_184s
 #define F_RPM &nx4_font_num_92s
 #define F_VALUE &nx4_font_num_96
-#define F_CLOCK &nx4_font_num_77
+#define F_CLOCK &nx4_font_num_86
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
 // 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
 // 害水溫、胎壓、油箱都陪著一起縮。各自拆開後，以 fontTools 逐項算出
@@ -68,7 +68,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define H_SPEED 132
 #define H_RPM 68
 #define H_VALUE 69
-#define H_CLOCK 54
+#define H_CLOCK 63
 #define H_TIRE 52
 #define H_FUEL 64
 #define H_COOLANT 87
@@ -120,7 +120,12 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 否則分隔線與油箱那一列會疊在一起。
 #define TITLE_Y 12
 #define DATE_Y 46
-#define CLOCK_Y 92
+// 時鐘是少數被「寬度」而非高度卡死的：'0' 是最寬的數字（0.662 em），
+// "00:00" 在 86px 下佔 246px。起點必須從 32 往左挪到 16，右邊才留得下
+// 10px 留白（卡片寬 272）。再大就會切到。
+#define CLOCK_X 16
+// 日期佔到 y=78，時鐘 63 高，在 78..205 之間置中 -> 110
+#define CLOCK_Y 110
 #define TIRE_X0 (ACCENT_W + 18)
 #define TIRE_Y0 56
 // 74px 下 "88" 寬 94，右欄要落在卡片內界 258 之前，故欄距取 138
@@ -370,10 +375,9 @@ static void build_column1(void) {
   s_date_value = make_label(card, "--/--", F_LABEL, C_LABEL);
   lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, DATE_Y);
 
-  // 只顯示 HH:MM。COL_W 加寬到 272 後還有餘裕，但字型沿用 64px：
-  // 最壞情況 "00:00" 在 64px 下約 179px，起點 x=40，右邊還剩 53px。
+  // 只顯示 HH:MM。字型已放大到 86px，是這張卡片寬度容得下的極限。
   s_clock_value = make_label(card, "--:--", F_CLOCK, C_TEXT);
-  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, CLOCK_Y);
+  lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, CLOCK_X, CLOCK_Y);
 }
 
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
