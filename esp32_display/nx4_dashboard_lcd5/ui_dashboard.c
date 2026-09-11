@@ -110,7 +110,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 左欄（Hev電池 / 水溫 / 時鐘）被時鐘的 "00:00" 與水溫的 "120" 綁在 310；
 // 右欄（胎壓 / 里程油箱 / 速限）的內容較窄，里程改成緊湊的一組、油箱只需
 // 兩位數之後收到 284，省下的 26px 直接變成中央區的寬度。
-#define COL_W 310
+#define COL_W 300
 #define COL2_W 284
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 10)
@@ -124,10 +124,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ACCENT_W 6
 #define VALUE_X (ACCENT_W + 14)
 #define VALUE_Y 80
-// Hev電池 / 水溫 / 時間的數值往右挪，與標籤錯開（日期不動）。
-// 字級放大到 96px 後這個位移不能再跟著放大：Hev 電池最寬的 "99.9" 寬 196px，
-// 起點 20+20 會讓右緣壓到靠右的 "%" 單位，收窄到 12 才留得下 8px 間隙。
-#define VALUE_DX 12
+// 數值與標題同樣從 VALUE_X 起算，不再往右縮排（原本是 +12）。
+// 靠左之後 Hev 電池只需要 289px、水溫 291px，左欄改由時鐘的 "00:00"
+// （起點 14、寬 275）綁死在 300。
+#define VALUE_DX 0
 
 // ── 卡片內部的相對位移 ──────────────────────────────────────────────────
 // 全部相對於卡片左上角。改 CARD_H 時這一組要一起重算，
@@ -136,7 +136,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define DATE_Y 46
 // 時鐘是少數被「寬度」而非高度卡死的：'0' 是最寬的數字（0.662 em），
 // "00:00" 在 110px 下佔 315px，起點 16 → 右緣 331，卡片寬 356 還留 25px。
-#define CLOCK_X 16
+#define CLOCK_X 14
 // 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
 #define CLOCK_Y 107
 #define TIRE_X0 (ACCENT_W + 18)
@@ -187,9 +187,17 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原始設計是 150/76 = 1.97，兩者差不多大，在拿掉錶環之後主從就不夠分明。
 //
 // 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
-#define STACK_X CARDS_RIGHT
-#define STACK_W (1260 - CARDS_RIGHT)
-#define STACK_CX (STACK_X + STACK_W / 2)
+// 時速 / 轉速 / 增壓三個單位**靠右對齊到同一條線**，而且位置固定不隨
+// 數值寬度變動——數值改變位數時單位若跟著跑，視覺上會很晃。
+//
+// 水平配置（可用範圍 CARDS_RIGHT=612 到 1266）：
+//   最寬時速 "180"@310 含字距 = 551、最寬單位 "km/h"@26 = 70、間距 12
+//   區塊 633 置中 → 時速 622..1173、單位右界 1255
+// 數值仍然置中於 STACK_CX，所以窄數值與單位之間會留白，這是刻意的：
+// 單位是固定的參考點，不是跟著數值跑的附屬物。
+#define STACK_CX 897
+#define UNIT_RIGHT 1255
+#define UNIT_OFS (LCD_H_RES - UNIT_RIGHT)
 
 // 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
 // 因此這裡給的是每一列的「頂端 y」。
@@ -197,6 +205,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 轉速與增壓刻意對齊到右欄第三張卡（道路速限，ROW3_Y 482..687）的上下緣：
 //   轉速頂端 = ROW3_Y - 10 = 472      （比卡片上緣再高 10px）
 // 指示燈橫排在最上面（56..127），時速接在其下（180..404）。
+// 三個單位各自貼齊所屬數值的下緣：km/h 375、R 518、BAR 596。
 //   增壓刻度底端 = 643 + 20 + 24 = 687（貼卡片下緣）
 // 這樣中央堆疊與兩側卡片在視覺上有共同的基準線。
 // 時速則置中於第一、二列卡片所在的 36..482 之間。
@@ -206,10 +215,13 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define TURBO_CX STACK_CX
 #define TURBO_BAR_W 450
 #define TURBO_BAR_Y 643
+#define SPEED_UNIT_Y 375
+#define RPM_UNIT_Y 518
+#define TURBO_UNIT_Y 596
 
 // 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
 #define STATUS_RIGHT 1258
-#define STATUS_IP_Y 660
+#define STATUS_IP_Y 650
 
 // ── 指示燈（大燈 / 車門 / 門鎖 / 後車廂）─────────────────────────────
 // 原本是畫面最右側的垂直四格，那會吃掉右邊 102px（1178..1280）。
@@ -247,6 +259,7 @@ static lv_obj_t *s_limit_value;
 
 static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
+static lv_obj_t *s_speed_unit;
 static lv_obj_t *s_rpm_unit;
 static lv_obj_t *s_turbo_value;
 static lv_obj_t *s_turbo_unit;
@@ -489,16 +502,21 @@ static void build_speed_stack(void) {
   // 尚未收到資料前顯示 "--"，而不是 0 / EV —— 那會看起來像真實狀態
   s_speed_value = make_label(s_scr, "--", F_SPEED, C_TEXT);
   lv_obj_set_style_text_letter_space(s_speed_value, LS_SPEED, 0);
+  // 單位一律用 lv_obj_align() 靠右對齊到 UNIT_RIGHT，建立後就不再移動
+  s_speed_unit = make_label(s_scr, "km/h", &lv_font_montserrat_26, C_UNIT);
+  lv_obj_align(s_speed_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS, SPEED_UNIT_Y);
 
   // 轉速（藍色）與單位 R
   s_rpm_value = make_label(s_scr, "--", F_RPM, C_BLUE);
   lv_obj_set_style_text_letter_space(s_rpm_value, LS_RPM, 0);
-  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_24, C_UNIT);
+  s_rpm_unit = make_label(s_scr, "R", &lv_font_montserrat_22, C_UNIT);
+  lv_obj_align(s_rpm_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS, RPM_UNIT_Y);
   lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
   // 渦輪增壓
   s_turbo_value = make_label(s_scr, "+0.00", F_TURBO, C_TEXT);
-  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_34, C_LABEL);
+  s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_26, C_LABEL);
+  lv_obj_align(s_turbo_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS, TURBO_UNIT_Y);
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
@@ -679,9 +697,8 @@ static void anim_rpm_cb(void *var, int32_t v) {
   lv_obj_update_layout(s_rpm_value);
   lv_coord_t rw = lv_obj_get_width(s_rpm_value);
   // EV 沒有單位要擺，整個置中；有轉速時預留右側的 R
-  lv_coord_t rx = STACK_CX - rw / 2 - (ev ? 0 : 10);
-  lv_obj_set_pos(s_rpm_value, rx, RPM_Y);
-  lv_obj_set_pos(s_rpm_unit, rx + rw + 14, RPM_Y + H_RPM - 26);
+  // 單位位置固定，這裡只置中數值
+  lv_obj_set_pos(s_rpm_value, STACK_CX - rw / 2, RPM_Y);
 }
 
 /// 增壓補間（單位為百分之一 Bar）
@@ -695,12 +712,10 @@ static void anim_turbo_cb(void *var, int32_t v) {
                         mag / 100, mag % 100);
   lv_bar_set_value(s_turbo_bar, v, LV_ANIM_OFF);
 
+  // 單位位置固定，這裡只置中數值
   lv_obj_update_layout(s_turbo_value);
-  lv_coord_t tw = lv_obj_get_width(s_turbo_value);
-  const lv_coord_t gap = 24, unit_w = 48;
-  lv_coord_t tx = TURBO_CX - (tw + gap + unit_w) / 2;
-  lv_obj_set_pos(s_turbo_value, tx, TURBO_Y);
-  lv_obj_set_pos(s_turbo_unit, tx + tw + gap, TURBO_Y + 27);
+  lv_obj_set_pos(s_turbo_value, TURBO_CX - lv_obj_get_width(s_turbo_value) / 2,
+                 TURBO_Y);
 }
 
 /// 啟動一段補間。同一組 (var, exec_cb) 再次啟動會自動取代前一段動畫，
