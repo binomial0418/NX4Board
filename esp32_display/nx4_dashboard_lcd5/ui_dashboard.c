@@ -18,23 +18,23 @@
 // 卡片則在移除時速外環、COL_W 由 272 加寬到 356 之後重新逐項算過上限
 // （見 README「每張卡片各自的字級」）。
 // ─────────────────────────────────────────────────────────────────────────
-LV_FONT_DECLARE(nx4_font_num_106);
+LV_FONT_DECLARE(nx4_font_num_100);
 // 道路速限卡的數值刻意比其它卡片大 1.3 倍（96 -> 125）：這是行車時最需要
 // 一眼看到的數字，也是測速照相警示共用的欄位。
-LV_FONT_DECLARE(nx4_font_num_272s);
+LV_FONT_DECLARE(nx4_font_num_310s);
 LV_FONT_DECLARE(nx4_font_num_96s);
 LV_FONT_DECLARE(nx4_font_num_145);
 LV_FONT_DECLARE(nx4_font_num_112);
 LV_FONT_DECLARE(nx4_font_num_96);
 LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
-LV_FONT_DECLARE(nx4_font_num_50);
+LV_FONT_DECLARE(nx4_font_num_46);
 LV_FONT_DECLARE(nx4_font_tc_26);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_80);
 
-#define F_SPEED &nx4_font_num_272s
+#define F_SPEED &nx4_font_num_310s
 #define F_RPM &nx4_font_num_96s
 #define F_VALUE &nx4_font_num_112
 #define F_CLOCK &nx4_font_num_96
@@ -48,10 +48,10 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // Hev 電池（97）與時鐘（79）本來就已經到極限，維持原樣。
 // 里程更是六位數時本來就會頂到「里程」標籤，只能維持 46。
 #define F_TIRE &nx4_font_num_70
-#define F_FUEL &nx4_font_num_106
+#define F_FUEL &nx4_font_num_100
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
-#define F_ODO &nx4_font_num_50
+#define F_ODO &nx4_font_num_46
 #define F_LIMIT &nx4_font_num_145
 #define F_LABEL &nx4_font_tc_26
 #define F_ICON &nx4_font_icons_80
@@ -64,18 +64,18 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
-#define LS_SPEED 10
+#define LS_SPEED 11
 #define LS_RPM 4
 
 // 由字型的 line_height 推得，用於排版時預留高度
-#define H_SPEED 196
+#define H_SPEED 224
 #define H_RPM 70
 #define H_VALUE 80
 #define H_CLOCK 69
 #define H_TIRE 49
-#define H_FUEL 76
+#define H_FUEL 72
 #define H_COOLANT 104
-#define H_ODO 36
+#define H_ODO 33
 #define H_LIMIT 104
 #define H_LABEL 32
 
@@ -101,9 +101,15 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 由 nx4_dashboard（1024x600）等比重算：x 約 x1.25、y 約 x1.2。
 // 字型維持原本的點陣尺寸不變，多出來的空間全部給卡片與錶盤留白。
 #define PAD 18
+// COL_W 是「左欄」的寬度；右欄另有 COL2_W，兩欄不必一樣寬。
+// 左欄（Hev電池 / 水溫 / 時鐘）被時鐘的 "00:00" 與水溫的 "120" 綁在 310；
+// 右欄（胎壓 / 里程油箱 / 速限）的內容較窄，收到 296 還有餘裕，
+// 省下的 14px 直接變成中央區的寬度。
 #define COL_W 310
+#define COL2_W 296
 #define COL1_X PAD
 #define COL2_X (COL1_X + COL_W + 10)
+#define CARDS_RIGHT (COL2_X + COL2_W)
 #define CARDS_Y 36
 #define CARD_H 205
 #define CARD_GAP 18
@@ -132,7 +138,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define TIRE_Y0 64
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
 // 卡片內界 342，尾端留 36。欄距不取到滿版，兩欄才不會散開。
-#define TIRE_DX 150
+#define TIRE_DX 120
 // 列距。標題佔到 y=44，卡片高 205 → 可用 161px。兩列各 53 高時：
 //   列1 52..105、列2 140..193，上緣 8、**列距 35**、下緣 12。
 // 這張卡的垂直空間是固定的（161px），上緣、兩個行高、列距、下緣要共用它，
@@ -152,7 +158,8 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原本是 0-180 的圓形錶盤。拿掉外環與刻度後改成單純由上而下堆疊，
 // 版面語彙與兩側卡片一致，也把橫向空間還給卡片（COL_W 272 -> 356）。
 //
-// 中央區從卡片右緣 648 一路到圖示條左緣 1178，共 530px。先前寫成 676..1158
+// 中央區從卡片右緣（CARDS_RIGHT = 634）一路到畫面右邊距 1260，共 626px。
+// 指示燈改成橫排放在時速上方之後，右邊那 102px 不必再讓給它們。先前寫成 676..1158
 // （482）是自己多畫的界線，白白浪費了兩側各 24px——時速因此得以再放大到 272。
 //
 // 這 530 是拿卡片換來的：COL_W 由 356 收到 310。原本 356 的卡片把
@@ -163,20 +170,21 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 原始設計是 150/76 = 1.97，兩者差不多大，在拿掉錶環之後主從就不夠分明。
 //
 // 代價：失去「目前速度佔上限多少」的視覺指示，只剩數字。
-#define STACK_X 648
-#define STACK_W 530
+#define STACK_X CARDS_RIGHT
+#define STACK_W (1260 - CARDS_RIGHT)
 #define STACK_CX (STACK_X + STACK_W / 2)
 
 // 由上而下。數值都以 lv_obj_set_pos() 絕對定位並自行置中，
 // 因此這裡給的是每一列的「頂端 y」。
 //
 // 轉速與增壓刻意對齊到右欄第三張卡（道路速限，ROW3_Y 482..687）的上下緣：
-//   轉速頂端 = ROW3_Y = 482          （貼卡片上緣）
+//   轉速頂端 = ROW3_Y - 10 = 472      （比卡片上緣再高 10px）
+// 指示燈橫排在最上面（56..127），時速接在其下（180..404）。
 //   增壓刻度底端 = 643 + 20 + 24 = 687（貼卡片下緣）
 // 這樣中央堆疊與兩側卡片在視覺上有共同的基準線。
 // 時速則置中於第一、二列卡片所在的 36..482 之間。
-#define SPEED_Y 161
-#define RPM_Y ROW3_Y
+#define SPEED_Y 180
+#define RPM_Y (ROW3_Y - 10)
 #define TURBO_Y 580
 #define TURBO_CX STACK_CX
 #define TURBO_BAR_W 450
@@ -186,12 +194,16 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define STATUS_RIGHT 1258
 #define STATUS_IP_Y 660
 
-// ── 右側指示燈條（大燈 / 車門 / 門鎖 / 後車廂，由上到下）──────────────
+// ── 指示燈（大燈 / 車門 / 門鎖 / 後車廂）─────────────────────────────
+// 原本是畫面最右側的垂直四格，那會吃掉右邊 102px（1178..1280）。
+// 改成橫排放在時速上方之後，中央區從 544 變成 626，時速得以由 272 放大到 310。
 // 圖示字型每個字都是 80x80 的字框，實際 line_height 71。
-#define ICON_X 1178
 #define ICON_H 71
-#define ICON_Y0 170
-#define ICON_DY 108
+#define ICON_W 80
+#define ICON_DX 130                       // 80 寬 + 50 間距
+#define ICON_ROW_W (4 * ICON_W + 3 * (ICON_DX - ICON_W))
+#define ICON_X0 (STACK_CX - ICON_ROW_W / 2)
+#define ICON_Y 56
 
 #define RPM_MAX 7000
 
@@ -348,12 +360,13 @@ static lv_obj_t *make_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
 }
 
 /// 「標籤 + 大數值 + 單位」的標準卡片（Hev電池 / 水溫 / 道路速限）
-static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
+static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t w,
+                                 lv_coord_t h,
                                  uint32_t accent, const char *label,
                                  const char *unit, const lv_font_t *vfont,
                                  lv_coord_t vh, lv_obj_t **out_value,
                                  lv_obj_t **out_title) {
-  lv_obj_t *card = make_card(x, y, COL_W, h, accent);
+  lv_obj_t *card = make_card(x, y, w, h, accent);
 
   lv_obj_t *title = NULL;
   if (label != NULL) {
@@ -378,9 +391,9 @@ static lv_obj_t *make_value_card(lv_coord_t x, lv_coord_t y, lv_coord_t h,
 
 // ── 左側第一欄：Hev電池 / 水溫 / 時鐘 ───────────────────────────────────
 static void build_column1(void) {
-  make_value_card(COL1_X, ROW1_Y, CARD_H, C_TEAL, "Hev電池", "%", F_VALUE,
+  make_value_card(COL1_X, ROW1_Y, COL_W, CARD_H, C_TEAL, "Hev電池", "%", F_VALUE,
                   H_VALUE, &s_soc_value, NULL);
-  make_value_card(COL1_X, ROW2_Y, CARD_H, C_CYAN, "水溫", "C", F_COOLANT,
+  make_value_card(COL1_X, ROW2_Y, COL_W, CARD_H, C_CYAN, "水溫", "C", F_COOLANT,
                   H_COOLANT, &s_coolant_value, NULL);
   // 只有這兩張卡的數值右移，道路速限維持原位
   lv_obj_align(s_soc_value, LV_ALIGN_TOP_LEFT, VALUE_X + VALUE_DX, VALUE_Y);
@@ -399,7 +412,7 @@ static void build_column1(void) {
 // ── 左側第二欄：胎壓四格 / 里程+油箱 / 道路速限 ─────────────────────────
 static void build_column2(void) {
   // 胎壓 (PSI)：2x2
-  lv_obj_t *card = make_card(COL2_X, ROW1_Y, COL_W, CARD_H, C_ORANGE);
+  lv_obj_t *card = make_card(COL2_X, ROW1_Y, COL2_W, CARD_H, C_ORANGE);
   lv_obj_t *t = make_label(card, "胎壓 (PSI)", F_LABEL, C_LABEL);
   lv_obj_align(t, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, TITLE_Y);
 
@@ -410,7 +423,7 @@ static void build_column2(void) {
   }
 
   // 里程 + 油箱：兩列，中間一條細分隔線
-  card = make_card(COL2_X, ROW2_Y, COL_W, CARD_H, C_CYAN);
+  card = make_card(COL2_X, ROW2_Y, COL2_W, CARD_H, C_CYAN);
 
   lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
@@ -422,7 +435,7 @@ static void build_column2(void) {
 
   lv_obj_t *divider = lv_obj_create(card);
   lv_obj_set_pos(divider, ACCENT_W + 14, DIVIDER_Y);
-  lv_obj_set_size(divider, COL_W - ACCENT_W - 28, 1);
+  lv_obj_set_size(divider, COL2_W - ACCENT_W - 28, 1);
   lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(divider, lv_color_hex(0x2A303B), 0);
   lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
@@ -441,7 +454,7 @@ static void build_column2(void) {
   // 道路速限（偵測到測速照相時，本卡片會轉為紅底閃爍的警示）
   // 速限數值比其它卡片大 1.3 倍。VALUE_Y 不用動：標題佔到 y=44、卡片高 205，
   // 89px 的數值置中後起點正好還是 80。
-  s_limit_card = make_value_card(COL2_X, ROW3_Y, CARD_H, C_RED, "道路速限",
+  s_limit_card = make_value_card(COL2_X, ROW3_Y, COL2_W, CARD_H, C_RED, "道路速限",
                                  NULL, F_LIMIT, H_LIMIT, &s_limit_value,
                                  &s_limit_title);
   lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X + 24, VALUE_Y);
@@ -491,12 +504,12 @@ static void build_speed_stack(void) {
   }
 }
 
-// ── 右側指示燈條 ────────────────────────────────────────────────────────
-// 由上到下：大燈 / 車門 / 門鎖 / 後車廂，對應手機端狀態區的四個指示燈。
-// 四格位置寫死，只靠顯示或隱藏切換，因此不會互相推擠。
+// ── 指示燈 ──────────────────────────────────────────────────────────────
+// 時速上方的橫排四格：大燈 / 車門 / 門鎖 / 後車廂，對應手機端狀態區。
+// 位置寫死，只靠顯示或隱藏切換，因此不會互相推擠。
 static lv_obj_t *make_icon(const char *glyph, uint32_t color, int slot) {
   lv_obj_t *o = make_label(s_scr, glyph, F_ICON, color);
-  lv_obj_set_pos(o, ICON_X, ICON_Y0 + slot * ICON_DY);
+  lv_obj_set_pos(o, ICON_X0 + slot * ICON_DX, ICON_Y);
   lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
   return o;
 }
