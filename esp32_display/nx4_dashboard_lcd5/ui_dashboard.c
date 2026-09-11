@@ -24,6 +24,9 @@ LV_FONT_DECLARE(nx4_font_num_96);
 LV_FONT_DECLARE(nx4_font_num_77);
 LV_FONT_DECLARE(nx4_font_num_52);
 LV_FONT_DECLARE(nx4_font_tc_26);
+// 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
+// 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
+LV_FONT_DECLARE(nx4_font_icons_80);
 
 #define F_SPEED &nx4_font_num_184s
 #define F_RPM &nx4_font_num_92s
@@ -31,6 +34,14 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 #define F_CLOCK &nx4_font_num_77
 #define F_TIRE &nx4_font_num_52
 #define F_LABEL &nx4_font_tc_26
+#define F_ICON &nx4_font_icons_80
+
+// 圖示字元（UTF-8）。順序與產生腳本的 --range 對應，改動時要一起改。
+#define ICO_LOW_BEAM "\xEE\x80\x80"  // U+E000 car-light-dimmed
+#define ICO_HIGH_BEAM "\xEE\x80\x81" // U+E001 car-light-high
+#define ICO_DOOR "\xEE\x80\x82"      // U+E002 car-door
+#define ICO_UNLOCK "\xEE\x80\x83"    // U+E003 car-door-lock-open
+#define ICO_TRUNK "\xEE\x80\x84"     // U+E004 car-back
 
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
 #define LS_SPEED 7
@@ -104,7 +115,10 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 
 // 狀態欄置右下角後，右半部整片留給錶盤
 #define GAUGE_SIZE 560
-#define GAUGE_X 660
+// 錶盤比原設計再左移 60px（660→600），把畫面最右側 120px 讓給指示燈條。
+// 錶盤是圓形，左緣只有在垂直中央才真的到 x=600，與第二欄卡片（右緣 572）
+// 在該高度仍有 28px 間隙，其餘高度更寬。
+#define GAUGE_X 600
 #define GAUGE_Y 44
 #define GAUGE_CX (GAUGE_X + GAUGE_SIZE / 2)
 #define GAUGE_CY (GAUGE_Y + GAUGE_SIZE / 2)
@@ -119,10 +133,18 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 #define TURBO_BAR_W 370
 #define TURBO_BAR_Y (TURBO_Y + 62)
 
-// 狀態區：右下角，靠右對齊到此 x
+// 狀態區：右下角，靠右對齊到此 x。大燈狀態已改為右側的圖示，這裡只剩 IP。
 #define STATUS_RIGHT 1262
-#define STATUS_LIGHTS_Y 632
 #define STATUS_IP_Y 660
+
+// ── 右側指示燈條（大燈 / 車門 / 門鎖 / 後車廂，由上到下）──────────────
+// 圖示字型每個字都是 80x80 的字框，實際 line_height 64。
+// 錶盤右緣在 1160，圖示左緣 1180，留 20px 間隙；最下一格 494+64=558，
+// 在 IP（y=660）之上，兩者不會打架。
+#define ICON_X 1180
+#define ICON_H 64
+#define ICON_Y0 170
+#define ICON_DY 108
 
 #define SPEED_MAX 180
 #define RPM_MAX 7000
@@ -158,7 +180,12 @@ static lv_obj_t *s_turbo_unit;
 static lv_obj_t *s_turbo_bar;
 
 static lv_obj_t *s_status_ip;
-static lv_obj_t *s_status_lights;
+// 右側四格指示燈。位置固定，不成立時以 HIDDEN 隱藏而非移除，
+// 這樣其它三格不會因為某一格消失而往上遞補。
+static lv_obj_t *s_icon_light;
+static lv_obj_t *s_icon_door;
+static lv_obj_t *s_icon_lock;
+static lv_obj_t *s_icon_trunk;
 static char s_current_ssid[36];
 
 // ── 數值補間 ────────────────────────────────────────────────────────────
@@ -463,19 +490,45 @@ static void build_gauge(void) {
   }
 }
 
+// ── 右側指示燈條 ────────────────────────────────────────────────────────
+// 由上到下：大燈 / 車門 / 門鎖 / 後車廂，對應手機端狀態區的四個指示燈。
+// 四格位置寫死，只靠顯示或隱藏切換，因此不會互相推擠。
+static lv_obj_t *make_icon(const char *glyph, uint32_t color, int slot) {
+  lv_obj_t *o = make_label(s_scr, glyph, F_ICON, color);
+  lv_obj_set_pos(o, ICON_X, ICON_Y0 + slot * ICON_DY);
+  lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+  return o;
+}
+
+static void build_indicators(void) {
+  // 大燈：近燈綠、遠燈藍，比照車規儀表的慣例（圖示也會換成遠燈符號）
+  s_icon_light = make_icon(ICO_LOW_BEAM, C_GREEN, 0);
+  s_icon_door = make_icon(ICO_DOOR, C_ORANGE, 1);
+  s_icon_lock = make_icon(ICO_UNLOCK, C_ORANGE, 2);
+  s_icon_trunk = make_icon(ICO_TRUNK, C_ORANGE, 3);
+}
+
+/// 單一格的顯示與隱藏。狀態沒變就不動，避免多餘的 invalidate。
+static void set_icon(lv_obj_t *o, bool on) {
+  if (on == !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
+  if (on) {
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 /// 點右下角的 IP 開啟 WiFi 設定面板，並帶入目前的 SSID
 static void ip_clicked_cb(lv_event_t *e) {
   LV_UNUSED(e);
   ui_settings_open(s_current_ssid);
 }
 
-// ── 右下角狀態區（只保留 IP 與大燈狀態）─────────────────────────────────
+// ── 右下角狀態區（只剩 IP）──────────────────────────────────────────────
 // 連線狀態改由「資料逾時淡出」表達，螢幕亮度僅在序列日誌回報，
-// 兩者不再佔用畫面。測速照相警示已整合進「道路速限」卡片。
+// 兩者不再佔用畫面。測速照相警示已整合進「道路速限」卡片，
+// 大燈狀態則改成右側指示燈條的第一格。
 static void build_status(void) {
-  s_status_lights = make_label(s_scr, "", F_LABEL, C_ORANGE);
-  lv_obj_set_pos(s_status_lights, STATUS_RIGHT - 44, STATUS_LIGHTS_Y);
-
   s_status_ip = make_label(s_scr, "WiFi ...", &lv_font_montserrat_18, C_UNIT);
   lv_obj_set_pos(s_status_ip, STATUS_RIGHT - 62, STATUS_IP_Y);
 
@@ -538,6 +591,7 @@ void ui_dashboard_create(void) {
   build_column2();
   build_gauge();
   build_status();
+  build_indicators();
   ui_settings_create();
 
   // 這兩個 label 平常由補間的 callback 定位；開機時還沒有資料，
@@ -773,19 +827,25 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   update_tire(2, data->tire_rl, p->tire_rl, force);
   update_tire(3, data->tire_rr, p->tire_rr, force);
 
-  // 大燈狀態
+  // 右側指示燈條：大燈 / 車門 / 門鎖 / 後車廂
   if (force || data->low_beam != p->low_beam ||
       data->high_beam != p->high_beam) {
-    if (data->high_beam) {
-      lv_label_set_text(s_status_lights, "遠燈");
-      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_BLUE), 0);
-    } else if (data->low_beam) {
-      lv_label_set_text(s_status_lights, "近燈");
-      lv_obj_set_style_text_color(s_status_lights, lv_color_hex(C_ORANGE), 0);
-    } else {
-      lv_label_set_text(s_status_lights, "");
-    }
-    align_status_right(s_status_lights, STATUS_LIGHTS_Y);
+    // 遠燈一定伴隨大燈開啟，所以顯示條件是 low_beam；
+    // 遠燈時換成遠燈符號並轉藍。
+    set_icon(s_icon_light, data->low_beam);
+    lv_label_set_text(s_icon_light,
+                      data->high_beam ? ICO_HIGH_BEAM : ICO_LOW_BEAM);
+    lv_obj_set_style_text_color(
+        s_icon_light, lv_color_hex(data->high_beam ? C_BLUE : C_GREEN), 0);
+  }
+  if (force || data->door_open != p->door_open) {
+    set_icon(s_icon_door, data->door_open);
+  }
+  if (force || data->door_unlocked != p->door_unlocked) {
+    set_icon(s_icon_lock, data->door_unlocked);
+  }
+  if (force || data->trunk_open != p->trunk_open) {
+    set_icon(s_icon_trunk, data->trunk_open);
   }
 
   // 道路速限卡片：有測速照相時取代為警示，消失後恢復速限
@@ -843,6 +903,11 @@ void ui_dashboard_set_stale(bool stale) {
   for (int i = 0; i < 4; i++) {
     lv_obj_set_style_text_opa(s_tire_value[i], opa, 0);
   }
+  // 指示燈同樣淡出：逾時後的車門 / 門鎖狀態一樣是過期資料
+  lv_obj_set_style_text_opa(s_icon_light, opa, 0);
+  lv_obj_set_style_text_opa(s_icon_door, opa, 0);
+  lv_obj_set_style_text_opa(s_icon_lock, opa, 0);
+  lv_obj_set_style_text_opa(s_icon_trunk, opa, 0);
 
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限

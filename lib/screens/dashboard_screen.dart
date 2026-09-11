@@ -750,6 +750,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         "low": provider.isLowBeamOn,
         "high": provider.isHighBeamOn,
       },
+      // 車門 / 門鎖 / 後車廂，對應手機端狀態區的三個指示燈
+      // （22BC04 只有前兩門有解鎖訊號，見 AppProvider.isDoorUnlocked）
+      "doors": {
+        "open": provider.isAnyDoorOpen,
+        "unlocked": provider.isDoorUnlocked,
+        "trunk": provider.isTrunkOpen,
+      },
       // 螢幕亮度由手機端依大燈狀態決定，ESP32 只負責套用
       "brightness": SettingsService().esp32BrightnessFor(
         lowBeam: provider.isLowBeamOn,

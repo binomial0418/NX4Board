@@ -87,6 +87,7 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
   "camera": { "active": true, "limit": 90 },
   "lights": { "low": true, "high": false },
+  "doors": { "open": false, "unlocked": false, "trunk": false },
   "brightness": 40
 }
 ```
@@ -109,6 +110,9 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
 | `camera.limit` | int | 該測速照相的速限 km/h |
 | `lights.low` | bool | 近燈（大燈）是否開啟 |
 | `lights.high` | bool | 遠燈是否開啟 |
+| `doors.open` | bool | 任一車門開啟 |
+| `doors.unlocked` | bool | 任一車門解鎖（22BC04 只有前兩門有訊號） |
+| `doors.trunk` | bool | 後車廂開啟 |
 | `brightness` | int | 螢幕背光 0–100 %，由手機端依大燈狀態決定 |
 | `brightness_hold_ms` | int | 選用。設定頁「測試」按鈕專用，見下方 |
 
@@ -138,28 +142,31 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 ## 三、畫面配置（LVGL 邏輯 1280 x 720）
 
 版面比照手機端 App 的儀表畫面（專案根目錄 `rec.gif`）：純黑底、
-左側兩欄帶分類色條的資訊卡、右側 0-180 圓形時速錶。
+左側兩欄帶分類色條的資訊卡、中右 0-180 圓形時速錶、最右側指示燈條。
 
 座標由 `nx4_dashboard` 的 1024x600 等比重算（x 約 x1.25、y 約 x1.2），
 **字型維持原本的點陣尺寸不變**，多出來的空間全部拿來留白。
-所有常數集中在 `ui_dashboard.c` 上方，分成三組：版面骨架、卡片內部相對
-位移、錶盤與狀態區。改 `CARD_H` 時卡片內部那一組要一起重算，否則分隔線
-會壓到油箱那一列。
+所有常數集中在 `ui_dashboard.c` 上方，分成四組：版面骨架、卡片內部相對
+位移、錶盤與狀態區、右側指示燈條。改 `CARD_H` 時卡片內部那一組要一起重算，
+否則分隔線會壓到油箱那一列。
+
+最右側窄欄是指示燈條（燈=大燈、門=車門、鎖=車門解鎖、廂=後車廂），
+只有狀態成立的那一格會亮。
 
 ```
-┌──────────────┬──────────────┬────────────────────────────────────┐
-│▌Hev電池      │▌胎壓 (PSI)   │           ‥  80  100 ⁚             │
-│  65.5      % │  34    34    │        60              120         │
-│              │  33    33    │                                    │
-├──────────────┼──────────────┤     40         75         140      │
-│▌水溫         │▌里程 33676 K │                                    │
-│  88        C │──────────────│     20                    160      │
-│              │▌油箱  50   % │        0    1750 R                 │
-├──────────────┼──────────────┤        +0.15 BAR       180         │
-│▌09/01 週一   │▌道路速限     │    ▁▁▁▁▁▁▁┃▁▁▁▁▁▁            近燈 │
-│  18:04       │  90          │    -1 -0.5  0 +0.5 +1    10.0.4.99 │
-│              │              │                                    │
-└──────────────┴──────────────┴────────────────────────────────────┘
+┌──────────────┬──────────────┬───────────────────────────────┬────┐
+│▌Hev電池      │▌胎壓 (PSI)   │         ‥  80  100 ⁚          │    │
+│  65.5      % │  34    34    │      60              120      │ 燈 │
+│              │  33    33    │                               │    │
+├──────────────┼──────────────┤   40         75         140   │ 門 │
+│▌水溫         │▌里程 33676 K │                               │    │
+│  88        C │──────────────│   20                    160   │ 鎖 │
+│              │▌油箱  50   % │      0    1750 R              │    │
+├──────────────┼──────────────┤      +0.15 BAR       180      │ 廂 │
+│▌09/01 週一   │▌道路速限     │  ▁▁▁▁▁▁▁┃▁▁▁▁▁▁               │    │
+│  18:04       │  90          │  -1 -0.5  0 +0.5 +1  10.0.4.99│    │
+│              │              │                               │    │
+└──────────────┴──────────────┴───────────────────────────────┴────┘
 ```
 
 
@@ -188,10 +195,25 @@ App 設定頁每一列亮度旁的 **測試** 按鈕會送出帶 `brightness_hol
 
 增壓區與右下角狀態區都落在錶弧底部缺口的高度，該處沒有弧線也沒有刻度。
 
-**右下角狀態區**只保留 IP 與大燈狀態，靠右對齊。
+**右側指示燈條**：畫面最右側由上到下四格，對應手機端狀態區的四個指示燈。
+位置寫死，不成立時以 `LV_OBJ_FLAG_HIDDEN` 隱藏而非移除，這樣某一格熄滅時
+其它三格不會往上遞補、位置跳來跳去。
+
+| 順序 | 指示 | 來源欄位 | 顏色 |
+|---|---|---|---|
+| 1 | 大燈 | `lights.low` | 近燈綠、遠燈藍（圖示同時換成遠燈符號） |
+| 2 | 車門開啟 | `doors.open` | 琥珀 |
+| 3 | 車門解鎖 | `doors.unlocked` | 琥珀 |
+| 4 | 後車廂開啟 | `doors.trunk` | 琥珀 |
+
+為了讓出這條 120px 的邊欄，錶盤由 `GAUGE_X 660` 左移到 `600`。錶盤是圓形，
+左緣只有在垂直中央才真的到 x=600，與第二欄卡片（右緣 572）在該高度仍有
+28px 間隙；圖示條左緣 1180 與錶盤右緣 1160 之間留 20px。
+
+**右下角**只剩 IP，靠右對齊。
 **點 IP 可開啟 WiFi 設定面板**（字很小，可點範圍已往外擴 24px）。連線狀態改由
-「資料逾時整片淡出」表達，螢幕亮度僅在序列日誌以 `[BRT]` 回報，
-兩者都不再佔用畫面，把右半部完整讓給時速環。
+「資料逾時整片淡出」表達，逾時時指示燈也一起淡出——過期的車門狀態同樣不該
+被當成現況。螢幕亮度僅在序列日誌以 `[BRT]` 回報。
 
 **警示值**（達到即轉為**紅字**，門檻定義於 `ui_dashboard.c` 上方）：
 
@@ -317,6 +339,7 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 | `nx4_font_num_77.c` | Montserrat 77 px，`0-9` `:` `-` | 54 | 時鐘 `HH:MM` |
 | `nx4_font_num_52.c` | Montserrat 52 px，`0-9` `-` | 37 | 胎壓四格與油箱 |
 | `nx4_font_tc_26.c` | Noto Sans TC 26 px，ASCII + 57 個漢字 | 32 | 中文標籤 |
+| `nx4_font_icons_80.c` | Material Design Icons 80 px，5 個車用符號 | 64 | 右側指示燈條 |
 
 ### 字級為什麼是這些數字
 
@@ -353,8 +376,35 @@ LVGL 內建的上限。
 壓到靠右對齊的 `%`，所以由 20 收窄成 12。程式對 SOC ≥ 100 已特判成不帶
 小數的 `100`，因此 `100.0` 不會出現。
 
-兩份字型皆為 SIL Open Font License 1.1，授權全文見
-`OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。
+Montserrat 與 Noto Sans TC 皆為 SIL Open Font License 1.1，授權全文見
+`OFL-Montserrat.txt` 與 `OFL-NotoSansTC.txt`。圖示取自
+[Material Design Icons](https://pictogrammers.com/library/mdi/)，
+Pictogrammers Free License，全文見 `LICENSE-MaterialDesignIcons.txt`。
+
+### 指示燈圖示
+
+MDI 的碼位落在 Plane 15 私有區（如 `U+F0C4A`），是 4-byte UTF-8。產生時用
+lv_font_conv 的 `=>` 語法重映到 `U+E000`-`U+E004`，換成 3-byte UTF-8 並讓
+整個範圍連續，cmap 就能收成單一個 `FORMAT0_TINY` 子表：
+
+| 重映後 | MDI 名稱 | 原碼位 | 用途 |
+|---|---|---|---|
+| `U+E000` | `car-light-dimmed` | `U+F0C4A` | 近燈 |
+| `U+E001` | `car-light-high` | `U+F0C4C` | 遠燈 |
+| `U+E002` | `car-door` | `U+F0B6B` | 車門開啟 |
+| `U+E003` | `car-door-lock-open` | `U+F1C81` | 車門解鎖 |
+| `U+E004` | `car-back` | `U+F0E1B` | 後車廂開啟 |
+
+```bash
+npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
+  --lv-include lvgl.h --font materialdesignicons-webfont.ttf --size 80 \
+  --range '0xF0C4A=>0xE000' --range '0xF0C4C=>0xE001' \
+  --range '0xF0B6B=>0xE002' --range '0xF1C81=>0xE003' \
+  --range '0xF0E1B=>0xE004' -o nx4_font_icons_80.c
+```
+
+`ui_dashboard.c` 上方的 `ICO_*` 巨集是這五個碼位的 UTF-8 字面值，
+**改動 `--range` 順序時要一起改**。
 
 > Regular 以外的字重必須用**靜態**的 TTF。Google Fonts 上游發布的
 > `Montserrat[wght].ttf` 與 `NotoSansTC[wght].ttf` 都是可變字型，而且**預設
@@ -460,6 +510,8 @@ WebSocket 的邏輯完全相同。`src/touch`、`lv_conf.h`、字型沿用未改
 | 畫面撕裂 | 於 `nx4_dashboard_lcd5.ino` 將 `disp_drv.full_refresh` 改為 `true` |
 | 某段文字完全不顯示但版面有留位置 | 該字型是壓縮格式。檢查字型檔的 `.bitmap_format` 是否為 `0`，不是的話用 `--no-compress` 重新產生 |
 | 右下角出現 FPS / CPU 疊圖 | `lv_conf.h` 的 `LV_USE_PERF_MONITOR` 要設為 `0` |
+| 右側指示燈永遠不亮 | 序列日誌看 `[FIELD]` 的 `doors=`：`N` 代表手機 App 版本較舊、沒送 `doors` 物件 |
+| 指示燈顯示成空白方框 | `nx4_font_icons_80.c` 的碼位與 `ui_dashboard.c` 的 `ICO_*` 巨集對不上，或字型沒重新產生 |
 | 螢幕鍵盤不出現 | `lv_keyboard_constructor()` 內建就對自己做了 `lv_obj_align(BOTTOM_MID)`，之後再用 `lv_obj_set_pos()` 會被當成相對偏移而把鍵盤推出畫面。要用 `lv_obj_align()` 定位。開機時的 `[UI] 設定面板 ...` 會印出實際座標 |
 | 點 IP 沒反應 | 先看序列日誌有沒有 `[TOUCH] raw=... lvgl=...`：沒有代表 GT911 沒作用，有的話代表換算後的座標對不上點擊區 |
 | 設定過的 WiFi 想改回 config.h | NVS 優先於 config.h，需清除 NVS 才會回退 |

@@ -8,10 +8,11 @@ extern "C" {
 #endif
 
 // ─────────────────────────────────────────────────────────────────────────
-// NX4Board ESP32-P4 儀表 UI (LVGL v8, 1024x600)
+// NX4Board ESP32-P4 儀表 UI (LVGL v8, 邏輯 1280x720)
 //
 // 版面比照手機端 App 的儀表畫面（專案根目錄 rec.gif）：
-//   左側兩欄帶色條的資訊卡 + 右側 0-180 圓形時速錶 + 最右側狀態欄。
+//   左側兩欄帶色條的資訊卡 + 中右 0-180 圓形時速錶
+//   + 最右側由上到下的四格指示燈（大燈 / 車門 / 門鎖 / 後車廂）。
 //
 // 設計原則：ui_dashboard_create() 只在開機時建立一次所有物件，
 // 之後 ui_dashboard_update() 僅寫入 Label 文字與 Meter/Bar 數值，
@@ -36,6 +37,9 @@ typedef struct {
   int camera_limit;    // 該測速照相的速限 km/h
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
+  bool door_open;      // 任一車門開啟
+  bool door_unlocked;  // 任一車門解鎖（22BC04 只有前兩門有訊號）
+  bool trunk_open;     // 後車廂開啟
   char clock[12];      // 手機端時間 "HH:MM:SS"
   char date[24];       // 手機端日期 "09/01 週一"
 } nx4_dash_data_t;

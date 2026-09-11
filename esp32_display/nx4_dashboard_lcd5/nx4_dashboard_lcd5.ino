@@ -17,6 +17,7 @@
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90},
 //   "lights": {"low": true, "high": false},
+//   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "brightness": 40
 // }
 //
@@ -208,6 +209,7 @@ static bool g_log_next_payload = false;
 #define FIELD_TURBO (1 << 3)
 #define FIELD_LIGHTS (1 << 4)
 #define FIELD_BRIGHT (1 << 5)
+#define FIELD_DOORS (1 << 6)
 
 static void handleDashPayload(uint8_t *payload, size_t length) {
   // 連線後的第一筆原樣印出，直接看得到手機到底送了什麼
@@ -230,6 +232,7 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!doc["turbo"].isNull()) g_seen_fields |= FIELD_TURBO;
   if (!doc["lights"].isNull()) g_seen_fields |= FIELD_LIGHTS;
   if (!doc["brightness"].isNull()) g_seen_fields |= FIELD_BRIGHT;
+  if (!doc["doors"].isNull()) g_seen_fields |= FIELD_DOORS;
 
   // 只處理本機認得的協定，其餘（例如第一通道的 BVB-7980）直接忽略
   const char *type = doc["_type"] | "";
@@ -278,6 +281,16 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!lights.isNull()) {
     g_dash.low_beam = lights["low"] | false;
     g_dash.high_beam = lights["high"] | false;
+  }
+
+  // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
+  // 整個 doors 物件缺席時沿用上一次的值（協定上合法，見 [FIELD] 診斷）；
+  // 物件在但某個鍵缺席時視為 false，因為「沒送」就代表沒有該警示。
+  JsonObjectConst doors = doc["doors"];
+  if (!doors.isNull()) {
+    g_dash.door_open = doors["open"] | false;
+    g_dash.door_unlocked = doors["unlocked"] | false;
+    g_dash.trunk_open = doors["trunk"] | false;
   }
 
   // 亮度：帶 brightness_hold_ms 的（設定頁測試按鈕）優先，並在該期間
@@ -504,13 +517,15 @@ static void serviceWifi() {
 
     // 只要有 client 就檢查欄位齊不齊，缺哪個直接點名
     if (webSocket.connectedClients() > 0) {
-      Serial.printf("[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c",
-                    (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
-                    (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
-                    (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
-                    (g_seen_fields & FIELD_TURBO) ? 'Y' : 'N',
-                    (g_seen_fields & FIELD_LIGHTS) ? 'Y' : 'N',
-                    (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N');
+      Serial.printf(
+          "[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c doors=%c",
+          (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_TURBO) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_LIGHTS) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_DOORS) ? 'Y' : 'N');
       if ((g_seen_fields & (FIELD_ODO | FIELD_TIME | FIELD_DATE)) !=
           (FIELD_ODO | FIELD_TIME | FIELD_DATE)) {
         Serial.print("   <- 手機 App 版本可能過舊，缺少的欄位不會更新");
