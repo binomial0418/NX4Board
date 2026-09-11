@@ -53,6 +53,12 @@ class AppProvider extends ChangeNotifier {
   /// 最後播報過的遠燈狀態。null = 尚未取得有效資料，此時只記錄不播報，
   /// 避免連線當下或斷線歸零時誤報一句「遠燈關閉」。
   bool? _lastAnnouncedHighBeam;
+
+  /// 最後一次「看到」的遠燈狀態，用來偵測邊緣。
+  /// 必須與 _lastAnnouncedHighBeam 分開：去抖計時器只能在狀態真的變化時
+  /// 重啟，若每次收到 OBD 通知都重啟（快輪詢每 300ms 一次），計時器
+  /// 永遠撐不到設定的秒數，就再也不會播報。
+  bool? _lastObservedHighBeam;
   Timer? _highBeamDebounce;
 
   // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
@@ -205,15 +211,20 @@ class AppProvider extends ChangeNotifier {
     if (!hasData) {
       _highBeamDebounce?.cancel();
       _lastAnnouncedHighBeam = null;
+      _lastObservedHighBeam = null;
       return;
     }
 
     final bool current = isHighBeamOn;
+
+    // 狀態沒變就什麼都不做 —— 尤其不能碰計時器（見 _lastObservedHighBeam）
+    if (current == _lastObservedHighBeam) return;
+    _lastObservedHighBeam = current;
+
     if (_lastAnnouncedHighBeam == null) {
       _lastAnnouncedHighBeam = current; // 首次取得狀態只記錄，不播報
       return;
     }
-    if (current == _lastAnnouncedHighBeam) return;
 
     _highBeamDebounce?.cancel();
     _highBeamDebounce = Timer(const Duration(milliseconds: 1500), () {
