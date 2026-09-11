@@ -57,12 +57,20 @@ esp_err_t esp_lcd_new_panel_hx8394(const esp_lcd_panel_io_handle_t io, const esp
  *
  * 原廠規格：2-lane，lane 速率 700 Mbit/s。
  */
-#define HX8394_PANEL_BUS_DSI_2CH_CONFIG()                \
-    {                                                    \
-        .bus_id = 0,                                     \
-        .num_data_lanes = 2,                             \
-        .phy_clk_src = MIPI_DSI_PHY_CLK_SRC_DEFAULT,     \
-        .lane_bit_rate_mbps = 700,                       \
+// phy_clk_src 千萬不要用 MIPI_DSI_PHY_CLK_SRC_DEFAULT。那是舊的相容性巨集，
+// 指向 MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT_LEGACY，也就是 PLL_F20M——
+// clk_tree_defs.h 註明 PLL_F20M / PLL_F25M / RC_FAST「只在 esp32p4 < 3.0 可用」。
+// 而 Arduino core 3.3.7 的 mipi_dsi_ll.h（prev3 與 postv3 兩套都是）只接受
+// XTAL / APLL / CPLL / SPLL / MPLL，其餘直接 abort()。實測結果是開機印完
+// 橫幅就在 esp_lcd_new_dsi_bus() 內 abort 進入開機迴圈，而且不會印任何
+// 斷言訊息，只有一行 "abort() was called at PC ..."，極難聯想到時脈來源。
+// MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT（= XTAL）在兩套 profile 都合法。
+#define HX8394_PANEL_BUS_DSI_2CH_CONFIG()                       \
+    {                                                           \
+        .bus_id = 0,                                            \
+        .num_data_lanes = 2,                                    \
+        .phy_clk_src = MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT,     \
+        .lane_bit_rate_mbps = 700,                              \
     }
 
 /**

@@ -21,6 +21,9 @@
 #define PANEL_V_RES 1280
 
 // 面板 RST。舊板 JC1060P470C 是 GPIO5。
+// 這支腳目前「不會被驅動使用」——建立 DSI 匯流排後再脈衝它會讓 DCS 命令
+// 送不出去（詳見 src/lcd/hx8394_lcd.cpp 的註解），原廠範例同樣不碰它。
+// 保留定義做為腳位文件。
 #define LCD_RST 27
 // 背光由 hx8394_lcd.cpp 內的 LEDC（GPIO26 / 5 kHz / 10-bit）管理，
 // 這裡不再另外用 GPIO 控制。

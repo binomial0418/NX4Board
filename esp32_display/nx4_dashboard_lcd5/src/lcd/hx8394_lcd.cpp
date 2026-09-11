@@ -124,13 +124,21 @@ void hx8394_lcd::begin()
         },
     };
     const esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = _lcd_rst,
+        .reset_gpio_num = -1,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = LCD_BIT_PER_PIXEL,
         .vendor_config = &vendor_config,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_hx8394(io_handle, &panel_config, &panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+    // 注意：這裡刻意「不」呼叫 esp_lcd_panel_reset()，panel_config 的
+    // reset_gpio_num 也固定給 -1。
+    //
+    // 原理圖上 GPIO27 確實是 HX8394 的面板重置，但在建立 DSI 匯流排之後再去
+    // 脈衝它，會讓後續的 DCS 命令送不出去：實測固定卡死在初始化序列第 16 筆
+    // （0xBD 0x00），esp_lcd_panel_io_tx_param() 永遠不返回，沒有錯誤碼也沒有
+    // 看門狗，整個 setup() 就停在那裡。原廠 Arduino 範例同樣把 rst_pin 設為
+    // -1、完全不碰這支腳，靠上電重置即可。
+    // pins_config.h 的 LCD_RST 保留做為文件記錄，但不會被驅動使用。
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
     // 取得 DPI framebuffer，供 PPA 旋轉直接寫入

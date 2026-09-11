@@ -192,7 +192,6 @@ static esp_err_t panel_hx8394_init(esp_lcd_panel_t *panel)
     // 前置命令：離開睡眠 → 掃描方向 → 像素格式 → DSI 2-lane
     ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, LCD_CMD_SLPOUT, NULL, 0), TAG, "send command failed");
     vTaskDelay(pdMS_TO_TICKS(120));
-
     ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, LCD_CMD_MADCTL, (uint8_t[]) {
         hx8394->madctl_val,
     }, 1), TAG, "send command failed");
@@ -243,7 +242,6 @@ static esp_err_t panel_hx8394_init(esp_lcd_panel_t *panel)
         vTaskDelay(pdMS_TO_TICKS(init_cmds[i].delay_ms));
     }
     ESP_LOGD(TAG, "send init commands success");
-
     ESP_RETURN_ON_ERROR(hx8394->init(panel), TAG, "init MIPI DPI panel failed");
 
     return ESP_OK;

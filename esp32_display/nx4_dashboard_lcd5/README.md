@@ -303,6 +303,19 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 > 若你手上是 **rev1.x（含 rev1.3）**，要改成 `ChipVariant=prev3` —— 舊 profile
 > 用 200 MHz PSRAM，兩個 profile 不能混用。這是**晶片**設定，不是 PCB 版號。
 
+> **core 內建的 esptool 燒不動這塊板。** Arduino core 3.3.7 帶的 esptool 5.1.0
+> 在 ESP32-P4 **rev v3.2** 上，stub flasher 啟動後第一個 flash 指令就回
+> `The chip stopped responding`；改 `--no-stub` 可以正常讀 flash ID
+> （GD25Q256、32MB 都認得出來），但一進入寫入就無聲中斷。降 baud 無效
+> （921600 / 230400 / 115200 / 57600 都試過）。**esptool 4.12.0 可以正常燒錄**，
+> 而 4.8.1 反而連不上——v5 的重置時序才吃得住這塊板，所以版本要挑 4.12.0。
+>
+> ```bash
+> python3 -m venv /tmp/esptool-venv
+> /tmp/esptool-venv/bin/pip install esptool==4.12.0
+> NX4_ESPTOOL=/tmp/esptool-venv/bin/esptool.py ./build.sh -u -p /dev/cu.usbmodemXXXX
+> ```
+
 > 若板子停在「等待上電同步中」，按住 **BOOT** 再重新上電進下載模式。
 > 原廠也提供 Flash Download Tool 直接燒 `firmware/` 裡的 bin（位址 `0x00`），
 > 見 <https://docs.waveshare.net/ESP32-P4-WIFI6-Touch-LCD-5/Firmware-Flashing>。
@@ -499,7 +512,9 @@ WebSocket 的邏輯完全相同。`src/touch`、`lv_conf.h`、字型沿用未改
 
 | 症狀 | 檢查 |
 |---|---|
-| 螢幕全黑 | `LCD_RST` 是否為 **27**、背光是否在 **GPIO26**；PSRAM 是否 `enabled`（沒開會在 `assert(buf)` 當掉）；`ChipVariant` 是否與晶片 revision 相符 |
+| 螢幕全黑 | 背光是否在 **GPIO26**；PSRAM 是否 `enabled`（沒開會在 `assert(buf)` 當掉）；`ChipVariant` 是否與晶片 revision 相符 |
+| 開機迴圈，只印 `abort() was called at PC ...` 沒有斷言訊息 | DSI PHY 的 `phy_clk_src` 用了 `MIPI_DSI_PHY_CLK_SRC_DEFAULT`。那是舊相容巨集、指向 PLL_F20M，只在 esp32p4 < 3.0 可用，rev3 的 HAL 會直接 `abort()`。要用 `MIPI_DSI_PHY_PLLREF_CLK_SRC_DEFAULT`（= XTAL） |
+| 開機停在 `lcd.begin()` 不動、沒有崩潰也沒有看門狗 | 有人把面板重置腳接回去了。建立 DSI 匯流排後再脈衝 GPIO27，會讓初始化序列第 16 筆（`0xBD 0x00`）的 `esp_lcd_panel_io_tx_param()` 永遠不返回。`reset_gpio_num` 必須是 -1，見 `hx8394_lcd.cpp` |
 | 畫面上下顛倒 | 把 `.ino` 的 `DISP_ROTATION` 由 `90` 改成 `270`，畫面與觸控會一起翻 |
 | 序列埠出現 `[PPA] 旋轉失敗` | PPA 對區塊對齊有要求。確認 `my_rounder()` 有掛上 `disp_drv.rounder_cb`，且繪圖緩衝是 `heap_caps_aligned_alloc(64, ...)` 配出來的 |
 | 觸控完全沒反應 | 看開機日誌有沒有 `GT911 位址 0x..`。印出 `在 0x5D 與 0x14 都沒有回應` 代表 I2C 不通（檢查 `TP_I2C_SDA/SCL`）；有位址但點不到，看 `[TOUCH] raw=(..) lvgl=(..)` 的換算對不對 |
