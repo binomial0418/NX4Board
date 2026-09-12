@@ -1,0 +1,348 @@
+<title>NX4 儀表壓克力背板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+TC:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --paper:#F6F5F2;
+    --sheet:#FFFFFF;
+    --ink:#191A1D;
+    --ink-2:#4A4D54;
+    --ink-3:#7B7F87;
+    --rule:#D9D6D0;
+    --rule-soft:#EAE7E2;
+    --dim:#C5186B;          /* CAD 標註線的洋紅，取自原廠機構圖 */
+    --dim-soft:#FBE8F1;
+    --caution:#A2570A;
+    --caution-soft:#FBF0DE;
+    --ok:#1F6F4A;
+    --sh:0 1px 2px rgba(25,26,29,.05), 0 8px 24px -18px rgba(25,26,29,.35);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#131417; --sheet:#1A1C20; --ink:#E9E7E3; --ink-2:#B3B6BD;
+      --ink-3:#83878F; --rule:#33363C; --rule-soft:#26292E;
+      --dim:#F471A8; --dim-soft:#2C1723; --caution:#E0A35A; --caution-soft:#2A2116;
+      --ok:#63C295; --sh:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#131417; --sheet:#1A1C20; --ink:#E9E7E3; --ink-2:#B3B6BD;
+    --ink-3:#83878F; --rule:#33363C; --rule-soft:#26292E;
+    --dim:#F471A8; --dim-soft:#2C1723; --caution:#E0A35A; --caution-soft:#2A2116;
+    --ok:#63C295; --sh:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans TC","Noto Sans TC",-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:15px; line-height:1.68; margin:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:940px; margin:0 auto; padding:40px 24px 96px}
+  mono,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums}
+
+  /* ── 圖框標題欄：照工程圖的 title block ───────────────── */
+  .titleblock{
+    background:var(--sheet); border:1px solid var(--rule); box-shadow:var(--sh);
+    display:grid; grid-template-columns:1fr; overflow:hidden;
+  }
+  .tb-head{padding:22px 26px 18px; border-bottom:1px solid var(--rule)}
+  .tb-eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--dim); margin:0 0 8px;
+  }
+  h1{font-size:29px; line-height:1.22; margin:0 0 6px; font-weight:600; letter-spacing:-.01em; text-wrap:balance}
+  .tb-sub{margin:0; color:var(--ink-2); font-size:14.5px}
+  .tb-grid{display:grid; grid-template-columns:repeat(4,1fr)}
+  .tb-cell{padding:13px 18px; border-right:1px solid var(--rule-soft); border-top:1px solid var(--rule-soft)}
+  .tb-cell:nth-child(4n){border-right:0}
+  .tb-k{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-3); display:block; margin-bottom:3px;
+  }
+  .tb-v{font-size:15px; font-weight:600; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+
+  h2{
+    font-size:13px; font-family:"IBM Plex Mono",monospace; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-3); font-weight:600;
+    margin:52px 0 16px; padding-bottom:9px; border-bottom:1px solid var(--rule);
+    display:flex; align-items:baseline; gap:10px;
+  }
+  h2 .n{color:var(--dim)}
+  h3{font-size:17px; margin:28px 0 8px; font-weight:600}
+  p{margin:0 0 14px; max-width:68ch}
+  .lede{color:var(--ink-2)}
+
+  /* ── 圖面 ───────────────────────────────────────────── */
+  .plate{
+    background:var(--sheet); border:1px solid var(--rule); box-shadow:var(--sh);
+    padding:26px 22px 18px; overflow-x:auto;
+  }
+  .plate svg{display:block; width:100%; min-width:560px; height:auto}
+  .plate-cap{
+    display:flex; flex-wrap:wrap; gap:6px 20px; justify-content:space-between;
+    margin-top:16px; padding-top:13px; border-top:1px solid var(--rule-soft);
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-3);
+    letter-spacing:.03em;
+  }
+
+  table{border-collapse:collapse; width:100%; font-size:14.5px; margin:0 0 6px}
+  caption{
+    text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); padding-bottom:8px;
+  }
+  th{
+    text-align:left; font-weight:600; font-size:11.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-3); padding:0 14px 8px 0;
+    border-bottom:1px solid var(--rule); white-space:nowrap;
+  }
+  td{padding:10px 14px 10px 0; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+  td:first-child{width:36%}
+  .num{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap}
+  .tbl-scroll{overflow-x:auto}
+
+  ol,ul{margin:0 0 14px; padding-left:22px; max-width:68ch}
+  li{margin-bottom:7px}
+  li::marker{color:var(--ink-3)}
+  ol.spec{counter-reset:s; list-style:none; padding-left:0}
+  ol.spec li{
+    counter-increment:s; position:relative; padding-left:38px; margin-bottom:13px;
+  }
+  ol.spec li::before{
+    content:counter(s,decimal-leading-zero); position:absolute; left:0; top:1px;
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600;
+    color:var(--dim); letter-spacing:.06em;
+  }
+
+  .note{
+    border-left:2px solid var(--caution); background:var(--caution-soft);
+    padding:15px 18px; margin:18px 0; max-width:68ch;
+  }
+  .note p{margin:0 0 8px}
+  .note p:last-child{margin:0}
+  .note-k{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--caution); font-weight:600; display:block; margin-bottom:5px;
+  }
+  .alt{border-left-color:var(--ink-3); background:var(--rule-soft)}
+  .alt .note-k{color:var(--ink-3)}
+
+  .pill{
+    display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px;
+    letter-spacing:.06em; padding:2px 8px; border:1px solid var(--rule);
+    color:var(--ink-2); background:var(--paper); white-space:nowrap;
+  }
+  .pill.src{border-color:var(--dim); color:var(--dim); background:var(--dim-soft)}
+
+  footer{
+    margin-top:56px; padding-top:18px; border-top:1px solid var(--rule);
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-3);
+    display:flex; flex-wrap:wrap; gap:6px 22px; justify-content:space-between;
+  }
+  a{color:var(--dim)}
+  a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--dim); outline-offset:3px}
+
+  @media (max-width:720px){
+    .tb-grid{grid-template-columns:repeat(2,1fr)}
+    .tb-cell:nth-child(4n){border-right:1px solid var(--rule-soft)}
+    .tb-cell:nth-child(2n){border-right:0}
+    h1{font-size:24px}
+    td:first-child{width:auto}
+  }
+  @media print{
+    body{background:#fff}
+    .wrap{max-width:none; padding:0}
+    h2{break-after:avoid}
+    .plate,.titleblock{break-inside:avoid; box-shadow:none}
+  }
+</style>
+
+<div class="wrap">
+
+  <section class="titleblock">
+    <div class="tb-head">
+      <p class="tb-eyebrow">壓克力加工圖說 · 訂購規格</p>
+      <h1>NX4 車載儀表 — 顯示模組壓克力背板</h1>
+      <p class="tb-sub">適用 Waveshare ESP32-P4-WIFI6-Touch-LCD-5 五吋觸控顯示模組，鎖付於模組背面四個 M2.5 螺孔。</p>
+    </div>
+    <div class="tb-grid">
+      <div class="tb-cell"><span class="tb-k">材質</span><span class="tb-v">PMMA 壓克力</span></div>
+      <div class="tb-cell"><span class="tb-k">板厚</span><span class="tb-v">3.0 mm</span></div>
+      <div class="tb-cell"><span class="tb-k">外形尺寸</span><span class="tb-v">118.5 × 64.5</span></div>
+      <div class="tb-cell"><span class="tb-k">數量</span><span class="tb-v">1 pcs</span></div>
+      <div class="tb-cell"><span class="tb-k">單位</span><span class="tb-v">mm</span></div>
+      <div class="tb-cell"><span class="tb-k">一般公差</span><span class="tb-v">±0.2</span></div>
+      <div class="tb-cell"><span class="tb-k">孔位公差</span><span class="tb-v">±0.15</span></div>
+      <div class="tb-cell"><span class="tb-k">加工方式</span><span class="tb-v">雷射 / CNC</span></div>
+    </div>
+  </section>
+
+  <h2><span class="n">01</span> 加工圖面</h2>
+
+  <div class="plate">
+    <svg viewBox="-40 -30 208 130" role="img" aria-label="壓克力背板加工圖：外形 118.5 × 64.5 公釐，四個直徑 2.8 公釐鎖孔，孔距 112 × 57 公釐，四角圓角 R3。">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9.5" refY="5"
+                markerWidth="4" markerHeight="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+          <path d="M0,1.6 L10,5 L0,8.4 z" fill="var(--dim)"></path>
+        </marker>
+        <style>
+          .out{fill:none; stroke:var(--ink); stroke-width:.55; stroke-linejoin:round}
+          .hole{fill:var(--paper); stroke:var(--ink); stroke-width:.45}
+          .ctr{stroke:var(--dim); stroke-width:.22; stroke-dasharray:3.2 1.1 .7 1.1; fill:none; opacity:.75}
+          .ext{stroke:var(--dim); stroke-width:.2; fill:none; opacity:.7}
+          .dim{stroke:var(--dim); stroke-width:.28; fill:none; marker-start:url(#ar); marker-end:url(#ar)}
+          .t{font-family:"IBM Plex Mono",monospace; font-size:4.1px; fill:var(--dim); font-weight:500}
+          .tc{text-anchor:middle}
+          .tl{text-anchor:start}
+          .tr{text-anchor:end}
+          .lead{stroke:var(--dim); stroke-width:.22; fill:none}
+        </style>
+      </defs>
+
+      <!-- 外形 118.5 x 64.5，四角 R3 -->
+      <rect class="out" x="0" y="0" width="118.5" height="64.5" rx="3" ry="3"></rect>
+
+      <!-- 四個 Ø2.8 鎖孔 -->
+      <circle class="hole" cx="3.25"   cy="3.75"  r="1.4"></circle>
+      <circle class="hole" cx="115.25" cy="3.75"  r="1.4"></circle>
+      <circle class="hole" cx="3.25"   cy="60.75" r="1.4"></circle>
+      <circle class="hole" cx="115.25" cy="60.75" r="1.4"></circle>
+      <!-- 中心線 -->
+      <g class="ctr">
+        <path d="M-2.6,3.75 H121.1 M-2.6,60.75 H121.1"></path>
+        <path d="M3.25,-2.6 V67.1 M115.25,-2.6 V67.1"></path>
+      </g>
+
+      <!-- 上方：孔距 112 -->
+      <g class="ext"><path d="M3.25,-3.4 V-13.6 M115.25,-3.4 V-13.6"></path></g>
+      <path class="dim" d="M3.25,-11.8 H115.25"></path>
+      <text class="t tc" x="59.25" y="-14.2">112.0</text>
+
+      <!-- 上方：外形 118.5 -->
+      <g class="ext"><path d="M0,-3.4 V-22.6 M118.5,-3.4 V-22.6"></path></g>
+      <path class="dim" d="M0,-20.8 H118.5"></path>
+      <text class="t tc" x="59.25" y="-23.2">118.5</text>
+
+      <!-- 下方：邊距 3.25 -->
+      <g class="ext"><path d="M0,67.1 V76.4 M3.25,67.1 V76.4 M115.25,67.1 V76.4 M118.5,67.1 V76.4"></path></g>
+      <path class="dim" d="M0,74.6 H3.25"></path>
+      <path class="dim" d="M115.25,74.6 H118.5"></path>
+      <path class="lead" d="M3.25,74.6 L14,82"></path>
+      <text class="t tl" x="14.8" y="83.4">3.25</text>
+      <path class="lead" d="M115.25,74.6 L104.5,82"></path>
+      <text class="t tr" x="103.7" y="83.4">3.25</text>
+
+      <!-- 右側：孔距 57 -->
+      <g class="ext"><path d="M116.9,3.75 H127.1 M116.9,60.75 H127.1"></path></g>
+      <path class="dim" d="M125.3,3.75 V60.75"></path>
+      <text class="t tc" x="130.4" y="33.8" transform="rotate(-90 130.4 33.8)">57.0</text>
+
+      <!-- 右側：外形 64.5 -->
+      <g class="ext"><path d="M119.9,0 H136.1 M119.9,64.5 H136.1"></path></g>
+      <path class="dim" d="M134.3,0 V64.5"></path>
+      <text class="t tc" x="139.4" y="32.5" transform="rotate(-90 139.4 32.5)">64.5</text>
+
+      <!-- 左側：邊距 3.75 -->
+      <g class="ext"><path d="M-2.6,0 H-13.4 M-2.6,3.75 H-13.4 M-2.6,60.75 H-13.4 M-2.6,64.5 H-13.4"></path></g>
+      <path class="dim" d="M-11.6,0 V3.75"></path>
+      <path class="dim" d="M-11.6,60.75 V64.5"></path>
+      <path class="lead" d="M-11.6,3.75 L-20,10.5"></path>
+      <text class="t tr" x="-20.8" y="11.8">3.75</text>
+      <path class="lead" d="M-11.6,60.75 L-20,54"></path>
+      <text class="t tr" x="-20.8" y="53.4">3.75</text>
+
+      <!-- 註記：孔徑與圓角 -->
+      <path class="lead" d="M116.24,61.74 L124,72"></path>
+      <text class="t tl" x="124.8" y="73.4">4 × Ø2.8 通孔</text>
+      <path class="lead" d="M1.1,62.6 L-8,71"></path>
+      <text class="t tr" x="-8.8" y="72.4">4 × R3</text>
+    </svg>
+    <div class="plate-cap">
+      <span>單位 mm　·　比例 1:1　·　第三角法</span>
+      <span>視圖方向：由背板外側看</span>
+    </div>
+  </div>
+
+  <h2><span class="n">02</span> 尺寸明細</h2>
+
+  <div class="tbl-scroll">
+    <table>
+      <caption>加工尺寸</caption>
+      <thead>
+        <tr><th>項目</th><th>尺寸</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>外形長 × 寬</td><td class="num">118.5 × 64.5</td><td>與顯示模組 PCB 同尺寸</td></tr>
+        <tr><td>板厚</td><td class="num">3.0</td><td>可接受 2.0 或 5.0，請報價時一併提供</td></tr>
+        <tr><td>四角圓角</td><td class="num">R3.0</td><td>與模組前面板玻璃的圓角一致</td></tr>
+        <tr><td>鎖孔孔徑</td><td class="num">Ø2.8</td><td>4 處，通孔。供 M2.5 螺絲穿過</td></tr>
+        <tr><td>鎖孔孔距</td><td class="num">112.0 × 57.0</td><td>孔中心對孔中心</td></tr>
+        <tr><td>孔中心距長邊</td><td class="num">3.25</td><td>左右各一，對稱</td></tr>
+        <tr><td>孔中心距短邊</td><td class="num">3.75</td><td>上下各一，對稱</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="n">03</span> 加工要求</h2>
+
+  <ol class="spec">
+    <li><strong>孔位為關鍵尺寸。</strong>四孔需鎖入設備既有的 M2.5 螺孔，孔位公差請控制在 ±0.15 mm 以內；外形尺寸可放寬至 ±0.2 mm。</li>
+    <li><strong>四邊拋光。</strong>雷射切割的斷面請做火焰拋光或機械拋光，不留毛邊與焦痕。</li>
+    <li><strong>孔口去毛邊。</strong>兩面孔口輕微倒角即可，不需沉頭。若要沉頭請見下方選項。</li>
+    <li><strong>保留雙面保護膜</strong>出貨，避免運送刮傷。</li>
+    <li><strong>不需印刷、不需絲印、不需背膠。</strong></li>
+  </ol>
+
+  <div class="note alt">
+    <span class="note-k">選項 · 沉頭孔</span>
+    <p>若希望螺絲頭與背板外表面齊平，請將四個孔改為 <span class="mono">Ø2.8 通孔 + Ø5.0 × 90° 錐孔</span>（外側）。此時板厚建議用 <span class="mono">5.0 mm</span>，3 mm 板做沉頭後剩餘厚度偏薄。</p>
+  </div>
+
+  <div class="note alt">
+    <span class="note-k">選項 · 與前面板齊平</span>
+    <p>上圖的外形是照 <strong>PCB 尺寸</strong>（118.5 × 64.5）。若希望背板與模組正面的玻璃面板齊平，外形改為 <span class="mono">126.9 × 70.7</span>、圓角維持 <span class="mono">R3</span>。此時孔位改為：距左邊 <span class="mono">4.80</span>、距右邊 <span class="mono">10.10</span>、上下各 <span class="mono">6.85</span>，孔距不變。</p>
+    <p>這個版本會比 PCB 大一圈，四周各突出約 <span class="mono">3</span>–<span class="mono">6.85</span> mm，外觀較完整，但玻璃與 PCB 的相對位置我是從原廠圖的尺寸鏈推算的，下單前請先實測確認。</p>
+  </div>
+
+  <h2><span class="n">04</span> 組裝件（需另外備料，非壓克力廠商提供）</h2>
+
+  <div class="tbl-scroll">
+    <table>
+      <caption>螺絲與銅柱</caption>
+      <thead>
+        <tr><th>品項</th><th>規格</th><th>數量</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>六角銅柱</td><td class="num">M2.5 公母 × 6 mm</td><td class="num">4</td><td>公頭鎖入模組背面的 M2.5 螺孔</td></tr>
+        <tr><td>螺絲</td><td class="num">M2.5 × 6 mm</td><td class="num">4</td><td>由背板外側穿過，鎖入銅柱母頭</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="lede">模組背面最高的零件距 PCB 背面約 <span class="mono">4 mm</span>（原廠圖側視圖標註），因此銅柱長度需大於 4 mm。取 6 mm 可留約 2 mm 餘裕。</p>
+
+  <div class="note">
+    <span class="note-k">下單前務必確認</span>
+    <p><strong>40PIN 排針是否已焊上。</strong>原廠機構圖標示背面最高零件為 4 mm，是在排針未安裝的狀態。若你手上的板子已焊上 2.54 mm 排針，高度約 8.5 mm，銅柱要改用 <span class="mono">10 mm</span>，否則背板會壓到排針。</p>
+    <p><strong>microSD 卡槽與 USB 埠的方向。</strong>兩個 Type-C 位於模組左側邊、朝側面開口，背板不會擋到。microSD 卡槽若需要插拔，請確認背板邊緣沒有遮住取卡路徑。</p>
+  </div>
+
+  <h2><span class="n">05</span> 尺寸來源</h2>
+
+  <p>本圖所有尺寸取自 Waveshare 官方機構圖，非實測值：</p>
+  <ul>
+    <li><span class="pill src">ESP32-P4-WIFI6-Touch-LCD-5-dimensions-20260408</span>　PDF / DXF，取自原廠 GitHub 的 <span class="mono">hardware/mechanical</span></li>
+    <li>PCB 外形 <span class="mono">118.5 × 64.5</span>、鎖孔標註 <span class="mono">4 × M2.5 螺紋</span>、孔距 <span class="mono">112 × 57</span>、邊距 <span class="mono">3.25</span>，皆為該圖直接標註值。</li>
+    <li>孔位另以 DXF 內的圓心座標交叉核對：孔距實測 <span class="mono">112.004 × 57.008</span>，與標註一致。</li>
+    <li>前面板玻璃 <span class="mono">126.9 × 70.7</span>、圓角 <span class="mono">4 × R3</span>、總厚 <span class="mono">11.6</span>、PCB 厚 <span class="mono">1.6</span>、背面凸出 <span class="mono">4</span>，同為該圖標註值。</li>
+  </ul>
+
+  <footer>
+    <span>NX4Board · esp32_display / nx4_dashboard_lcd5</span>
+    <span>單位 mm　·　依據圖號 20260408</span>
+  </footer>
+
+</div>
