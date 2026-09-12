@@ -330,7 +330,44 @@
     <p><strong>microSD 卡槽與 USB 埠的方向。</strong>兩個 Type-C 位於模組左側邊、朝側面開口，背板不會擋到。microSD 卡槽若需要插拔，請確認背板邊緣沒有遮住取卡路徑。</p>
   </div>
 
-  <h2><span class="n">05</span> 尺寸來源</h2>
+  <h2><span class="n">05</span> CAD 檔</h2>
+
+  <p>隨附 DXF，可直接載入雷射或 CNC 切割機，不需依本圖重新描繪。</p>
+
+  <div class="tbl-scroll">
+    <table>
+      <caption>DXF 檔案</caption>
+      <thead>
+        <tr><th>檔名</th><th>外形</th><th>對應方案</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">NX4_壓克力背板_118.5x64.5.dxf</td>
+          <td class="num">118.5 × 64.5</td>
+          <td>主方案，與模組 PCB 同尺寸</td>
+        </tr>
+        <tr>
+          <td class="mono">NX4_壓克力背板_126.9x70.7.dxf</td>
+          <td class="num">126.9 × 70.7</td>
+          <td>選配，與前面板玻璃齊平</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul>
+    <li>格式 <span class="mono">AutoCAD R12 ASCII</span>，單位公釐，原點在背板左下角、Y 軸向上。</li>
+    <li>圖層 <span class="mono">CUT</span>，內含 4 直線 + 4 圓弧（外輪廓）與 4 個 <span class="mono">Ø2.8</span> 圓（鎖孔）。</li>
+    <li>外輪廓為<strong>封閉路徑</strong>，直線與圓弧端點完全重合（間隙 0），可直接做內外偏移補償。</li>
+    <li>檔內<strong>不含</strong>標註、文字與圖框，全部都是要切的線。</li>
+  </ul>
+
+  <div class="note alt">
+    <span class="note-k">切割補償</span>
+    <p>DXF 畫的是<strong>成品淨尺寸</strong>，未預留雷射的切口寬度（kerf）。請依貴廠設備自行補償，孔徑尤其重要——<span class="mono">Ø2.8</span> 若被燒大到 <span class="mono">Ø3.2</span> 以上，M2.5 螺絲會鬆動。</p>
+  </div>
+
+  <h2><span class="n">06</span> 尺寸來源</h2>
 
   <p>本圖所有尺寸取自 Waveshare 官方機構圖，非實測值：</p>
   <ul>
