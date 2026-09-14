@@ -1370,10 +1370,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               obd.isSnapshotRunning ? null : _toggleDidSweep,
             ),
             btn(
-              '動力系統探索',
+              ObdSppService().isDidSweepRunning ? '中止探索' : '模組探索',
               Icons.travel_explore,
               Colors.tealAccent,
-              busy ? null : _toggleTcuFamilyScan,
+              busy && !ObdSppService().isDidSweepRunning
+                  ? null
+                  : _toggleTcuFamilyScan,
             ),
             for (final String g in ['P', 'R', 'N', 'D'])
               btn(
@@ -1401,6 +1403,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? null
                   : () {
                       ObdSppService().clearGearSnapshots();
+                      setState(() {});
+                    },
+            ),
+            btn(
+              '車身監看組',
+              Icons.sensor_door,
+              Colors.tealAccent,
+              busy
+                  ? null
+                  : () {
+                      ObdSppService().loadBodyWatchSet();
                       setState(() {});
                     },
             ),
@@ -1445,17 +1458,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.only(top: 8),
           child: Row(
             children: [
-              const Text('切檔前先按 ▼',
+              const Text('動作前先按 ▼',
                   style: TextStyle(color: Colors.white70, fontSize: 12)),
               const SizedBox(width: 8),
-              for (final String g in ['P', 'R', 'N', 'D'])
+              for (final String g in ['P', 'R', 'N', 'D', '事件'])
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: SizedBox(
                       height: 44,
                       child: ElevatedButton(
-                        onPressed: () => ObdSppService().logGearMark(g),
+                        onPressed: () => g == '事件'
+                            ? ObdSppService().logEventMark('事件')
+                            : ObdSppService().logGearMark(g),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white12,
                           foregroundColor: Colors.white,
@@ -1463,8 +1478,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           side: const BorderSide(color: Colors.white38),
                         ),
                         child: Text(g,
-                            style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold)),
+                            style: TextStyle(
+                                fontSize: g.length > 1 ? 13 : 18,
+                                fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ),
@@ -1549,7 +1565,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 '先按下方對應的大按鈕做標記，P → D → P → D 來回兩趟，'
                 '每檔停 20 秒以上。標記行之後跟著翻的 byte 就是答案。\n'
                 '從頭找新訊號：先「DID 掃描」建清單，再拍 P / R / N / D 四張'
-                '快照加回程一張 P，最後「比對快照」。',
+                '快照加回程一張 P，最後「比對快照」。\n'
+                '找鑰匙靠近：先「模組探索」點名車身側位址（7A5 智慧鑰匙排第一）。'
+                '再按「車身監看組」開專注監看，手機留車上充電，夜間鎖車走遠再走回。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),

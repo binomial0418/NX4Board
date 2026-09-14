@@ -180,6 +180,35 @@ class ObdSppService with ChangeNotifier {
     notifyListeners();
   }
 
+  /// 載入車身模組全家族監看，用來抓「鑰匙靠近」這類車身事件。
+  ///
+  /// 只放 BC01~BC10 這九個：payload 都只有 20 字元左右，開專注監看一輪
+  /// 大約三到四秒，迎賓照明亮個十幾秒絕對取樣得到。
+  /// BCFC 全是零、BCFD 是九十字元的感測器陣列、BCFF 是字串，
+  /// 三個都放進來只會拖慢一輪，不放。
+  void loadBodyWatchSet() {
+    const List<String> dids = [
+      '22BC01', '22BC03', '22BC04', '22BC05',
+      '22BC06', '22BC07', '22BC08', '22BC09', '22BC10',
+    ];
+    _gearTargets.clear();
+    for (final String cmd in dids) {
+      _gearTargets.add(
+          GearProbeTarget('770', cmd, '62${cmd.substring(2)}', '車身 IGMP'));
+    }
+    _logGear('[Probe] 已載入車身全家族監看（${_gearTargets.length} 個 DID）');
+    _logGear('[Probe] 已知用途：BC03 車門、BC04 門鎖、BC08 倒車、BC09 大燈。'
+        '其餘五個未解讀，鑰匙靠近的訊號有機會在裡面。');
+    _logGear('[Probe] 建議開專注監看，並在夜間或地下室測試 —— '
+        '迎賓照明多半有環境光閘門，白天不會亮。');
+    notifyListeners();
+  }
+
+  /// 通用事件標記。不只切檔，任何「我現在要做某個動作」都能先按一下。
+  void logEventMark(String label) {
+    _logGear('══════ ▼ $label ▼ ══════');
+  }
+
   void clearGearLog() {
     _gearLogHistory.clear();
   }
@@ -1006,15 +1035,34 @@ class ObdSppService with ChangeNotifier {
   /// 只是不知道它的資料 DID 落在哪個家族。這台是油電車，排檔訊號也可能落在
   /// 油電控制單元而不是變速箱，所以先用識別區把整排候選位址點名一遍，
   /// 活著的才花三分鐘做家族探索。點名很便宜，兩道指令就知道在不在。
-  static const List<String> _powertrainHeaders = [
-    '7E1', // 變速箱 TCU（已確認活著）
-    '7E2', // 油電控制單元 HCU 常見位址
+  /// 點名用的模組位址，依「這一輪想找什麼」由重要到次要排列，
+  /// 這樣看到目標活著就可以中止，不用等整輪跑完。
+  static const List<String> _moduleHeaders = [
+    '7A5', // 智慧鑰匙 SMK —— 鑰匙靠近偵測的旗標應該在這顆手上
+    '7D4', // OBD.csv 有列但沒標用途，車身側候選
+    '7D2',
+    '7D0',
+    '7B3', // 空調，部分車款是油電控制單元
+    '7C4',
+    '7A1',
+    '7B1',
+    '780',
+    '7D6',
+    '7E1', // 變速箱 TCU（已確認活著，但資料家族還沒找到）
+    '7E2', // 油電控制單元常見位址
     '7E3',
     '7E4',
-    '7B3', // 部分 Hyundai/Kia 油電把 HCU 放這裡
-    '7D0',
-    '7D2',
+    '7E5',
+    '7D1', // ABS（OBD.csv 已知）
+    '7A0', // 胎壓（OBD.csv 已知）
+    '770', // 車身 IGMP（已整族掃過）
+    '7C6', // 儀表 CLU（已整族掃過）
+    '7E0', // 引擎 ECM（已整族掃過）
   ];
+
+  /// 已經整族掃完的模組。點名照樣問（順便確認點名機制是好的），
+  /// 但不再花三分鐘重掃家族。7E1 不在此列：它只掃過識別區 F1。
+  static const Set<String> _familyScannedHeaders = {'770', '7C6', '7E0'};
 
   /// 識別區 DID。任何講 UDS 的模組幾乎都會回其中一個。
   static const List<String> _livenessDids = ['22F190', '22F180'];
@@ -1031,14 +1079,14 @@ class ObdSppService with ChangeNotifier {
     _sweepFound = 0;
     notifyListeners();
 
-    _logGear('[Family] ══ 動力系統模組探索開始 ══');
-    _logGear('[Family] 先點名 ${_powertrainHeaders.length} 個位址，'
-        '活著的才做家族探索');
+    _logGear('[Family] ══ 模組探索開始 ══');
+    _logGear('[Family] 先點名 ${_moduleHeaders.length} 個位址（約 20 秒），'
+        '活著且家族還沒掃過的才進第二步');
 
     try {
       // ── 第一步：點名 ────────────────────────────────────────────────
       final List<String> alive = [];
-      for (final String header in _powertrainHeaders) {
+      for (final String header in _moduleHeaders) {
         if (!_sweepRunning || !_isConnected) break;
         bool responded = false;
         for (final String did in _livenessDids) {
@@ -1056,15 +1104,30 @@ class ObdSppService with ChangeNotifier {
       }
 
       if (alive.isEmpty) {
-        _logGear('[Family] 沒有任何動力系統模組有回應');
+        _logGear('[Family] 沒有任何模組有回應');
         return;
       }
 
-      // ── 第二步：對活著的位址逐一做家族探索 ──────────────────────────
-      _logGear('[Family] 活著的位址：${alive.join(', ')}，'
-          '接著逐一探索家族，每個約 3 分鐘');
+      final List<String> todo = alive
+          .where((String h) => !_familyScannedHeaders.contains(h))
+          .toList();
 
-      for (final String header in alive) {
+      _logGear('[Family] 活著的位址：${alive.join(', ')}');
+      if (todo.length != alive.length) {
+        _logGear('[Family] 其中 '
+            '${alive.where(_familyScannedHeaders.contains).join(', ')} '
+            '的家族先前已掃完，跳過');
+      }
+      if (todo.isEmpty) {
+        _logGear('[Family] 沒有需要探索的新模組');
+        return;
+      }
+
+      // ── 第二步：對還沒掃過的位址逐一做家族探索 ──────────────────────
+      _logGear('[Family] 待探索 ${todo.length} 個，每個約 3 分鐘。'
+          '找到目標就可以按「中止掃描」，前面掃到的都已存檔。');
+
+      for (final String header in todo) {
         if (!_sweepRunning || !_isConnected) break;
         await _scanFamiliesOf(header);
       }
