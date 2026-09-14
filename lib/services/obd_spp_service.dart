@@ -154,6 +154,32 @@ class ObdSppService with ChangeNotifier {
     _gearLogController.add(fullMsg);
   }
 
+  /// 切檔前先按下的標記。日誌裡插一行醒目的分隔，之後對照時就知道
+  /// 那個時間點之後的取樣屬於哪一檔，不用再靠回想。
+  void logGearMark(String gear) {
+    _logGear('══════ ▼ 即將切入 $gear 檔 ▼ ══════');
+  }
+
+  /// 載入 D 檔驗證組。
+  ///
+  /// 三輪快照比對後，值得盯的就這幾個，直接寫死省得每次重跑十分鐘的快照：
+  ///   770/22BC08  byte F bit3  倒車，已確認 —— 當對照組用，它一定要跟著 R 動
+  ///   7E0/22E000  byte N bit3  D 檔候選（P/R/N=21，D=29）
+  ///   7E0/22E0F1  byte F、#26  另外兩個只在 D 檔變的位元組
+  ///   7E0/22E017  byte Q       N 檔候選（P/R/D=11，N=10）
+  /// 22E004 刻意不放：它通過了雜訊過濾但實測會自己飄，是已知的假陽性。
+  void loadDriveVerifySet() {
+    _gearTargets
+      ..clear()
+      ..add(GearProbeTarget('770', '22BC08', '62BC08', 'R 檔（已確認，對照組）'))
+      ..add(GearProbeTarget('7E0', '22E000', '62E000', 'D 檔候選 byte N bit3'))
+      ..add(GearProbeTarget('7E0', '22E0F1', '62E0F1', 'D 檔候選 byte F / #26'))
+      ..add(GearProbeTarget('7E0', '22E017', '62E017', 'N 檔候選 byte Q'));
+    _logGear('[Probe] 已載入 D 檔驗證組（${_gearTargets.length} 個 DID）');
+    _logGear('[Probe] 建議開啟「專注監看」，否則長 payload 每 40 秒才取樣一次');
+    notifyListeners();
+  }
+
   void clearGearLog() {
     _gearLogHistory.clear();
   }
@@ -358,7 +384,27 @@ class ObdSppService with ChangeNotifier {
   bool get isSnapshotRunning => _snapshotRunning;
 
   /// 掃描或拍快照期間佔用整條匯流排，其餘輪詢一律讓路
-  bool get _busReserved => _sweepRunning || _snapshotRunning;
+  /// 掃描或拍快照進行中。這兩者會把整條匯流排包下來。
+  bool get _scanBusy => _sweepRunning || _snapshotRunning;
+
+  /// 專注監看：即時監看時把例行輪詢也停掉，讓監看清單的取樣間隔壓到最短。
+  ///
+  /// 實測沒開的時候一輪 4 個目標要 40~70 秒，多幀的長 payload 更慢，
+  /// 切檔停留幾秒根本對不上。代價是時速與轉速在監看期間不更新，
+  /// 所以只適合停在原地驗證訊號，跑起來要記得關掉。
+  bool _gearFocusMode = false;
+  bool get isGearFocusMode => _gearFocusMode;
+  set gearFocusMode(bool v) {
+    _gearFocusMode = v;
+    _logGear(v
+        ? '[Probe] 專注監看已開啟：例行輪詢暫停，時速與轉速不再更新'
+        : '[Probe] 專注監看已關閉，例行輪詢恢復');
+    notifyListeners();
+  }
+
+  /// 例行輪詢要不要讓路。_pollGear 自己不看這個，否則專注模式會把自己鎖死。
+  bool get _busReserved =>
+      _scanBusy || (_gearProbeRunning && _gearFocusMode);
 
   /// 掃描找到的 DID，格式 'HEADER|CMD'。與監看清單分開：
   /// 監看有 16 個上限（跑得完一輪才有意義），快照則是全部都要拍。
@@ -368,6 +414,8 @@ class ObdSppService with ChangeNotifier {
     _ensureDiscoveredLoaded();
     return _discoveredDids.length;
   }
+
+  int get watchTargetCount => _gearTargets.length;
 
   final List<GearSnapshot> _gearSnapshots = [];
   List<String> get gearSnapshotLabels =>
@@ -564,13 +612,18 @@ class ObdSppService with ChangeNotifier {
       _gearProbeRunning = false;
       _logGear('[Probe] ══ 檔位探測停止 ══');
     }
+    // 專注監看一定要跟著關掉，否則離開設定頁後時速與轉速會一直凍著
+    if (_gearFocusMode) {
+      _gearFocusMode = false;
+      _logGear('[Probe] 專注監看已自動關閉，例行輪詢恢復');
+    }
     notifyListeners();
   }
 
   /// 每秒輪詢一次還活著的候選。回應內容交給 _handleGearProbeResponse 記錄。
   Future<void> _pollGear() async {
     if (!_isConnected || !_gearProbeRunning) return;
-    if (_busReserved) return; // 掃描或拍快照期間讓出匯流排
+    if (_scanBusy) return; // 掃描或拍快照期間讓出匯流排
     if (_gearPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
 
     _gearPollBusy = true;
@@ -641,7 +694,7 @@ class ObdSppService with ChangeNotifier {
   /// 期間會停掉所有例行輪詢，整條匯流排都給快照用，一個 DID 約 0.35 秒。
   /// 這是刻意的取捨：拍照的幾十秒內檔位要停在原地不動。
   Future<void> captureGearSnapshot(String gear) async {
-    if (_busReserved) return;
+    if (_scanBusy) return;
     _ensureDiscoveredLoaded();
 
     if (_discoveredDids.isEmpty) {
@@ -867,10 +920,9 @@ class ObdSppService with ChangeNotifier {
     // 所以同分時短的優先，並且直接排除過長的候選。
     _gearTargets.clear();
 
-    const int maxPayloadChars = 96; // 約 48 byte，單幀到數幀，取樣還跟得上
-    final List<_GearCandidate> pickable = candidates
-        .where((_GearCandidate c) => c.payloadChars <= maxPayloadChars)
-        .toList()
+    // 長度只當排序偏好，不再硬性排除：開了專注監看之後長 payload 也跟得上，
+    // 而且實測最有意思的 D 檔候選正好落在 240 字元的 22E000，排掉就看不到了。
+    final List<_GearCandidate> pickable = List<_GearCandidate>.from(candidates)
       ..sort((_GearCandidate a, _GearCandidate b) {
         final int byScore = b.distinct.compareTo(a.distinct);
         if (byScore != 0) return byScore;
@@ -888,13 +940,11 @@ class ObdSppService with ChangeNotifier {
           GearProbeTarget(header, cmd, '62${cmd.substring(2)}', '檔位候選'));
     }
 
-    final int tooLong = candidates.length - pickable.length;
     if (_gearTargets.isEmpty) {
-      _logGear('[Diff] 候選的 payload 都太長，即時監看跟不上，不自動填監看清單');
+      _logGear('[Diff] 沒有可監看的候選');
     } else {
-      _logGear('[Diff] 監看清單已換成 ${_gearTargets.length} 個候選 DID'
-          '${tooLong > 0 ? '（另有 $tooLong 個 payload 過長、取樣太慢，未列入）' : ''}，'
-          '現在按「開始探測」邊切檔邊即時驗證。');
+      _logGear('[Diff] 監看清單已換成 ${_gearTargets.length} 個候選 DID，'
+          '開啟「專注監看」後按「開始監看」，切檔前先按對應的標記鈕。');
     }
     notifyListeners();
   }
@@ -970,7 +1020,7 @@ class ObdSppService with ChangeNotifier {
   static const List<String> _livenessDids = ['22F190', '22F180'];
 
   Future<void> startTcuFamilyScan() async {
-    if (_busReserved) return;
+    if (_scanBusy) return;
     if (!_isConnected) {
       _logGear('[Family] 尚未連線，無法探索');
       return;
@@ -1670,7 +1720,7 @@ class ObdSppService with ChangeNotifier {
 
     // 掃描的回應由 _sweepOneRange 自己判讀。不擋的話 1024 道查詢會在主日誌
     // 灌進上千行 [Parser NoData]，真正有用的那幾行反而被沖掉。
-    if (_busReserved && lastCmd == _sweepCurrentCmd) return;
+    if (_scanBusy && lastCmd == _sweepCurrentCmd) return;
 
     if (_isAtResponse(sanitized)) {
       if (lastCmd == '0105') {

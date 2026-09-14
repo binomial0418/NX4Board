@@ -1405,6 +1405,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
             ),
             btn(
+              'D 檔驗證組',
+              Icons.playlist_add_check,
+              Colors.purpleAccent,
+              busy
+                  ? null
+                  : () {
+                      ObdSppService().loadDriveVerifySet();
+                      setState(() {});
+                    },
+            ),
+            btn(
+              obd.isGearFocusMode ? '專注監看 ON' : '專注監看 OFF',
+              obd.isGearFocusMode ? Icons.bolt : Icons.bolt_outlined,
+              obd.isGearFocusMode ? Colors.yellowAccent : Colors.grey,
+              busy
+                  ? null
+                  : () {
+                      ObdSppService().gearFocusMode = !obd.isGearFocusMode;
+                      setState(() {});
+                    },
+            ),
+            btn(
               _gearProbeOn ? '停止監看' : '開始監看',
               _gearProbeOn ? Icons.stop : Icons.play_arrow,
               _gearProbeOn ? Colors.redAccent : Colors.orangeAccent,
@@ -1417,11 +1439,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
               }),
           ],
         ),
+        // 切檔標記自成一列、按鈕放大：這是要在車上邊操作排檔邊按的，
+        // 跟上面那排設定用的小按鈕混在一起會按錯。
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              const Text('切檔前先按 ▼',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(width: 8),
+              for (final String g in ['P', 'R', 'N', 'D'])
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () => ObdSppService().logGearMark(g),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white12,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          side: const BorderSide(color: Colors.white38),
+                        ),
+                        child: Text(g,
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
             '已知 DID ${obd.discoveredDidCount} 個　'
-            '已拍快照 ${shots.isEmpty ? '無' : shots.join(' ')}',
+            '已拍快照 ${shots.isEmpty ? '無' : shots.join(' ')}　'
+            '監看 ${obd.watchTargetCount} 個',
             style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ),
@@ -1434,7 +1490,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildGearProbeCard() {
     return Card(
       child: Container(
-        height: 460,
+        height: 520,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: Colors.black,
@@ -1488,11 +1544,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                '流程：① 電門開到 READY、停在原地（油電車引擎會自己熄火，'
-                '轉速 0 是正常的），按「DID 掃描」建立已知位址清單（只需做一次）。'
-                '② 排 P 檔按「拍 P」，全程不要動檔位，等拍完。'
-                '③ 依序換 R / N / D 各拍一張，最後回 P 再拍一張 P。'
-                '④ 按「比對快照」，隨檔位變動的 byte 會標 ★ 列出來。',
+                '驗證 D 檔：電門 READY、停在原地拉手煞車。按「D 檔驗證組」載入'
+                '四個候選，開「專注監看」，再按「開始監看」。之後每次切檔"前"'
+                '先按下方對應的大按鈕做標記，P → D → P → D 來回兩趟，'
+                '每檔停 20 秒以上。標記行之後跟著翻的 byte 就是答案。\n'
+                '從頭找新訊號：先「DID 掃描」建清單，再拍 P / R / N / D 四張'
+                '快照加回程一張 P，最後「比對快照」。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),
@@ -1510,9 +1567,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       itemBuilder: (context, index) {
                         final String log = _gearLogs[index];
                         // ★ 是有變動的取樣，也就是真正要看的那幾行
-                        final bool changed = log.contains('★');
+                        final bool changed =
+                            log.contains('★') || log.contains('▼');
                         Color textColor = Colors.greenAccent;
-                        if (log.contains('[Diff★]')) {
+                        if (log.contains('▼')) {
+                          textColor = Colors.white;
+                        } else if (log.contains('[Diff★]')) {
                           textColor = Colors.pinkAccent;
                         } else if (log.contains('[Sweep✓]') ||
                             log.contains('[Family✓]')) {
