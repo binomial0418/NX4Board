@@ -1407,6 +1407,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
             ),
             btn(
+              '標準 PID 掃描',
+              Icons.fact_check,
+              Colors.lightGreenAccent,
+              busy
+                  ? null
+                  : () async {
+                      await ObdSppService().scanStandardPids();
+                      if (mounted) setState(() {});
+                    },
+            ),
+            btn(
               '車身監看組',
               Icons.sensor_door,
               Colors.tealAccent,
@@ -1519,18 +1530,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Expanded(
-                  child: Text('檔位觀察 Gear Probe',
+                  child: Text('車輛訊號探勘',
                       style: TextStyle(
                           color: Colors.amber, fontWeight: FontWeight.bold)),
                 ),
                 IconButton(
                   icon: const Icon(Icons.download, color: Colors.amber),
-                  tooltip: '匯出檔位日誌',
+                  tooltip: '匯出探勘日誌',
                   onPressed: _exportGearLogs,
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                  tooltip: '清除檔位日誌',
+                  tooltip: '清除探勘日誌',
                   onPressed: _clearGearLogs,
                 ),
                 GestureDetector(
@@ -1567,7 +1578,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 '從頭找新訊號：先「DID 掃描」建清單，再拍 P / R / N / D 四張'
                 '快照加回程一張 P，最後「比對快照」。\n'
                 '找鑰匙靠近：先「模組探索」點名車身側位址（7A5 智慧鑰匙排第一）。'
-                '再按「車身監看組」開專注監看，手機留車上充電，夜間鎖車走遠再走回。',
+                '再按「車身監看組」開專注監看，手機留車上充電，夜間鎖車走遠再走回。\n'
+                '找增壓訊號：按「標準 PID 掃描」，六道指令就知道這台車支不支援'
+                '0170 專用增壓壓力，支援的話就不用再自己算。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),

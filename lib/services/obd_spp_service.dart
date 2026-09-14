@@ -204,6 +204,137 @@ class ObdSppService with ChangeNotifier {
     notifyListeners();
   }
 
+  // ── 標準 PID 支援表 ──────────────────────────────────────────────────────
+
+  /// 值得標出來的標準 PID。增壓壓力（0x70）是這次的重點，
+  /// 渦輪轉速（0x74）與進氣歧管壓力多感測器版（0x87）也順便看一下。
+  static const Map<int, String> _notablePids = {
+    0x0B: 'MAP 進氣歧管絕對壓力（目前算增壓用的來源）',
+    0x0F: '進氣溫度',
+    0x10: 'MAF 空氣流量',
+    0x11: '節氣門位置',
+    0x33: '大氣壓力（目前算增壓用的基準）',
+    0x42: '控制模組電壓',
+    0x43: '絕對負載',
+    0x46: '環境溫度',
+    0x5B: '混合動力電池 SOC（已在用）',
+    0x5C: '機油溫度',
+    0x5E: '引擎耗油率',
+    0x61: '要求扭力百分比',
+    0x62: '實際扭力百分比',
+    0x63: '引擎參考扭力',
+    0x67: '水溫，雙感測器（已在用）',
+    0x68: '進氣溫度，多感測器',
+    0x6D: '燃油壓力控制',
+    0x6E: '噴射壓力控制',
+    0x70: '★ 增壓壓力控制（專用增壓感測器就在這裡）',
+    0x71: '可變幾何渦輪控制',
+    0x73: '排氣壓力',
+    0x74: '渦輪轉速',
+    0x77: '中冷器溫度',
+    0x87: '進氣歧管絕對壓力，多感測器',
+  };
+
+  /// 問出這台車到底支援哪些標準 PID。
+  ///
+  /// 支援表本身就是標準 PID：0100 回報 01~20 這段、0120 回報 21~40，
+  /// 依此類推。每格回四個 byte 共 32 個位元，最高位元對應該區間第一個 PID，
+  /// 最低位元代表「下一格也支援」。全部問完只要六道指令。
+  ///
+  /// 這台車已經證實吃 015B 與 0167 這種擴充區的 PID，所以很值得問清楚，
+  /// 目前用 MAP 減大氣壓硬算的增壓，很可能有現成的專用訊號可以取代。
+  Future<void> scanStandardPids() async {
+    if (_scanBusy) return;
+    if (!_isConnected) {
+      _logGear('[PID] 尚未連線');
+      return;
+    }
+
+    _snapshotRunning = true; // 借用同一個旗標把例行輪詢擋住
+    notifyListeners();
+    _logGear('[PID] ══ 標準 PID 支援表掃描 ══');
+
+    final List<int> supported = [];
+    try {
+      sendCommand('ATSH7DF');
+      for (int base = 0x00; base <= 0xA0; base += 0x20) {
+        if (!_isConnected) break;
+
+        final String pid = base.toRadixString(16).padLeft(2, '0').toUpperCase();
+        _sweepCurrentCmd = '01$pid';
+        final String resp = await sendCommand('01$pid', timeoutMs: 2000);
+
+        final String hex =
+            resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+        final int idx = hex.indexOf('41$pid');
+        if (idx == -1 || hex.length < idx + 12) {
+          _logGear('[PID] 01$pid 無回應，${pid == '00' ? '這台車連基本支援表都不給' : '後面的區間不支援'}');
+          break;
+        }
+
+        final int bits = int.parse(hex.substring(idx + 4, idx + 12), radix: 16);
+        int count = 0;
+        for (int i = 0; i < 32; i++) {
+          // 最高位元對應該區間第一個 PID
+          if ((bits & (1 << (31 - i))) != 0) {
+            supported.add(base + i + 1);
+            count++;
+          }
+        }
+        _logGear('[PID] 01$pid → 本區間支援 $count 個');
+
+        if ((bits & 0x01) == 0) break; // 最低位元沒亮代表沒有下一格
+      }
+    } finally {
+      _snapshotRunning = false;
+      _sweepCurrentCmd = null;
+      notifyListeners();
+    }
+
+    if (supported.isEmpty) {
+      _logGear('[PID] 沒有取得任何支援資訊');
+      return;
+    }
+
+    final String list = supported
+        .map((int p) => p.toRadixString(16).padLeft(2, '0').toUpperCase())
+        .join(' ');
+    _logGear('[PID] 共支援 ${supported.length} 個標準 PID：$list');
+
+    for (final int p in supported) {
+      final String? note = _notablePids[p];
+      if (note != null) {
+        _logGear('[PID✓] 01${p.toRadixString(16).padLeft(2, '0').toUpperCase()}'
+            '  $note');
+      }
+    }
+
+    if (supported.contains(0x70)) {
+      _logGear('[PID] 支援 0170，直接抓一筆原始回應來看');
+      await _dumpPid('0170');
+    } else {
+      _logGear('[PID] 不支援 0170，增壓得回頭從 7E0 的 E0xx 家族裡找');
+    }
+    if (supported.contains(0x74)) await _dumpPid('0174');
+    if (supported.contains(0x87)) await _dumpPid('0187');
+  }
+
+  Future<void> _dumpPid(String cmd) async {
+    _sweepCurrentCmd = cmd;
+    final String resp = await sendCommand(cmd, timeoutMs: 2000);
+    _sweepCurrentCmd = null;
+    final String hex =
+        resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+    final String sig = '41${cmd.substring(2)}';
+    final int idx = hex.indexOf(sig);
+    if (idx == -1) {
+      _logGear('[PID] $cmd 無有效回應 raw=$resp');
+      return;
+    }
+    final String payload = hex.substring(idx + sig.length);
+    _logGear('[PID★] $cmd payload=$payload  ${_gearContext()}');
+  }
+
   /// 通用事件標記。不只切檔，任何「我現在要做某個動作」都能先按一下。
   void logEventMark(String label) {
     _logGear('══════ ▼ $label ▼ ══════');
@@ -1258,10 +1389,16 @@ class ObdSppService with ChangeNotifier {
     return 'rpm=$r spd=$s ratio=$ratio';
   }
 
-  /// byte 位置用 OBD.csv 的字母表示法（A = payload 第一個 byte），
-  /// 對照 CSV 的公式時不用自己換算。
-  String _gearByteLabel(int index) =>
-      index < 26 ? String.fromCharCode(0x41 + index) : '#$index';
+  /// byte 位置用 OBD.csv 的字母表示法（A = payload 第一個 byte）。
+  ///
+  /// 超過 Z 之後 CSV 是接 AA、AB、AC（例如 22E004 的電瓶 SOC 寫成 AD），
+  /// 不是從頭再來一輪，所以這裡也照它的規則接下去，對照公式才不會錯位。
+  String _gearByteLabel(int index) {
+    if (index < 26) return String.fromCharCode(0x41 + index);
+    final int rest = index - 26;
+    return 'A${String.fromCharCode(0x41 + rest % 26)}'
+        '${rest >= 26 ? '+${rest ~/ 26}' : ''}';
+  }
 
   /// 列出兩筆 payload 之間變動的 byte
   String _gearDiff(String prev, String now) {
