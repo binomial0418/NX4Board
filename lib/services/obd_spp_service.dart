@@ -64,9 +64,13 @@ class DidSweepRange {
 /// 再拿不同檔位的快照互相比對，取樣速度就不再是問題。
 /// 比對結果的一筆：某個 DID 的某個 byte 隨檔位變動
 class _GearCandidate {
-  _GearCandidate(this.did, this.byteIndex, this.distinct, this.perGear);
+  _GearCandidate(
+      this.did, this.byteIndex, this.distinct, this.perGear, this.payloadChars);
   final String did;
   final int byteIndex;
+
+  /// payload 的十六進位字元數。長的是多幀傳輸，即時監看取樣會慢好幾倍。
+  final int payloadChars;
 
   /// 這個 byte 在各檔位間出現了幾種不同的值。四檔四種最理想。
   final int distinct;
@@ -817,7 +821,8 @@ class ObdSppService with ChangeNotifier {
         final int distinct = perGear.values.toSet().length;
         if (distinct < 2) continue;
 
-        candidates.add(_GearCandidate(did, i, distinct, perGear));
+        candidates.add(
+            _GearCandidate(did, i, distinct, perGear, lengths.first));
       }
     }
 
@@ -855,10 +860,25 @@ class ObdSppService with ChangeNotifier {
     }
 
     // 前幾名的 DID 直接換成監看清單，接著就能用「開始探測」即時驗證。
-    // 只留少數幾個，一輪才跑得快（16 個要 145 秒，3 個只要幾秒）。
+    //
+    // 挑選要同時看兩件事：差異種類數，以及 payload 長度。
+    // 長 payload 是多幀傳輸，實測 240 字元的 22E000 每 40~70 秒才取樣一次，
+    // 20 字元的 22BC08 只要 4~17 秒 —— 前者慢到根本驗證不了切檔。
+    // 所以同分時短的優先，並且直接排除過長的候選。
     _gearTargets.clear();
+
+    const int maxPayloadChars = 96; // 約 48 byte，單幀到數幀，取樣還跟得上
+    final List<_GearCandidate> pickable = candidates
+        .where((_GearCandidate c) => c.payloadChars <= maxPayloadChars)
+        .toList()
+      ..sort((_GearCandidate a, _GearCandidate b) {
+        final int byScore = b.distinct.compareTo(a.distinct);
+        if (byScore != 0) return byScore;
+        return a.payloadChars.compareTo(b.payloadChars);
+      });
+
     final Set<String> picked = {};
-    for (final _GearCandidate c in candidates) {
+    for (final _GearCandidate c in pickable) {
       if (picked.length >= 4) break;
       if (!picked.add(c.did)) continue;
       final int bar = c.did.indexOf('|');
@@ -867,8 +887,15 @@ class ObdSppService with ChangeNotifier {
       _gearTargets.add(
           GearProbeTarget(header, cmd, '62${cmd.substring(2)}', '檔位候選'));
     }
-    _logGear('[Diff] 監看清單已換成前 ${_gearTargets.length} 個候選 DID，'
-        '現在按「開始探測」邊切檔邊即時驗證。');
+
+    final int tooLong = candidates.length - pickable.length;
+    if (_gearTargets.isEmpty) {
+      _logGear('[Diff] 候選的 payload 都太長，即時監看跟不上，不自動填監看清單');
+    } else {
+      _logGear('[Diff] 監看清單已換成 ${_gearTargets.length} 個候選 DID'
+          '${tooLong > 0 ? '（另有 $tooLong 個 payload 過長、取樣太慢，未列入）' : ''}，'
+          '現在按「開始探測」邊切檔邊即時驗證。');
+    }
     notifyListeners();
   }
 
