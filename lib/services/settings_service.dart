@@ -55,6 +55,15 @@ class SettingsService {
     if (lowBeam) return esp32BrightnessLowBeam;
     return esp32BrightnessDay;
   }
+  /// DID 掃描找到的位址清單，格式 'HEADER|CMD'。
+  /// 掃一次要四分鐘，存起來重開 App 就不用重掃。
+  List<String> get discoveredDids =>
+      _prefs?.getStringList('discovered_dids') ?? const [];
+
+  /// 檔位探測是否開啟。開著的話每次連上 OBD 都會自動接續探測，
+  /// 中途斷線重連不用再手動按一次（實車比對常常要跑好幾趟）。
+  bool get gearProbeEnabled => _prefs?.getBool('gear_probe_enabled') ?? false;
+
   double get ttsVolume => _prefs?.getDouble('tts_volume') ?? 1.0;
 
   Future<void> init() async {
@@ -99,6 +108,14 @@ class SettingsService {
 
   Future<void> setEsp32BrightnessHighBeam(int percent) async {
     await _prefs?.setInt('esp32_brightness_high', percent.clamp(0, 100));
+  }
+
+  Future<void> setDiscoveredDids(List<String> dids) async {
+    await _prefs?.setStringList('discovered_dids', dids);
+  }
+
+  Future<void> setGearProbeEnabled(bool value) async {
+    await _prefs?.setBool('gear_probe_enabled', value);
   }
 
   Future<void> setEnableOcr(bool value) async {

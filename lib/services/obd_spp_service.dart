@@ -14,6 +14,83 @@ enum ObdConnectionState {
   connected
 }
 
+/// 檔位探測的一個候選位址。
+///
+/// OBD.csv 的 137 條擴充 PID 全部落在 770 / 7E0 / 7A0 / 7D1 / 7D4 / 7C6，
+/// 沒有任何一條來自變速箱 ECU，所以檔位只能靠實車輪詢這些候選、
+/// 再比對哪個 byte 跟著 P/R/N/D 變動。
+class GearProbeTarget {
+  GearProbeTarget(this.header, this.cmd, this.sig, this.note);
+
+  /// 送出查詢前要切到的 Header
+  final String header;
+
+  /// 查詢指令
+  final String cmd;
+
+  /// 判定「這個位址有回應」的簽章（01→41、21→61、22→62）
+  final String sig;
+
+  /// 顯示在日誌上的說明
+  final String note;
+
+  /// 連續沒回應的次數，達到 _kGearMaxMiss 就淘汰
+  int miss = 0;
+
+  /// 還在輪詢名單裡
+  bool alive = true;
+
+  /// 上一筆 payload，用來只記錄「有變動」的取樣
+  String? lastPayload;
+}
+
+/// DID 掃描的一段區間：對某個模組把一個 DID 家族的 00~FF 全問一遍。
+class DidSweepRange {
+  DidSweepRange(this.header, this.prefix, this.note);
+
+  /// 模組 Header
+  final String header;
+
+  /// DID 家族前綴，例如 'B0' 代表掃 22B000 ~ 22B0FF
+  final String prefix;
+
+  final String note;
+}
+
+/// 一次「某個檔位下的全 DID 取樣」。
+///
+/// 逐一監看許多 DID 在 ELM327 這種序列鏈路上太慢（實測一輪 16 個要 145 秒），
+/// 切檔只停留幾秒根本取樣不到。改成「把檔位停在那裡，慢慢把全部 DID 拍一遍」，
+/// 再拿不同檔位的快照互相比對，取樣速度就不再是問題。
+/// 比對結果的一筆：某個 DID 的某個 byte 隨檔位變動
+class _GearCandidate {
+  _GearCandidate(this.did, this.byteIndex, this.distinct, this.perGear);
+  final String did;
+  final int byteIndex;
+
+  /// 這個 byte 在各檔位間出現了幾種不同的值。四檔四種最理想。
+  final int distinct;
+  final Map<String, String> perGear;
+}
+
+class GearSnapshot {
+  GearSnapshot(this.gear, this.takenAt, this.payloads, this.payloadsB);
+
+  /// 檔位標籤：P / R / N / D
+  final String gear;
+  final DateTime takenAt;
+
+  /// 'HEADER|CMD' → payload hex（第一次讀取）
+  final Map<String, String> payloads;
+
+  /// 同一個 DID 立刻再讀一次的結果。
+  ///
+  /// 檔位沒動的情況下兩次應該一模一樣，凡是對不起來的 byte 就是會自己飄的
+  /// 雜訊（引擎的溫度、點火提前角、滾動計數器都屬於這類），比對時直接排除。
+  /// 第一版沒有這道手續，14 個候選裡有 14 個是引擎雜訊。
+  final Map<String, String> payloadsB;
+}
+
 class ObdSppService with ChangeNotifier {
   static final ObdSppService _instance = ObdSppService._internal();
   factory ObdSppService() => _instance;
@@ -42,6 +119,14 @@ class ObdSppService with ChangeNotifier {
   List<String> get maintenanceLogHistory =>
       List.unmodifiable(_maintenanceLogHistory);
 
+  // ── 檔位觀察日誌（獨立於主日誌）────────────────────────────────────────
+  // 探測期間主日誌每秒有幾十行時速/轉速，檔位樣本會被沖掉，
+  // 所以走自己的 stream 與自己的匯出。
+  final _gearLogController = StreamController<String>.broadcast();
+  Stream<String> get gearLogStream => _gearLogController.stream;
+  final List<String> _gearLogHistory = [];
+  List<String> get gearLogHistory => List.unmodifiable(_gearLogHistory);
+
   void _log(String msg) {
     final String timestamp = DateFormat('HH:mm:ss').format(DateTime.now());
     final String fullMsg = '[$timestamp] $msg';
@@ -52,6 +137,21 @@ class ObdSppService with ChangeNotifier {
 
   void logWsSend(String json, {String label = '[WS-TX]'}) {
     _log('$label $json');
+  }
+
+  /// 檔位日誌用毫秒時間戳。切檔的瞬間會有好幾個 byte 一起動，
+  /// 秒級解析度分不出誰先誰後。
+  void _logGear(String msg) {
+    final String timestamp =
+        DateFormat('HH:mm:ss.SSS').format(DateTime.now());
+    final String fullMsg = '[$timestamp] $msg';
+    _gearLogHistory.add(fullMsg);
+    if (_gearLogHistory.length > 2000) _gearLogHistory.removeAt(0);
+    _gearLogController.add(fullMsg);
+  }
+
+  void clearGearLog() {
+    _gearLogHistory.clear();
   }
 
   void _logMaintenance(String msg) {
@@ -217,6 +317,60 @@ class ObdSppService with ChangeNotifier {
   bool _igmpGiveUp = false;
   static const int _igmpMaxProbes = 10;
   
+  // ── 檔位探測 (Gear Probe) ────────────────────────────────────────────────
+  // 目的是找出這台車回報檔位的來源。候選連續 _kGearMaxMiss 次沒回應就淘汰：
+  // NODATA 要等滿 ELM 的逾時，單次成本是正常指令的 3~5 倍，
+  // 放著不管會排擠 300ms 的時速/轉速快輪詢。
+  Timer? _gearPollTimer;
+  bool _gearProbeRunning = false;
+  bool get isGearProbeRunning => _gearProbeRunning;
+  bool _gearPollBusy = false;
+  int _gearLastHeartbeatMs = 0;
+  static const int _kGearMaxMiss = 3;
+
+  /// 監看清單。一開始只有 SAE 標準的 01A4，其餘要靠 DID 掃描找出來再加進來。
+  ///
+  /// 第一版曾押 Mode 21（2101）的 TCU 資料流，實車全部無回應。
+  /// 回頭數 OBD.csv 才確認這台車的 78 條擴充 PID 全是 Mode 22（UDS），
+  /// 一條 Mode 21 都沒有 —— 現代 Hyundai/Kia 已經不吃 Mode 21，
+  /// 所以改用 Mode 22 的 DID 掃描來找檔位。
+  /// 一開始是空的：01A4 已經實車證實無回應（01A0 支援表也是 NODATA），
+  /// 留著只是每輪白花三次未命中。清單由快照比對的結果填入。
+  final List<GearProbeTarget> _gearTargets = [];
+
+  // ── DID 掃描 ─────────────────────────────────────────────────────────────
+  // 每個模組只用固定的一個 DID 家族（下表由 OBD.csv 的 78 條 Mode 22 反推），
+  // 所以掃描就是把該家族的 00~FF 逐一問過去，記下哪些有回應。
+  // 排序按「最可能持有 PRND」由高到低：儀表本來就要把 P/R/N/D 畫在錶上。
+  final List<DidSweepRange> _sweepRanges = [
+    DidSweepRange('7C6', 'B0', '儀表 CLU（PRND 顯示在這裡，最有機會）'),
+    DidSweepRange('770', 'BC', '車身 IGMP（倒車燈訊號在這裡）'),
+    DidSweepRange('7E0', 'E0', '引擎 ECM'),
+    DidSweepRange('7E1', 'F1', 'TCU 識別區（先確認這個位址活不活）'),
+  ];
+
+  bool _sweepRunning = false;
+  bool _snapshotRunning = false;
+  bool get isSnapshotRunning => _snapshotRunning;
+
+  /// 掃描或拍快照期間佔用整條匯流排，其餘輪詢一律讓路
+  bool get _busReserved => _sweepRunning || _snapshotRunning;
+
+  /// 掃描找到的 DID，格式 'HEADER|CMD'。與監看清單分開：
+  /// 監看有 16 個上限（跑得完一輪才有意義），快照則是全部都要拍。
+  final List<String> _discoveredDids = [];
+  bool _discoveredLoaded = false;
+  int get discoveredDidCount {
+    _ensureDiscoveredLoaded();
+    return _discoveredDids.length;
+  }
+
+  final List<GearSnapshot> _gearSnapshots = [];
+  List<String> get gearSnapshotLabels =>
+      _gearSnapshots.map((GearSnapshot e) => e.gear).toList();
+  bool get isDidSweepRunning => _sweepRunning;
+  int _sweepFound = 0;
+
   // ── Moving Window Buffers ────────────────────────────────────────────────
   final List<int> _fuelBuffer = [];
 
@@ -354,6 +508,695 @@ class ObdSppService with ChangeNotifier {
     await sendCommand('ATSH7DF');
   }
 
+  // =========================================================================
+  // 檔位探測
+  // =========================================================================
+
+  /// 開始探測。設定會存起來，之後每次連上 OBD 都自動接續。
+  Future<void> startGearProbe() async {
+    await SettingsService().setGearProbeEnabled(true);
+    if (_gearProbeRunning) return;
+
+    if (!_isConnected) {
+      _logGear('[Probe] 尚未連線，連上 OBD 後會自動開始');
+      notifyListeners();
+      return;
+    }
+
+    for (final GearProbeTarget t in _gearTargets) {
+      t.miss = 0;
+      t.alive = true;
+      t.lastPayload = null;
+    }
+    _gearLastHeartbeatMs = 0;
+    _gearProbeRunning = true;
+    notifyListeners();
+
+    if (_gearTargets.isEmpty) {
+      _gearProbeRunning = false;
+      _logGear('[Probe] 監看清單是空的。即時監看只適合驗證少數幾個 DID，'
+          '請先用「拍 P / R / N / D」四張快照再按「比對快照」，'
+          '比對結果會自動填進監看清單。');
+      notifyListeners();
+      return;
+    }
+
+    _logGear('[Probe] ══ 檔位探測開始 ══');
+    _logGear('[Probe] 監看 ${_gearTargets.length} 個候選 DID。'
+        '切檔並觀察標 ★ 的變動行。');
+
+    _gearPollTimer?.cancel();
+    _gearPollTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _pollGear());
+  }
+
+  /// 停止探測。persist=false 用在「候選全滅」這種自動收工的情況，
+  /// 設定頁的開關維持原樣，下次連線還會再試一輪。
+  Future<void> stopGearProbe({bool persist = true}) async {
+    if (persist) await SettingsService().setGearProbeEnabled(false);
+    _gearPollTimer?.cancel();
+    _gearPollTimer = null;
+    if (_gearProbeRunning) {
+      _gearProbeRunning = false;
+      _logGear('[Probe] ══ 檔位探測停止 ══');
+    }
+    notifyListeners();
+  }
+
+  /// 每秒輪詢一次還活著的候選。回應內容交給 _handleGearProbeResponse 記錄。
+  Future<void> _pollGear() async {
+    if (!_isConnected || !_gearProbeRunning) return;
+    if (_busReserved) return; // 掃描或拍快照期間讓出匯流排
+    if (_gearPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
+
+    _gearPollBusy = true;
+    try {
+      final List<GearProbeTarget> alive =
+          _gearTargets.where((GearProbeTarget t) => t.alive).toList();
+
+      if (alive.isEmpty) {
+        _logGear('[Probe] 所有候選位址都沒有回應，本輪收工。'
+            '請把這份日誌匯出，之後改從 22BC04 的位元下手。');
+        await stopGearProbe(persist: false);
+        return;
+      }
+
+      for (final GearProbeTarget t in alive) {
+        if (!_isConnected || !_gearProbeRunning) return;
+
+        // Header 與查詢必須同步連續掛進 _commandChain，中間不能 await。
+        // 一旦中途 await，別的輪詢會整包插進 Header 與查詢之間，
+        // 查詢就在錯的 Header 底下送出、必然回 NODATA（見 _pollIgmp 的說明）。
+        sendCommand('ATSH${t.header}');
+        final Future<String> respFuture = sendCommand(t.cmd);
+        sendCommand('ATSH7DF');
+        final String resp = await respFuture;
+
+        // 真正的逾時代表 ELM 連 NO DATA 都沒回，_parseObdResponse 根本不會被
+        // 呼叫，未命中也就永遠累加不上去。第一版就是卡在這裡，日誌整片空白。
+        if (resp == 'TIMEOUT' ||
+            resp == 'DISCONNECTED' ||
+            resp == 'WRITE_ERROR' ||
+            resp == 'POWER_OFF') {
+          t.miss++;
+          if (t.miss == 1) {
+            _logGear('[Probe] ${t.header}/${t.cmd} 無回應（$resp）');
+          }
+          if (t.miss >= _kGearMaxMiss) {
+            t.alive = false;
+            _logGear('[Probe] ${t.header}/${t.cmd} 連續 ${t.miss} 次無回應，淘汰');
+          }
+        }
+      }
+    } finally {
+      _gearPollBusy = false;
+    }
+  }
+
+  // ── DID 掃描 ─────────────────────────────────────────────────────────────
+
+  /// 掃描期間正在等回應的那道指令，用來擋掉主日誌的 NoData 洪水
+  String? _sweepCurrentCmd;
+
+  void _ensureDiscoveredLoaded() {
+    if (_discoveredLoaded) return;
+    _discoveredLoaded = true;
+    _discoveredDids.addAll(SettingsService().discoveredDids);
+  }
+
+  void _recordDiscovered(String header, String cmd) {
+    final String key = '$header|$cmd';
+    if (_discoveredDids.contains(key)) return;
+    _discoveredDids.add(key);
+  }
+
+  // ── 檔位快照 ─────────────────────────────────────────────────────────────
+
+  /// 把已發現的 DID 全部拍一遍，存成某個檔位的快照。
+  ///
+  /// 期間會停掉所有例行輪詢，整條匯流排都給快照用，一個 DID 約 0.35 秒。
+  /// 這是刻意的取捨：拍照的幾十秒內檔位要停在原地不動。
+  Future<void> captureGearSnapshot(String gear) async {
+    if (_busReserved) return;
+    _ensureDiscoveredLoaded();
+
+    if (_discoveredDids.isEmpty) {
+      _logGear('[Snap] 還沒有任何已知 DID，請先按「DID 掃描」');
+      return;
+    }
+    if (!_isConnected) {
+      _logGear('[Snap] 尚未連線，無法拍快照');
+      return;
+    }
+
+    _snapshotRunning = true;
+    notifyListeners();
+
+    final int total = _discoveredDids.length;
+    _logGear('[Snap] ══ 拍攝 $gear 檔快照（$total 個 DID）══');
+    _logGear('[Snap] 拍攝期間請維持在 $gear 檔不要動，'
+        '約需 ${(total * 0.7).round()} 秒（每個 DID 連讀兩次以剔除雜訊）');
+
+    final Map<String, String> payloads = {};
+    final Map<String, String> payloadsB = {};
+    int done = 0;
+
+    try {
+      for (final String key in List<String>.from(_discoveredDids)) {
+        if (!_snapshotRunning || !_isConnected) break;
+
+        final int bar = key.indexOf('|');
+        final String header = key.substring(0, bar);
+        final String cmd = key.substring(bar + 1);
+
+        // 連讀兩次。Header 只切一次，兩道查詢夾在中間，成本比分兩輪低得多。
+        _sweepCurrentCmd = cmd;
+        sendCommand('ATSH$header');
+        final Future<String> firstFuture = sendCommand(cmd, timeoutMs: 1500);
+        final Future<String> secondFuture = sendCommand(cmd, timeoutMs: 1500);
+        sendCommand('ATSH7DF');
+        final String respA = await firstFuture;
+        final String respB = await secondFuture;
+
+        done++;
+        if (done % 40 == 0) {
+          _logGear('[Snap] $gear 檔進度 $done/$total');
+        }
+
+        final String sig = '62${cmd.substring(2)}';
+        final String? a = _extractPayload(respA, sig);
+        final String? b = _extractPayload(respB, sig);
+        if (a == null) continue;
+        payloads[key] = a;
+        if (b != null) payloadsB[key] = b;
+      }
+    } finally {
+      _snapshotRunning = false;
+      _sweepCurrentCmd = null;
+      notifyListeners();
+    }
+
+    _gearSnapshots
+        .add(GearSnapshot(gear, DateTime.now(), payloads, payloadsB));
+    _logGear('[Snap] $gear 檔快照完成，取得 ${payloads.length}/$total 個 DID。'
+        '目前已有：${gearSnapshotLabels.join(', ')}');
+    notifyListeners();
+  }
+
+  /// 從回應裡取出簽章後面的 payload，沒有簽章就回 null
+  String? _extractPayload(String resp, String sig) {
+    final String hex =
+        resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+    final int idx = hex.indexOf(sig);
+    return idx == -1 ? null : hex.substring(idx + sig.length);
+  }
+
+  void abortSnapshot() {
+    if (!_snapshotRunning) return;
+    _snapshotRunning = false;
+    _logGear('[Snap] 快照已中止（這一張不會存下來）');
+    notifyListeners();
+  }
+
+  void clearGearSnapshots() {
+    _gearSnapshots.clear();
+    _logGear('[Snap] 已清除所有快照');
+    notifyListeners();
+  }
+
+  /// 比對各檔位快照，找出「隨檔位改變、但同檔位下穩定」的 byte。
+  ///
+  /// 同一個檔位拍兩張（例如開頭與結尾各拍一次 P）就能濾掉雜訊：
+  /// 引擎的滾動記錄區每次讀都不一樣，同檔位不穩定的 byte 一律排除。
+  void analyzeGearSnapshots() {
+    if (_gearSnapshots.length < 2) {
+      _logGear('[Diff] 至少要兩張快照才能比對');
+      return;
+    }
+
+    final Map<String, List<GearSnapshot>> byGear = {};
+    for (final GearSnapshot snap in _gearSnapshots) {
+      byGear.putIfAbsent(snap.gear, () => <GearSnapshot>[]).add(snap);
+    }
+    if (byGear.length < 2) {
+      _logGear('[Diff] 只有 ${byGear.keys.first} 檔的快照，需要至少兩個不同檔位');
+      return;
+    }
+
+    final List<String> gears = byGear.keys.toList();
+    _logGear('[Diff] ══ 比對 ${gears.join(' / ')} ══');
+
+    // 每個檔位至少兩張才有雜訊過濾能力，提醒一下但不擋
+    final bool canFilterNoise =
+        byGear.values.any((List<GearSnapshot> v) => v.length > 1);
+    if (!canFilterNoise) {
+      _logGear('[Diff] 提醒：每個檔位都只有一張快照，無法濾掉自己會飄的 byte。'
+          '回到 P 再拍一張可大幅減少誤判。');
+    }
+
+    // 只比對每一張快照都取得到的 DID
+    final Set<String> commonDids =
+        _gearSnapshots.first.payloads.keys.toSet();
+    for (final GearSnapshot snap in _gearSnapshots) {
+      commonDids.retainAll(snap.payloads.keys);
+    }
+
+    int skippedLength = 0;
+    int unstable = 0;
+    int selfDrifting = 0;
+    final List<_GearCandidate> candidates = [];
+
+    for (final String did in commonDids) {
+      // 長度不一致代表多幀組裝結果不同，直接跳過免得比錯 byte
+      final Set<int> lengths = _gearSnapshots
+          .map((GearSnapshot s) => s.payloads[did]!.length)
+          .toSet();
+      if (lengths.length != 1) {
+        skippedLength++;
+        continue;
+      }
+
+      final int byteCount = lengths.first ~/ 2;
+      for (int i = 0; i < byteCount; i++) {
+        // 雜訊遮罩：任何一張快照的兩次連讀對不起來，這個 byte 就是會自己飄的，
+        // 不管跨檔位看起來多漂亮都不算數。
+        bool noisy = false;
+        for (final GearSnapshot snap in _gearSnapshots) {
+          final String? b = snap.payloadsB[did];
+          if (b == null || b.length != snap.payloads[did]!.length) continue;
+          if (snap.payloads[did]!.substring(i * 2, i * 2 + 2) !=
+              b.substring(i * 2, i * 2 + 2)) {
+            noisy = true;
+            break;
+          }
+        }
+        if (noisy) {
+          selfDrifting++;
+          continue;
+        }
+
+        final Map<String, String> perGear = {};
+        bool stable = true;
+
+        for (final String gear in gears) {
+          final Set<String> vals = byGear[gear]!
+              .map((GearSnapshot s) =>
+                  s.payloads[did]!.substring(i * 2, i * 2 + 2))
+              .toSet();
+          if (vals.length != 1) {
+            stable = false;
+            break;
+          }
+          perGear[gear] = vals.first;
+        }
+
+        if (!stable) {
+          unstable++;
+          continue;
+        }
+        final int distinct = perGear.values.toSet().length;
+        if (distinct < 2) continue;
+
+        candidates.add(_GearCandidate(did, i, distinct, perGear));
+      }
+    }
+
+    candidates.sort((_GearCandidate a, _GearCandidate b) {
+      final int byScore = b.distinct.compareTo(a.distinct);
+      return byScore != 0 ? byScore : a.did.compareTo(b.did);
+    });
+
+    _logGear('[Diff] 比對 ${commonDids.length} 個 DID，'
+        '略過長度不一致 $skippedLength 個、'
+        '連讀兩次就自己飄的 byte $selfDrifting 個、'
+        '同檔位跨快照不穩定的 byte $unstable 個');
+
+    if (candidates.isEmpty) {
+      _logGear('[Diff] 沒有任何 byte 隨檔位變動。'
+          '請確認拍攝時引擎是發動的、而且每張快照的檔位真的不同。');
+      return;
+    }
+
+    _logGear('[Diff] 找到 ${candidates.length} 個隨檔位變動的 byte，'
+        '差異最多的排在前面：');
+
+    final int show = candidates.length < 40 ? candidates.length : 40;
+    for (int i = 0; i < show; i++) {
+      final _GearCandidate c = candidates[i];
+      final String detail = gears
+          .map((String g) => '$g=${c.perGear[g]}')
+          .join(' ');
+      _logGear('[Diff★] ${c.did.replaceFirst('|', '/')} '
+          'byte ${_gearByteLabel(c.byteIndex)} '
+          '(${c.distinct}/${gears.length} 種) $detail');
+    }
+    if (candidates.length > show) {
+      _logGear('[Diff] 其餘 ${candidates.length - show} 個未列出');
+    }
+
+    // 前幾名的 DID 直接換成監看清單，接著就能用「開始探測」即時驗證。
+    // 只留少數幾個，一輪才跑得快（16 個要 145 秒，3 個只要幾秒）。
+    _gearTargets.clear();
+    final Set<String> picked = {};
+    for (final _GearCandidate c in candidates) {
+      if (picked.length >= 4) break;
+      if (!picked.add(c.did)) continue;
+      final int bar = c.did.indexOf('|');
+      final String header = c.did.substring(0, bar);
+      final String cmd = c.did.substring(bar + 1);
+      _gearTargets.add(
+          GearProbeTarget(header, cmd, '62${cmd.substring(2)}', '檔位候選'));
+    }
+    _logGear('[Diff] 監看清單已換成前 ${_gearTargets.length} 個候選 DID，'
+        '現在按「開始探測」邊切檔邊即時驗證。');
+    notifyListeners();
+  }
+
+  /// 把每個模組的 DID 家族 00~FF 逐一問過去，記下有回應的。
+  ///
+  /// 這是找檔位的主力手段：檔位一定在某個 Mode 22 的 DID 裡，
+  /// 只是 OBD.csv 沒收錄，只能自己列舉。找到的 DID 會自動加進監看清單，
+  /// 掃完再按「開始探測」切一次 P/R/N/D 就能比對。
+  Future<void> startDidSweep() async {
+    if (_sweepRunning) return;
+    if (!_isConnected) {
+      _logGear('[Sweep] 尚未連線，無法掃描');
+      return;
+    }
+
+    _ensureDiscoveredLoaded();
+    _sweepRunning = true;
+    _sweepFound = 0;
+    notifyListeners();
+
+    _logGear('[Sweep] ══ DID 掃描開始 ══');
+    _logGear('[Sweep] ${_sweepRanges.length} 個模組 × 256 個 DID。'
+        '掃描期間會暫停時速/轉速輪詢，請停車怠速進行。');
+
+    bool completed = false;
+    try {
+      for (final DidSweepRange range in _sweepRanges) {
+        if (!_sweepRunning || !_isConnected) break;
+        await _sweepOneRange(range);
+      }
+      completed = _sweepRunning;
+    } finally {
+      _sweepRunning = false;
+      _sweepCurrentCmd = null;
+      notifyListeners();
+
+      if (!completed) {
+        _logGear('[Sweep] ══ 掃描中止（本輪已找到 $_sweepFound 個）══');
+      } else if (_sweepFound == 0) {
+        _logGear('[Sweep] ══ 掃描結束，沒有任何 DID 有回應 ══');
+        _logGear('[Sweep] 這代表連已知有效的 DID 都沒回，'
+            '問題出在連線或 Header 切換，不是車上沒有檔位訊號。請匯出日誌。');
+      } else {
+        _logGear('[Sweep] ══ 掃描結束，找到 $_sweepFound 個有回應的 DID ══');
+      }
+
+      if (_discoveredDids.isNotEmpty) {
+        SettingsService().setDiscoveredDids(_discoveredDids);
+        _logGear('[Sweep] 已知 DID 共 ${_discoveredDids.length} 個，已存檔，'
+            '重開 App 不用重掃。接著用「拍 P / R / N / D」四張快照比對。');
+      }
+    }
+  }
+
+  /// 動力系統模組探索。
+  ///
+  /// 實車確認 7E1 對 22F1xx（識別區）有回應，代表變速箱 ECU 活著、也講 UDS，
+  /// 只是不知道它的資料 DID 落在哪個家族。這台是油電車，排檔訊號也可能落在
+  /// 油電控制單元而不是變速箱，所以先用識別區把整排候選位址點名一遍，
+  /// 活著的才花三分鐘做家族探索。點名很便宜，兩道指令就知道在不在。
+  static const List<String> _powertrainHeaders = [
+    '7E1', // 變速箱 TCU（已確認活著）
+    '7E2', // 油電控制單元 HCU 常見位址
+    '7E3',
+    '7E4',
+    '7B3', // 部分 Hyundai/Kia 油電把 HCU 放這裡
+    '7D0',
+    '7D2',
+  ];
+
+  /// 識別區 DID。任何講 UDS 的模組幾乎都會回其中一個。
+  static const List<String> _livenessDids = ['22F190', '22F180'];
+
+  Future<void> startTcuFamilyScan() async {
+    if (_busReserved) return;
+    if (!_isConnected) {
+      _logGear('[Family] 尚未連線，無法探索');
+      return;
+    }
+
+    _ensureDiscoveredLoaded();
+    _sweepRunning = true;
+    _sweepFound = 0;
+    notifyListeners();
+
+    _logGear('[Family] ══ 動力系統模組探索開始 ══');
+    _logGear('[Family] 先點名 ${_powertrainHeaders.length} 個位址，'
+        '活著的才做家族探索');
+
+    try {
+      // ── 第一步：點名 ────────────────────────────────────────────────
+      final List<String> alive = [];
+      for (final String header in _powertrainHeaders) {
+        if (!_sweepRunning || !_isConnected) break;
+        bool responded = false;
+        for (final String did in _livenessDids) {
+          if (await _probeOneDid(header, did)) {
+            responded = true;
+            break;
+          }
+        }
+        if (responded) {
+          alive.add(header);
+          _logGear('[Family✓] $header 有回應，是活的 UDS 模組');
+        } else {
+          _logGear('[Family] $header 沒回應，跳過');
+        }
+      }
+
+      if (alive.isEmpty) {
+        _logGear('[Family] 沒有任何動力系統模組有回應');
+        return;
+      }
+
+      // ── 第二步：對活著的位址逐一做家族探索 ──────────────────────────
+      _logGear('[Family] 活著的位址：${alive.join(', ')}，'
+          '接著逐一探索家族，每個約 3 分鐘');
+
+      for (final String header in alive) {
+        if (!_sweepRunning || !_isConnected) break;
+        await _scanFamiliesOf(header);
+      }
+    } finally {
+      _sweepRunning = false;
+      _sweepCurrentCmd = null;
+      notifyListeners();
+
+      if (_discoveredDids.isNotEmpty) {
+        SettingsService().setDiscoveredDids(_discoveredDids);
+      }
+      _logGear('[Family] ══ 探索結束，本輪新增 $_sweepFound 個 DID，'
+          '已知 DID 共 ${_discoveredDids.length} 個 ══');
+    }
+  }
+
+  /// 對一個位址的 256 個家族各試 22XX00 / 22XX01，有回應的家族再整族掃完
+  Future<void> _scanFamiliesOf(String header) async {
+    _logGear('[Family] ── $header 家族探索（22XX00 / 22XX01）──');
+    final List<String> families = [];
+
+    for (int hi = 0; hi <= 0xFF; hi++) {
+      if (!_sweepRunning || !_isConnected) return;
+
+      final String fam = hi.toRadixString(16).padLeft(2, '0').toUpperCase();
+      bool hit = false;
+      for (final String lo in ['00', '01']) {
+        if (await _probeOneDid(header, '22$fam$lo')) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
+        families.add(fam);
+        _logGear('[Family✓] $header 家族 22$fam 有回應');
+      }
+      if ((hi + 1) % 64 == 0) {
+        _logGear('[Family] $header 進度 ${hi + 1}/256，'
+            '找到 ${families.length} 個家族');
+      }
+    }
+
+    if (families.isEmpty) {
+      _logGear('[Family] $header 沒有任何資料家族有回應');
+      return;
+    }
+
+    _logGear('[Family] $header 找到家族：${families.join(', ')}，開始逐一掃完');
+    for (final String fam in families) {
+      if (!_sweepRunning || !_isConnected) break;
+      // F1 是識別區，掃過也沒有檔位，跳過省三分鐘
+      if (fam == 'F1') continue;
+      await _sweepOneRange(DidSweepRange(header, fam, '$header 家族 22$fam'));
+    }
+  }
+
+  /// 問一個 DID，有回應就記進已知清單並回傳 true
+  Future<bool> _probeOneDid(String header, String cmd) async {
+    _sweepCurrentCmd = cmd;
+    sendCommand('ATSH$header');
+    final Future<String> respFuture = sendCommand(cmd, timeoutMs: 1500);
+    sendCommand('ATSH7DF');
+    final String resp = await respFuture;
+
+    final String hex =
+        resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+    final int idx = hex.indexOf('62${cmd.substring(2)}');
+    if (idx == -1) return false;
+
+    _sweepFound++;
+    _recordDiscovered(header, cmd);
+    return true;
+  }
+
+  void stopDidSweep() {
+    if (!_sweepRunning) return;
+    _sweepRunning = false;
+    notifyListeners();
+  }
+
+  Future<void> _sweepOneRange(DidSweepRange range) async {
+    _logGear('[Sweep] ── ${range.header} / 22${range.prefix}00~FF'
+        '（${range.note}）──');
+    int found = 0;
+
+    for (int lo = 0; lo <= 0xFF; lo++) {
+      if (!_sweepRunning || !_isConnected) return;
+
+      final String did = '${range.prefix}'
+          '${lo.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+      final String cmd = '22$did';
+
+      // Header 與查詢要同步連續掛進 _commandChain，中間不能 await，
+      // 否則查詢會在別的 Header 底下送出（見 _pollIgmp 的說明）。
+      _sweepCurrentCmd = cmd;
+      sendCommand('ATSH${range.header}');
+      final Future<String> respFuture = sendCommand(cmd, timeoutMs: 1500);
+      sendCommand('ATSH7DF');
+      final String resp = await respFuture;
+
+      // 每 64 個報一次進度，掃兩分鐘畫面才不會完全沒動
+      if ((lo + 1) % 64 == 0) {
+        _logGear('[Sweep] ${range.header}/${range.prefix} '
+            '進度 ${lo + 1}/256，本區間已找到 $found 個');
+      }
+
+      final String hex =
+          resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+      final int idx = hex.indexOf('62$did');
+      if (idx == -1) continue;
+
+      found++;
+      _sweepFound++;
+      final String payload = hex.substring(idx + 6);
+      _logGear('[Sweep✓] ${range.header}/$cmd 有回應 payload=$payload');
+      _recordDiscovered(range.header, cmd);
+    }
+
+    _logGear('[Sweep] ${range.header}/${range.prefix} 掃完，有回應 $found 個');
+  }
+
+  /// 每筆探測日誌都帶上當下的轉速與車速。
+  /// 比對時要靠這兩個值排除「跟著轉速連續變動」的 byte —— 那是引擎資料不是檔位。
+  String _gearContext() {
+    final int r = rpm ?? 0;
+    final int s = speed ?? 0;
+    final String ratio = (s > 0 && r > 0) ? (r / s).toStringAsFixed(1) : '-';
+    return 'rpm=$r spd=$s ratio=$ratio';
+  }
+
+  /// byte 位置用 OBD.csv 的字母表示法（A = payload 第一個 byte），
+  /// 對照 CSV 的公式時不用自己換算。
+  String _gearByteLabel(int index) =>
+      index < 26 ? String.fromCharCode(0x41 + index) : '#$index';
+
+  /// 列出兩筆 payload 之間變動的 byte
+  String _gearDiff(String prev, String now) {
+    final int n = prev.length < now.length ? prev.length : now.length;
+    final List<String> diffs = [];
+    for (int i = 0; i + 2 <= n; i += 2) {
+      final String a = prev.substring(i, i + 2);
+      final String b = now.substring(i, i + 2);
+      if (a != b) diffs.add('${_gearByteLabel(i ~/ 2)}:$a→$b');
+    }
+    if (prev.length != now.length) {
+      diffs.add('長度 ${prev.length ~/ 2}→${now.length ~/ 2} byte');
+    }
+    return diffs.isEmpty ? '(內容相同)' : diffs.join(' ');
+  }
+
+  /// 檔位探測掛勾。回傳 true 代表這筆回應由探測處理掉了，不再走一般解析。
+  ///
+  /// 刻意放在 _isAtResponse 的判斷之前：NODATA 也是探測要的資訊
+  /// （代表這個位址不通），被當成 AT 回應濾掉就看不到了。
+  bool _handleGearProbeResponse(String sanitized, String lastCmd) {
+    if (!_gearProbeRunning) return false;
+
+    GearProbeTarget? target;
+    for (final GearProbeTarget t in _gearTargets) {
+      if (t.cmd == lastCmd && t.header == _activeHeader) {
+        target = t;
+        break;
+      }
+    }
+    if (target == null) return false;
+
+    final int idx = sanitized.indexOf(target.sig);
+    if (idx == -1) {
+      target.miss++;
+      if (target.miss == 1) {
+        _logGear('[Probe] ${target.header}/${target.cmd} 沒有 ${target.sig} '
+            '回應（${target.note}）raw=$sanitized');
+      }
+      if (target.miss >= _kGearMaxMiss) {
+        target.alive = false;
+        _logGear('[Probe] ${target.header}/${target.cmd} 連續 ${target.miss} 次'
+            '沒回應，淘汰此候選');
+      }
+      return true;
+    }
+
+    target.miss = 0;
+    final String payload = sanitized.substring(idx + target.sig.length);
+    final String prev = target.lastPayload ?? '';
+
+    if (target.lastPayload == null) {
+      target.lastPayload = payload;
+      _logGear('[Gear] ${target.header}/${target.cmd} 通了（${target.note}）'
+          '首筆 payload=$payload ${_gearContext()}');
+      return true;
+    }
+
+    if (payload == prev) {
+      // 沒變就不記，只在每 10 秒補一筆心跳，讓日誌看得出探測還活著
+      final int nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (nowMs - _gearLastHeartbeatMs >= 10000) {
+        _gearLastHeartbeatMs = nowMs;
+        _logGear('[Gear] ${target.header}/${target.cmd} 不變 payload=$payload '
+            '${_gearContext()}');
+      }
+      return true;
+    }
+
+    _logGear('[Gear★] ${target.header}/${target.cmd} '
+        '${_gearDiff(prev, payload)} | payload=$payload ${_gearContext()}');
+    target.lastPayload = payload;
+    return true;
+  }
+
   void _enqueueBarometricPressureQuery() {
     if (!_isConnected) return;
     sendCommand('0133');
@@ -467,6 +1310,14 @@ class ObdSppService with ChangeNotifier {
     _longPollTimer = null;
     _igmpPollTimer?.cancel();
     _igmpPollTimer = null;
+    _gearPollTimer?.cancel();
+    _gearPollTimer = null;
+    // 探測旗標歸零，重連後由 _startPollingTasks 依設定重新啟動
+    _gearProbeRunning = false;
+    _gearPollBusy = false;
+    // 掃描沒有自動續掃：斷線代表這一輪的結果不完整，讓使用者自己重跑
+    _sweepRunning = false;
+    _sweepCurrentCmd = null;
 
     // 清理 RX Buffer 與 Completer（打破死鎖）
     _rxBuffer.clear();
@@ -786,6 +1637,13 @@ class ObdSppService with ChangeNotifier {
 
   void _parseObdResponse(String sanitized, String lastCmd) {
     if (sanitized.isEmpty) return;
+
+    // 檔位探測的候選回應在這裡就處理掉（含 NODATA），不往下走一般解析
+    if (_handleGearProbeResponse(sanitized, lastCmd)) return;
+
+    // 掃描的回應由 _sweepOneRange 自己判讀。不擋的話 1024 道查詢會在主日誌
+    // 灌進上千行 [Parser NoData]，真正有用的那幾行反而被沖掉。
+    if (_busReserved && lastCmd == _sweepCurrentCmd) return;
 
     if (_isAtResponse(sanitized)) {
       if (lastCmd == '0105') {
@@ -1125,13 +1983,13 @@ class ObdSppService with ChangeNotifier {
 
     // HEV SOC 每 5 秒：使用標準 OBD PID 015B（= 100/255*A），不需切換 Header
     _slowPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_isConnected) return;
+      if (!_isConnected || _busReserved) return;
       sendCommand('015B');
     });
 
     // 水溫每 30 秒：使用 PID 0167（SAE Coolant A/B）
     _minutePollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!_isConnected) return;
+      if (!_isConnected || _busReserved) return;
       sendCommand('0167');
       sendCommand('ATSH7C6');
       sendCommand('22B002');
@@ -1142,7 +2000,7 @@ class ObdSppService with ChangeNotifier {
 
     // 維護資訊每 30 分鐘：使用 PID 22B002
     _longPollTimer = Timer.periodic(const Duration(minutes: 30), (_) {
-      if (!_isConnected) return;
+      if (!_isConnected || _busReserved) return;
       sendCommand('ATSH7C6');
       sendCommand('22B002');
       sendCommand('ATSH7DF');
@@ -1159,12 +2017,21 @@ class ObdSppService with ChangeNotifier {
     // byte F bit3，四檔快照比對確認 —— 見 _kReverseMask。
     _igmpPollTimer =
         Timer.periodic(const Duration(seconds: 1), (_) => _pollIgmp());
+
+    // 檔位探測：設定頁開著就跟著每次連線自動接續，斷線重連不用重按
+    _gearPollTimer?.cancel();
+    _gearPollTimer = null;
+    _gearProbeRunning = false;
+    if (SettingsService().gearProbeEnabled) {
+      startGearProbe();
+    }
   }
 
   /// 大燈輪詢。Header 尚未鎖定時依序試 _igmpHeaders，
   /// 哪個拿得到 62BC09 就鎖定；鎖定後連續失敗多次會解鎖重新探測。
   Future<void> _pollIgmp() async {
     if (!_isConnected) return;
+    if (_busReserved) return; // 掃描或拍快照期間讓出匯流排
     if (_igmpGiveUp) return;
     if (_igmpPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
 
@@ -1243,6 +2110,12 @@ class ObdSppService with ChangeNotifier {
     const int intervalMs = 300;
     _fastPollTimer = Timer(const Duration(milliseconds: intervalMs), () {
       if (!_isConnected) return;
+      // 掃描期間只跳過發送、照常重新排程。直接 return 會讓這條自我重排的
+      // 鏈斷掉，掃完之後時速與轉速就再也不更新了。
+      if (_busReserved) {
+        _scheduleFastPoll();
+        return;
+      }
       // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
       sendCommand('010B0C0D');
       _scheduleFastPoll();

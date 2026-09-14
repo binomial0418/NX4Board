@@ -92,6 +92,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _autoScroll = true;
 
+  // ── 檔位觀察 ────────────────────────────────────────────────────────────
+  // 走 ObdSppService 的獨立 gearLogStream，不跟主日誌混在一起：
+  // 探測期間主日誌每秒幾十行時速/轉速，檔位樣本會被沖掉。
+  StreamSubscription? _gearLogSub;
+  final List<String> _gearLogs = [];
+  final ScrollController _gearScrollController = ScrollController();
+  bool _gearAutoScroll = true;
+  bool _gearProbeOn = false;
+  bool _gearScrollPending = false;
+  static const int _gearLogCap = 2000;
+
   List<Map<String, String>> _bondedDevices = [];
   bool _isScanning = false;
 
@@ -147,6 +158,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     });
 
+    _gearProbeOn = SettingsService().gearProbeEnabled;
+    _gearLogs.addAll(ObdSppService().gearLogHistory);
+    _gearLogSub = ObdSppService().gearLogStream.listen((log) {
+      if (!mounted) return;
+      setState(() {
+        _gearLogs.add(log);
+        if (_gearLogs.length > _gearLogCap) _gearLogs.removeAt(0);
+        // 探測可能被服務端自行收工（候選全滅），開關要跟著實際狀態走
+        _gearProbeOn = SettingsService().gearProbeEnabled;
+      });
+      if (_gearAutoScroll && !_gearScrollPending) {
+        _gearScrollPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _gearScrollPending = false;
+          if (_gearAutoScroll && _gearScrollController.hasClients) {
+            _gearScrollController
+                .jumpTo(_gearScrollController.position.maxScrollExtent);
+          }
+        });
+      }
+    });
+
     _refreshBondedDevices();
   }
 
@@ -176,8 +209,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 回到儀表頁後第二通道就永遠不再推送
     _stopEsp32Simulation(null);
     _logSub?.cancel();
+    _gearLogSub?.cancel();
     _volumeSub?.cancel();
     _scrollController.dispose();
+    _gearScrollController.dispose();
     _pendingCount.dispose();
     _recordingCountdownTimer?.cancel();
     super.dispose();
@@ -551,26 +586,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _exportLogs() async {
+  Future<void> _exportLogs() => _shareLogFile(
+        _visibleLogs,
+        'NX4Board_log',
+        'NX4Board Log Export',
+      );
+
+  Future<void> _exportGearLogs() => _shareLogFile(
+        _gearLogs,
+        'NX4Board_gear',
+        'NX4Board 檔位觀察日誌',
+      );
+
+  /// 寫暫存檔再交給系統分享（雲端硬碟、郵件、聊天室都吃這個入口）
+  Future<void> _shareLogFile(
+      List<String> lines, String prefix, String subject) async {
     try {
-      if (_visibleLogs.isEmpty) {
+      if (lines.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('無日誌可供匯出')),
         );
         return;
       }
 
-      final String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final String fileName = 'NX4Board_log_$timestamp.txt';
+      final String timestamp =
+          DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final String fileName = '${prefix}_$timestamp.txt';
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/$fileName');
 
-      final String content = _visibleLogs.join('\n');
-      await file.writeAsString(content);
+      await file.writeAsString(lines.join('\n'));
 
       final result = await Share.shareXFiles(
         [XFile(file.path)],
-        subject: 'NX4Board Log Export',
+        subject: subject,
       );
 
       if (result.status == ShareResultStatus.success) {
@@ -581,6 +630,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('匯出失敗: $e')),
       );
+    }
+  }
+
+  Future<void> _toggleGearProbe() async {
+    final bool turningOn = !_gearProbeOn;
+    setState(() => _gearProbeOn = turningOn);
+    if (turningOn) {
+      await ObdSppService().startGearProbe();
+    } else {
+      await ObdSppService().stopGearProbe();
+    }
+    if (!mounted) return;
+    setState(() => _gearProbeOn = SettingsService().gearProbeEnabled);
+  }
+
+  Future<void> _toggleDidSweep() async {
+    final ObdSppService obd = ObdSppService();
+    if (obd.isDidSweepRunning) {
+      obd.stopDidSweep();
+      setState(() {});
+      return;
+    }
+    setState(() {});
+    await obd.startDidSweep();
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _captureSnapshot(String gear) async {
+    setState(() {});
+    await ObdSppService().captureGearSnapshot(gear);
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _toggleTcuFamilyScan() async {
+    final ObdSppService obd = ObdSppService();
+    if (obd.isDidSweepRunning) {
+      obd.stopDidSweep();
+      setState(() {});
+      return;
+    }
+    setState(() {});
+    await obd.startTcuFamilyScan();
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _clearGearLogs() {
+    ObdSppService().clearGearLog();
+    setState(() => _gearLogs.clear());
+  }
+
+  void _toggleGearAutoScroll() {
+    setState(() => _gearAutoScroll = !_gearAutoScroll);
+    if (_gearAutoScroll) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_gearScrollController.hasClients) {
+          _gearScrollController
+              .jumpTo(_gearScrollController.position.maxScrollExtent);
+        }
+      });
     }
   }
 
@@ -1195,6 +1306,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  _buildGearProbeCard(),
                   const SizedBox(height: 24),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1213,6 +1326,221 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 檔位觀察區的按鈕群。用 Wrap 排，窄螢幕會自己折行。
+  Widget _buildGearButtons() {
+    final ObdSppService obd = ObdSppService();
+    final bool busy = obd.isDidSweepRunning || obd.isSnapshotRunning;
+    final List<String> shots = obd.gearSnapshotLabels;
+
+    Widget btn(String label, IconData icon, Color color, VoidCallback? onTap) {
+      return SizedBox(
+        height: 34,
+        child: ElevatedButton.icon(
+          onPressed: onTap,
+          icon: Icon(icon, size: 16),
+          label: Text(label, style: const TextStyle(fontSize: 12)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            btn(
+              obd.isDidSweepRunning ? '中止掃描' : 'DID 掃描',
+              obd.isDidSweepRunning ? Icons.stop : Icons.search,
+              obd.isDidSweepRunning
+                  ? Colors.redAccent
+                  : Colors.lightBlueAccent,
+              obd.isSnapshotRunning ? null : _toggleDidSweep,
+            ),
+            btn(
+              '動力系統探索',
+              Icons.travel_explore,
+              Colors.tealAccent,
+              busy ? null : _toggleTcuFamilyScan,
+            ),
+            for (final String g in ['P', 'R', 'N', 'D'])
+              btn(
+                '拍 $g',
+                Icons.camera_alt,
+                shots.contains(g) ? Colors.green : Colors.amber,
+                busy ? null : () => _captureSnapshot(g),
+              ),
+            btn(
+              '比對快照',
+              Icons.compare_arrows,
+              Colors.pinkAccent,
+              busy
+                  ? null
+                  : () {
+                      ObdSppService().analyzeGearSnapshots();
+                      setState(() {});
+                    },
+            ),
+            btn(
+              '清除快照',
+              Icons.layers_clear,
+              Colors.grey,
+              busy
+                  ? null
+                  : () {
+                      ObdSppService().clearGearSnapshots();
+                      setState(() {});
+                    },
+            ),
+            btn(
+              _gearProbeOn ? '停止監看' : '開始監看',
+              _gearProbeOn ? Icons.stop : Icons.play_arrow,
+              _gearProbeOn ? Colors.redAccent : Colors.orangeAccent,
+              busy ? null : _toggleGearProbe,
+            ),
+            if (obd.isSnapshotRunning)
+              btn('中止快照', Icons.stop, Colors.redAccent, () {
+                ObdSppService().abortSnapshot();
+                setState(() {});
+              }),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            '已知 DID ${obd.discoveredDidCount} 個　'
+            '已拍快照 ${shots.isEmpty ? '無' : shots.join(' ')}',
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 檔位觀察區。獨立於主日誌，專門收 startGearProbe() 的取樣，
+  /// 顯示、匯出、清除都在這一張卡片裡完成。
+  Widget _buildGearProbeCard() {
+    return Card(
+      child: Container(
+        height: 460,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Expanded(
+                  child: Text('檔位觀察 Gear Probe',
+                      style: TextStyle(
+                          color: Colors.amber, fontWeight: FontWeight.bold)),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.download, color: Colors.amber),
+                  tooltip: '匯出檔位日誌',
+                  onPressed: _exportGearLogs,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                  tooltip: '清除檔位日誌',
+                  onPressed: _clearGearLogs,
+                ),
+                GestureDetector(
+                  onTap: _toggleGearAutoScroll,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _gearAutoScroll
+                          ? Colors.green.withValues(alpha: 0.2)
+                          : Colors.grey.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: _gearAutoScroll ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                    child: Icon(
+                      _gearAutoScroll ? Icons.pause : Icons.play_arrow,
+                      color: _gearAutoScroll ? Colors.green : Colors.grey,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            _buildGearButtons(),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '流程：① 電門開到 READY、停在原地（油電車引擎會自己熄火，'
+                '轉速 0 是正常的），按「DID 掃描」建立已知位址清單（只需做一次）。'
+                '② 排 P 檔按「拍 P」，全程不要動檔位，等拍完。'
+                '③ 依序換 R / N / D 各拍一張，最後回 P 再拍一張 P。'
+                '④ 按「比對快照」，隨檔位變動的 byte 會標 ★ 列出來。',
+                style: TextStyle(color: Colors.white54, fontSize: 11),
+              ),
+            ),
+            const Divider(color: Colors.amber),
+            Expanded(
+              child: _gearLogs.isEmpty
+                  ? const Center(
+                      child: Text('尚無取樣。連上 OBD 後按「開始探測」。',
+                          style:
+                              TextStyle(color: Colors.white38, fontSize: 12)),
+                    )
+                  : ListView.builder(
+                      controller: _gearScrollController,
+                      itemCount: _gearLogs.length,
+                      itemBuilder: (context, index) {
+                        final String log = _gearLogs[index];
+                        // ★ 是有變動的取樣，也就是真正要看的那幾行
+                        final bool changed = log.contains('★');
+                        Color textColor = Colors.greenAccent;
+                        if (log.contains('[Diff★]')) {
+                          textColor = Colors.pinkAccent;
+                        } else if (log.contains('[Sweep✓]') ||
+                            log.contains('[Family✓]')) {
+                          textColor = Colors.lightBlueAccent;
+                        } else if (changed) {
+                          textColor = Colors.amberAccent;
+                        } else if (log.contains('[Probe]') ||
+                            log.contains('[Sweep]') ||
+                            log.contains('[Snap]') ||
+                            log.contains('[Diff]') ||
+                            log.contains('[Family]')) {
+                          textColor = Colors.cyanAccent;
+                        }
+                        return Text(
+                          log,
+                          style: TextStyle(
+                            color: textColor,
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: changed
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
