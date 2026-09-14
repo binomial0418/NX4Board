@@ -119,11 +119,12 @@ class ObdSppService with ChangeNotifier {
   /// 遠燈：H 的 bit1 + bit0（實車驗證，兩個位元同進同出）
   static const int _kBeamMaskHigh = 0x03;
 
-  /// 倒車。位於 22BC04（header 770）的 byte E，與門鎖同一個 byte。
-  /// 非倒車時實測 E = 0b00000001，但還沒取得打 R 檔時的樣本，
-  /// 所以遮罩填 0 代表「不判斷」，isReversing 維持 false。
-  /// 上車打一次 R 檔，看 [DoorLock] 那行的 E 變成什麼，填進來即可。
-  static const int _kReverseMask = 0x00;
+  /// 倒車：22BC08（header 770）的 byte F，bit3。
+  ///
+  /// 早期猜在 22BC04 的 byte E，實車證實那個 byte 從頭到尾不動，是門鎖不是檔位。
+  /// 真正的來源是 P/R/N/D 四張快照比對出來的：22BC08 的 byte F
+  /// 在 P、N、D 都是 0x00，只有 R 是 0x08，實車複驗過兩次進出 R 檔。
+  static const int _kReverseMask = 0x08;
 
   /// 位元探勘：累計看過的 G / H 位元，出現沒看過的就明顯印一行
   int _beamBitsSeenG = 0;
@@ -949,19 +950,26 @@ class ObdSppService with ChangeNotifier {
                 // 只有前兩門有訊號，任一未上鎖就視為整車未上鎖。
                 isDoorUnlocked = (e & 0x08) != 0 || (e & 0x04) != 0;
                 hasDoorLock = true;
-                // 倒車也在同一個 byte，遮罩確認前不判斷（見 _kReverseMask）
-                if (_kReverseMask != 0) {
-                  isReversing = (e & _kReverseMask) != 0;
-                  hasReversing = true;
-                }
+                // 倒車不在這個 byte（實車證實 E 從頭到尾不動），改看 22BC08
                 _log('[DoorLock] Unlocked=$isDoorUnlocked '
-                    'Reversing=$isReversing '
                     '(E=0b${e.toRadixString(2).padLeft(8, '0')}) payload=$data');
               } else {
                 isReversing = e != 0;
                 hasReversing = true;
                 _log('[Parser Result] Reversing=$isReversing '
                     '(header=$_activeHeader E=0b${e.toRadixString(2).padLeft(8, '0')})');
+              }
+            }
+          } else if (pid == 'BC08') {
+            // 倒車：byte F（data[5]）的 bit3。四張快照比對出來的唯一乾淨訊號。
+            if (data.length >= 12) {
+              final int f = int.parse(data.substring(10, 12), radix: 16);
+              final bool nowReversing = (f & _kReverseMask) != 0;
+              hasReversing = true;
+              if (nowReversing != isReversing) {
+                isReversing = nowReversing;
+                _log('[Parser Result] Reversing=$isReversing '
+                    '(F=0b${f.toRadixString(2).padLeft(8, '0')})');
               }
             }
           } else if (pid == 'BC09') {
@@ -1147,8 +1155,8 @@ class ObdSppService with ChangeNotifier {
     // 原本這裡還有一組 header 302 的倒車輪詢（22BC04），實車 log 證實
     // 11 次查詢全部 NODATA、從未運作過，而 NODATA 要等滿 ELM 的逾時，
     // 單次成本是正常指令的 3~5 倍，等於整條匯流排有六成耗在空轉，
-    // 因此整組移除。倒車狀態改由 header 770 的 22BC04 取得（已在下面一起查），
-    // 只差實車確認是哪個位元 —— 見 _kReverseMask。
+    // 因此整組移除。倒車狀態改由 header 770 的 22BC08 取得（已在下面一起查），
+    // byte F bit3，四檔快照比對確認 —— 見 _kReverseMask。
     _igmpPollTimer =
         Timer.periodic(const Duration(seconds: 1), (_) => _pollIgmp());
   }
@@ -1189,6 +1197,7 @@ class ObdSppService with ChangeNotifier {
         final Future<String> respFuture = sendCommand('22BC09');
         sendCommand('22BC03'); // 四門 + 尾門開啟
         sendCommand('22BC04'); // 門鎖（此 Header 底下 byte E 是門鎖不是倒車）
+        sendCommand('22BC08'); // 倒車（byte F bit3，四檔快照比對確認）
         sendCommand('ATSH7DF');
         final String resp = await respFuture;
 
