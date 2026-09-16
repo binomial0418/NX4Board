@@ -113,6 +113,16 @@ class AppProvider extends ChangeNotifier {
   double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
   bool get isReversing => _isDemoEnabled ? _demoIsReversing : _obdService.isReversing;
 
+  /// D 檔（22E000 byte N bit3，實車驗證）
+  bool get isDriveGear =>
+      _isDemoEnabled ? !_demoIsReversing : _obdService.isDriveGear;
+
+  /// 目前能判斷的檔位：R / D / P/N / -
+  /// P 與 N 沒有已知訊號可以區分，合併回報。
+  String get gearLabel => _isDemoEnabled
+      ? (_demoIsReversing ? 'R' : 'D')
+      : _obdService.gearLabel;
+
   // 大燈狀態（供 ESP32 儀表依日/夜切換螢幕亮度）
   bool get isLowBeamOn =>
       _isDemoEnabled ? _demoIsLowBeamOn : _obdService.isLowBeamOn;

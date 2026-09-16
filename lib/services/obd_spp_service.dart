@@ -409,6 +409,30 @@ class ObdSppService with ChangeNotifier {
   /// 遠燈：H 的 bit1 + bit0（實車驗證，兩個位元同進同出）
   static const int _kBeamMaskHigh = 0x03;
 
+  /// D 檔：22E000（header 7E0）的 byte N，bit3。
+  ///
+  /// 實車以 P / D 來回兩趟的快照比對加即時監看確認。切檔前先按標記鈕，
+  /// 三次切換全部命中，翻轉都落在標記後的 1.8 到 4.0 秒內。
+  /// 同一趟還有另外兩個位元跟著一起動，可以互相佐證：
+  ///   22E0F1 byte F  bit1（P=0x09 → D=0x0B）
+  ///   22E0F1 byte AA bit1（P=0x00 → D=0x02）
+  /// 選 22E000 是因為它的 payload 120 byte，比 22E0F1 的 350 byte 省得多。
+  ///
+  /// 注意：P 與 N 目前仍然分不出來，兩者這個位元都是 0。
+  static const int _kDriveByteIndex = 13; // byte N
+  static const int _kDriveMask = 0x08;
+
+  bool isDriveGear = false;
+  bool hasDriveGear = false;
+
+  /// 目前能判斷的檔位。P 與 N 沒有已知訊號可以區分，合併回報。
+  String get gearLabel {
+    if (!hasReversing && !hasDriveGear) return '-';
+    if (isReversing) return 'R';
+    if (isDriveGear) return 'D';
+    return 'P/N';
+  }
+
   /// 倒車：22BC08（header 770）的 byte F，bit3。
   ///
   /// 早期猜在 22BC04 的 byte E，實車證實那個 byte 從頭到尾不動，是門鎖不是檔位。
@@ -484,6 +508,9 @@ class ObdSppService with ChangeNotifier {
   Timer? _minutePollTimer;
   Timer? _longPollTimer;
   Timer? _igmpPollTimer;
+  Timer? _drivePollTimer;
+  int _lastDrivePollMs = 0;
+  bool _drivePollBusy = false;
 
   /// 上次 IGMP 輪詢的時刻，用來依車速決定要不要跳過這一拍
   int _lastIgmpPollMs = 0;
@@ -1394,10 +1421,17 @@ class ObdSppService with ChangeNotifier {
   /// 超過 Z 之後 CSV 是接 AA、AB、AC（例如 22E004 的電瓶 SOC 寫成 AD），
   /// 不是從頭再來一輪，所以這裡也照它的規則接下去，對照公式才不會錯位。
   String _gearByteLabel(int index) {
-    if (index < 26) return String.fromCharCode(0x41 + index);
-    final int rest = index - 26;
-    return 'A${String.fromCharCode(0x41 + rest % 26)}'
-        '${rest >= 26 ? '+${rest ~/ 26}' : ''}';
+    // 試算表欄位那種雙射 26 進位：A..Z, AA..AZ, BA..BZ, ...
+    // 第一版寫成「AA 之後接 AA+1」，實車日誌印出 AC+2 這種 CSV 裡不存在的
+    // 標號，對照公式會直接找不到。
+    int n = index + 1;
+    String out = '';
+    while (n > 0) {
+      final int r = (n - 1) % 26;
+      out = String.fromCharCode(0x41 + r) + out;
+      n = (n - 1) ~/ 26;
+    }
+    return out;
   }
 
   /// 列出兩筆 payload 之間變動的 byte
@@ -1587,6 +1621,9 @@ class ObdSppService with ChangeNotifier {
     _longPollTimer = null;
     _igmpPollTimer?.cancel();
     _igmpPollTimer = null;
+    _drivePollTimer?.cancel();
+    _drivePollTimer = null;
+    _drivePollBusy = false;
     _gearPollTimer?.cancel();
     _gearPollTimer = null;
     // 探測旗標歸零，重連後由 _startPollingTasks 依設定重新啟動
@@ -1832,6 +1869,8 @@ class ObdSppService with ChangeNotifier {
     hasTpms = false;
     isReversing = false;
     hasReversing = false;
+    isDriveGear = false;
+    hasDriveGear = false;
     isLowBeamOn = false;
     isHighBeamOn = false;
     hasHeadlights = false;
@@ -2095,6 +2134,20 @@ class ObdSppService with ChangeNotifier {
                     '(header=$_activeHeader E=0b${e.toRadixString(2).padLeft(8, '0')})');
               }
             }
+          } else if (pid == 'E000') {
+            // D 檔：byte N 的 bit3（見 _kDriveMask 的實車驗證紀錄）
+            const int need = (_kDriveByteIndex + 1) * 2;
+            if (data.length >= need) {
+              final int n = int.parse(
+                  data.substring(need - 2, need), radix: 16);
+              final bool nowDrive = (n & _kDriveMask) != 0;
+              hasDriveGear = true;
+              if (nowDrive != isDriveGear) {
+                isDriveGear = nowDrive;
+                _log('[Parser Result] Drive=$isDriveGear '
+                    '(N=0b${n.toRadixString(2).padLeft(8, '0')})');
+              }
+            }
           } else if (pid == 'BC08') {
             // 倒車：byte F（data[5]）的 bit3。四張快照比對出來的唯一乾淨訊號。
             if (data.length >= 12) {
@@ -2295,6 +2348,10 @@ class ObdSppService with ChangeNotifier {
     _igmpPollTimer =
         Timer.periodic(const Duration(seconds: 1), (_) => _pollIgmp());
 
+    _drivePollTimer?.cancel();
+    _drivePollTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _pollDriveGear());
+
     // 檔位探測：設定頁開著就跟著每次連線自動接續，斷線重連不用重按
     _gearPollTimer?.cancel();
     _gearPollTimer = null;
@@ -2380,6 +2437,32 @@ class ObdSppService with ChangeNotifier {
       }
     } finally {
       _igmpPollBusy = false;
+    }
+  }
+
+  /// D 檔輪詢。22E000 是 120 byte 的多幀回應，成本不低，所以用跳拍控制頻率。
+  ///
+  /// 靜止時每 1.5 秒問一次：換檔幾乎都發生在停車或慢速，這時候要跟得上。
+  /// 行進間每 6 秒一次就夠：一路都在 D，只是留著讓狀態不會卡住不更新。
+  Future<void> _pollDriveGear() async {
+    if (!_isConnected) return;
+    if (_busReserved) return;
+    if (_drivePollBusy) return;
+
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    final int minGapMs = (speed ?? 0) > 5 ? 6000 : 1500;
+    if (nowMs - _lastDrivePollMs < minGapMs) return;
+    _lastDrivePollMs = nowMs;
+
+    _drivePollBusy = true;
+    try {
+      // Header 與查詢要同步連續掛進 _commandChain，中間不能 await
+      sendCommand('ATSH7E0');
+      final Future<String> respFuture = sendCommand('22E000');
+      sendCommand('ATSH7DF');
+      await respFuture;
+    } finally {
+      _drivePollBusy = false;
     }
   }
 
