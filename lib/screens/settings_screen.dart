@@ -103,6 +103,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _gearScrollPending = false;
   static const int _gearLogCap = 2000;
 
+  // 鑰匙訊號是目前的主線目標，兩張快照的標籤固定下來，比對時才對得起來
+  static const String _kKeyIn = '鑰匙在車內';
+  static const String _kKeyOut = '鑰匙離開';
+
+  /// 「鑰匙離開」快照的倒數秒數。要夠你走出感應範圍並等車子發出警示。
+  static const int _keyOutDelay = 60;
+
   List<Map<String, String>> _bondedDevices = [];
   bool _isScanning = false;
 
@@ -645,22 +652,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _gearProbeOn = SettingsService().gearProbeEnabled);
   }
 
-  Future<void> _toggleDidSweep() async {
-    final ObdSppService obd = ObdSppService();
-    if (obd.isDidSweepRunning) {
-      obd.stopDidSweep();
-      setState(() {});
-      return;
-    }
+  Future<void> _captureSnapshot(String label, {int delay = 0}) async {
     setState(() {});
-    await obd.startDidSweep();
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  Future<void> _captureSnapshot(String gear) async {
-    setState(() {});
-    await ObdSppService().captureGearSnapshot(gear);
+    await ObdSppService().captureSnapshot(label, delaySeconds: delay);
     if (!mounted) return;
     setState(() {});
   }
@@ -1331,142 +1325,177 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 檔位觀察區的按鈕群。用 Wrap 排，窄螢幕會自己折行。
+  /// 探勘區的按鈕群。
+  ///
+  /// 主線是找出「鑰匙在不在感應範圍」的訊號，所以版面照那個流程排成三步，
+  /// 其餘工具收進「進階」那一列。先前十三顆按鈕平鋪，主線被淹沒在裡面。
   Widget _buildGearButtons() {
     final ObdSppService obd = ObdSppService();
     final bool busy = obd.isDidSweepRunning || obd.isSnapshotRunning;
     final List<String> shots = obd.gearSnapshotLabels;
 
-    Widget btn(String label, IconData icon, Color color, VoidCallback? onTap) {
+    Widget btn(String label, IconData icon, Color color, VoidCallback? onTap,
+        {bool small = false}) {
       return SizedBox(
-        height: 34,
+        height: small ? 30 : 36,
         child: ElevatedButton.icon(
           onPressed: onTap,
-          icon: Icon(icon, size: 16),
-          label: Text(label, style: const TextStyle(fontSize: 12)),
+          icon: Icon(icon, size: small ? 14 : 16),
+          label: Text(label, style: TextStyle(fontSize: small ? 11 : 12.5)),
           style: ElevatedButton.styleFrom(
             backgroundColor: color,
             foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: EdgeInsets.symmetric(horizontal: small ? 8 : 12),
             visualDensity: VisualDensity.compact,
           ),
         ),
       );
     }
 
+    Widget step(String text) => Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Text(text,
+              style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold)),
+        );
+
+    final bool hasIn = shots.contains(_kKeyIn);
+    final bool hasOut = shots.contains(_kKeyOut);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            btn(
-              obd.isDidSweepRunning ? '中止掃描' : 'DID 掃描',
-              obd.isDidSweepRunning ? Icons.stop : Icons.search,
-              obd.isDidSweepRunning
-                  ? Colors.redAccent
-                  : Colors.lightBlueAccent,
-              obd.isSnapshotRunning ? null : _toggleDidSweep,
-            ),
-            btn(
-              ObdSppService().isDidSweepRunning ? '中止探索' : '模組探索',
-              Icons.travel_explore,
-              Colors.tealAccent,
-              busy && !ObdSppService().isDidSweepRunning
-                  ? null
-                  : _toggleTcuFamilyScan,
-            ),
-            for (final String g in ['P', 'R', 'N', 'D'])
-              btn(
-                '拍 $g',
-                Icons.camera_alt,
-                shots.contains(g) ? Colors.green : Colors.amber,
+        // ── 主線：找鑰匙訊號 ────────────────────────────────────────
+        step('① 建立已知位址清單（只需做一次，約 10 分鐘）'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          btn(
+            obd.isDidSweepRunning ? '中止探索' : '探索模組',
+            obd.isDidSweepRunning ? Icons.stop : Icons.travel_explore,
+            obd.isDidSweepRunning ? Colors.redAccent : Colors.tealAccent,
+            obd.isSnapshotRunning ? null : _toggleTcuFamilyScan,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('已知 ${obd.discoveredDidCount} 個 DID',
+                style: const TextStyle(color: Colors.white54, fontSize: 11)),
+          ),
+        ]),
+
+        step('② 拍兩張快照：鑰匙在車內 / 鑰匙離開感應範圍'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          btn(
+            hasIn ? '✓ 鑰匙在車內' : '拍：鑰匙在車內',
+            Icons.vpn_key,
+            hasIn ? Colors.green : Colors.amber,
+            busy ? null : () => _captureSnapshot(_kKeyIn),
+          ),
+          btn(
+            hasOut ? '✓ 鑰匙離開' : '拍：鑰匙離開（延遲 $_keyOutDelay 秒）',
+            Icons.key_off,
+            hasOut ? Colors.green : Colors.amber,
+            busy
+                ? null
+                : () => _captureSnapshot(_kKeyOut, delay: _keyOutDelay),
+          ),
+          if (obd.isSnapshotRunning)
+            btn('中止', Icons.stop, Colors.redAccent, () {
+              ObdSppService().abortSnapshot();
+              setState(() {});
+            }),
+        ]),
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text(
+            '手機留在車上。按下「鑰匙離開」後倒數開始，這段時間帶著鑰匙走遠，'
+            '等車子發出無鑰匙警示，快照會在你人不在車邊時自己跑完。',
+            style: TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        ),
+
+        step('③ 比對'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          btn(
+            '比對快照',
+            Icons.compare_arrows,
+            Colors.pinkAccent,
+            busy
+                ? null
+                : () {
+                    ObdSppService().analyzeGearSnapshots();
+                    setState(() {});
+                  },
+          ),
+          btn(
+            '清除快照${shots.isEmpty ? '' : '（${shots.length}）'}',
+            Icons.layers_clear,
+            Colors.grey,
+            busy
+                ? null
+                : () {
+                    ObdSppService().clearGearSnapshots();
+                    setState(() {});
+                  },
+          ),
+        ]),
+
+        // ── 進階 ────────────────────────────────────────────────────
+        step('進階'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          btn(
+            _gearProbeOn ? '停止監看' : '即時監看',
+            _gearProbeOn ? Icons.stop : Icons.play_arrow,
+            _gearProbeOn ? Colors.redAccent : Colors.orangeAccent,
+            busy ? null : _toggleGearProbe,
+            small: true,
+          ),
+          btn(
+            obd.isGearFocusMode ? '專注 ON' : '專注 OFF',
+            obd.isGearFocusMode ? Icons.bolt : Icons.bolt_outlined,
+            obd.isGearFocusMode ? Colors.yellowAccent : Colors.grey,
+            busy
+                ? null
+                : () {
+                    ObdSppService().gearFocusMode = !obd.isGearFocusMode;
+                    setState(() {});
+                  },
+            small: true,
+          ),
+          for (final String g in ['P', 'R', 'N', 'D'])
+            btn('拍 $g', Icons.camera_alt,
+                shots.contains(g) ? Colors.green : Colors.white24,
                 busy ? null : () => _captureSnapshot(g),
-              ),
-            btn(
-              '比對快照',
-              Icons.compare_arrows,
-              Colors.pinkAccent,
-              busy
-                  ? null
-                  : () {
-                      ObdSppService().analyzeGearSnapshots();
-                      setState(() {});
-                    },
-            ),
-            btn(
-              '清除快照',
-              Icons.layers_clear,
-              Colors.grey,
-              busy
-                  ? null
-                  : () {
-                      ObdSppService().clearGearSnapshots();
-                      setState(() {});
-                    },
-            ),
-            btn(
-              '標準 PID 掃描',
-              Icons.fact_check,
-              Colors.lightGreenAccent,
+                small: true),
+          btn('標準 PID', Icons.fact_check, Colors.white24,
               busy
                   ? null
                   : () async {
                       await ObdSppService().scanStandardPids();
                       if (mounted) setState(() {});
                     },
-            ),
-            btn(
-              '車身監看組',
-              Icons.sensor_door,
-              Colors.tealAccent,
+              small: true),
+          btn('車身監看組', Icons.sensor_door, Colors.white24,
               busy
                   ? null
                   : () {
                       ObdSppService().loadBodyWatchSet();
                       setState(() {});
                     },
-            ),
-            btn(
-              'D 檔驗證組',
-              Icons.playlist_add_check,
-              Colors.purpleAccent,
+              small: true),
+          btn('D 檔驗證組', Icons.playlist_add_check, Colors.white24,
               busy
                   ? null
                   : () {
                       ObdSppService().loadDriveVerifySet();
                       setState(() {});
                     },
-            ),
-            btn(
-              obd.isGearFocusMode ? '專注監看 ON' : '專注監看 OFF',
-              obd.isGearFocusMode ? Icons.bolt : Icons.bolt_outlined,
-              obd.isGearFocusMode ? Colors.yellowAccent : Colors.grey,
-              busy
-                  ? null
-                  : () {
-                      ObdSppService().gearFocusMode = !obd.isGearFocusMode;
-                      setState(() {});
-                    },
-            ),
-            btn(
-              _gearProbeOn ? '停止監看' : '開始監看',
-              _gearProbeOn ? Icons.stop : Icons.play_arrow,
-              _gearProbeOn ? Colors.redAccent : Colors.orangeAccent,
-              busy ? null : _toggleGearProbe,
-            ),
-            if (obd.isSnapshotRunning)
-              btn('中止快照', Icons.stop, Colors.redAccent, () {
-                ObdSppService().abortSnapshot();
-                setState(() {});
-              }),
-          ],
-        ),
-        // 切檔標記自成一列、按鈕放大：這是要在車上邊操作排檔邊按的，
-        // 跟上面那排設定用的小按鈕混在一起會按錯。
+              small: true),
+        ]),
+
+        // ── 事件標記：要在車上邊操作邊按，所以放大並自成一列 ──────────
         Padding(
-          padding: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.only(top: 10),
           child: Row(
             children: [
               const Text('動作前先按 ▼',
@@ -1477,7 +1506,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: SizedBox(
-                      height: 44,
+                      height: 40,
                       child: ElevatedButton(
                         onPressed: () => g == '事件'
                             ? ObdSppService().logEventMark('事件')
@@ -1490,22 +1519,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         child: Text(g,
                             style: TextStyle(
-                                fontSize: g.length > 1 ? 13 : 18,
+                                fontSize: g.length > 1 ? 12 : 17,
                                 fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ),
                 ),
             ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            '已知 DID ${obd.discoveredDidCount} 個　'
-            '已拍快照 ${shots.isEmpty ? '無' : shots.join(' ')}　'
-            '監看 ${obd.watchTargetCount} 個',
-            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ),
       ],
@@ -1517,7 +1537,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildGearProbeCard() {
     return Card(
       child: Container(
-        height: 520,
+        height: 620,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: Colors.black,
@@ -1571,16 +1591,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                '驗證 D 檔：電門 READY、停在原地拉手煞車。按「D 檔驗證組」載入'
-                '四個候選，開「專注監看」，再按「開始監看」。之後每次切檔"前"'
-                '先按下方對應的大按鈕做標記，P → D → P → D 來回兩趟，'
-                '每檔停 20 秒以上。標記行之後跟著翻的 byte 就是答案。\n'
-                '從頭找新訊號：先「DID 掃描」建清單，再拍 P / R / N / D 四張'
-                '快照加回程一張 P，最後「比對快照」。\n'
-                '找鑰匙靠近：先「模組探索」點名車身側位址（7A5 智慧鑰匙排第一）。'
-                '再按「車身監看組」開專注監看，手機留車上充電，夜間鎖車走遠再走回。\n'
-                '找增壓訊號：按「標準 PID 掃描」，六道指令就知道這台車支不支援'
-                '0170 專用增壓壓力，支援的話就不用再自己算。',
+                '目標：找出「鑰匙在不在感應範圍」的訊號。車輛維持 READY、'
+                '手機留車上充電，照下面三步做。已確認不在車身模組 770 那九個'
+                '位址裡，所以這次要比對全部已知 DID。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),

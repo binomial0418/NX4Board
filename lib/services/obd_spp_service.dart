@@ -80,7 +80,7 @@ class _GearCandidate {
 class GearSnapshot {
   GearSnapshot(this.gear, this.takenAt, this.payloads, this.payloadsB);
 
-  /// 檔位標籤：P / R / N / D
+  /// 這張快照代表的狀態，例如「鑰匙在車內」「鑰匙離開」或 P / R / N / D
   final String gear;
   final DateTime takenAt;
 
@@ -966,12 +966,17 @@ class ObdSppService with ChangeNotifier {
   ///
   /// 期間會停掉所有例行輪詢，整條匯流排都給快照用，一個 DID 約 0.35 秒。
   /// 這是刻意的取捨：拍照的幾十秒內檔位要停在原地不動。
-  Future<void> captureGearSnapshot(String gear) async {
+  /// 拍一張快照。
+  ///
+  /// delaySeconds 是為了鑰匙測試而加的：手機要留在車上，人得帶著鑰匙走遠，
+  /// 沒有人能在正確的時間點按下按鈕。設好延遲再按，就有時間離開車輛，
+  /// 等車子真的偵測不到鑰匙時快照才開始跑。
+  Future<void> captureSnapshot(String label, {int delaySeconds = 0}) async {
     if (_scanBusy) return;
     _ensureDiscoveredLoaded();
 
     if (_discoveredDids.isEmpty) {
-      _logGear('[Snap] 還沒有任何已知 DID，請先按「DID 掃描」');
+      _logGear('[Snap] 還沒有任何已知 DID，請先按「探索模組」');
       return;
     }
     if (!_isConnected) {
@@ -984,8 +989,28 @@ class ObdSppService with ChangeNotifier {
     _noteWatchSuspended('拍快照');
 
     final int total = _discoveredDids.length;
-    _logGear('[Snap] ══ 拍攝 $gear 檔快照（$total 個 DID）══');
-    _logGear('[Snap] 拍攝期間請維持在 $gear 檔不要動，'
+
+    if (delaySeconds > 0) {
+      _logGear('[Snap] ══ $label：$delaySeconds 秒後開始拍攝 ══');
+      _logGear('[Snap] 現在去做該做的動作。時間到才開始問，'
+          '整段拍攝約 ${(total * 0.7).round()} 秒，期間狀態要維持住。');
+      int left = delaySeconds;
+      while (left > 0 && _snapshotRunning && _isConnected) {
+        final int step = left >= 10 ? 10 : left;
+        await Future.delayed(Duration(seconds: step));
+        left -= step;
+        if (left > 0) _logGear('[Snap] 還有 $left 秒');
+      }
+      if (!_snapshotRunning || !_isConnected) {
+        _snapshotRunning = false;
+        notifyListeners();
+        _logGear('[Snap] 倒數中被中止，這張不算');
+        return;
+      }
+    }
+
+    _logGear('[Snap] ══ 開始拍攝「$label」（$total 個 DID）══');
+    _logGear('[Snap] 拍攝期間請維持現狀不要動，'
         '約需 ${(total * 0.7).round()} 秒（每個 DID 連讀兩次以剔除雜訊）');
 
     final Map<String, String> payloads = {};
@@ -1011,7 +1036,7 @@ class ObdSppService with ChangeNotifier {
 
         done++;
         if (done % 40 == 0) {
-          _logGear('[Snap] $gear 檔進度 $done/$total');
+          _logGear('[Snap] 「$label」進度 $done/$total');
         }
 
         final String sig = '62${cmd.substring(2)}';
@@ -1029,8 +1054,8 @@ class ObdSppService with ChangeNotifier {
 
     _noteWatchResumed();
     _gearSnapshots
-        .add(GearSnapshot(gear, DateTime.now(), payloads, payloadsB));
-    _logGear('[Snap] $gear 檔快照完成，取得 ${payloads.length}/$total 個 DID。'
+        .add(GearSnapshot(label, DateTime.now(), payloads, payloadsB));
+    _logGear('[Snap] 「$label」完成，取得 ${payloads.length}/$total 個 DID。'
         '目前已有：${gearSnapshotLabels.join(', ')}');
     notifyListeners();
   }
@@ -1309,9 +1334,13 @@ class ObdSppService with ChangeNotifier {
     '7E0', // 引擎 ECM（已整族掃過）
   ];
 
-  /// 已經整族掃完的模組。點名照樣問（順便確認點名機制是好的），
-  /// 但不再花三分鐘重掃家族。7E1 不在此列：它只掃過識別區 F1。
-  static const Set<String> _familyScannedHeaders = {'770', '7C6', '7E0'};
+  /// 已知模組各自使用的 DID 家族（由 OBD.csv 的 78 條 Mode 22 反推）。
+  /// 這幾顆不用花三分鐘做家族探索，直接掃那一族就好。
+  static const Map<String, String> _knownFamilies = {
+    '770': 'BC', // 車身 IGMP
+    '7C6': 'B0', // 儀表 CLU
+    '7E0': 'E0', // 引擎 ECM
+  };
 
   /// 識別區 DID。任何講 UDS 的模組幾乎都會回其中一個。
   static const List<String> _livenessDids = ['22F190', '22F180'];
@@ -1352,27 +1381,30 @@ class ObdSppService with ChangeNotifier {
         return;
       }
 
-      final List<String> todo = alive
-          .where((String h) => !_familyScannedHeaders.contains(h))
-          .toList();
-
       _logGear('[Family] 活著的位址：${alive.join(', ')}');
-      if (todo.length != alive.length) {
-        _logGear('[Family] 其中 '
-            '${alive.where(_familyScannedHeaders.contains).join(', ')} '
-            '的家族先前已掃完，跳過');
-      }
-      if (todo.isEmpty) {
-        _logGear('[Family] 沒有需要探索的新模組');
-        return;
-      }
 
-      // ── 第二步：對還沒掃過的位址逐一做家族探索 ──────────────────────
-      _logGear('[Family] 待探索 ${todo.length} 個，每個約 3 分鐘。'
-          '找到目標就可以按「中止掃描」，前面掃到的都已存檔。');
+      // ── 第二步：逐一取得每顆模組的 DID ──────────────────────────────
+      // 已經有資料的跳過；知道家族的直接掃那一族；其餘才做 256 格的家族探索。
+      _logGear('[Family] 接著取得各模組的 DID。'
+          '找到目標就可以按「中止探索」，前面掃到的都已存檔。');
 
-      for (final String header in todo) {
+      for (final String header in alive) {
         if (!_sweepRunning || !_isConnected) break;
+
+        final bool haveData =
+            _discoveredDids.any((String d) => d.startsWith('$header|'));
+        final String? known = _knownFamilies[header];
+
+        if (haveData && known != null) {
+          _logGear('[Family] $header 的 22$known 家族先前已掃完，跳過');
+          continue;
+        }
+        if (known != null) {
+          _logGear('[Family] $header 已知家族是 22$known，直接掃這一族');
+          await _sweepOneRange(
+              DidSweepRange(header, known, '$header 家族 22$known'));
+          continue;
+        }
         await _scanFamiliesOf(header);
       }
     } finally {
