@@ -197,10 +197,12 @@ class ObdSppService with ChangeNotifier {
           GearProbeTarget('770', cmd, '62${cmd.substring(2)}', '車身 IGMP'));
     }
     _logGear('[Probe] 已載入車身全家族監看（${_gearTargets.length} 個 DID）');
-    _logGear('[Probe] 已知用途：BC03 車門、BC04 門鎖、BC08 倒車、BC09 大燈。'
-        '其餘五個未解讀，鑰匙靠近的訊號有機會在裡面。');
-    _logGear('[Probe] 建議開專注監看，並在夜間或地下室測試 —— '
-        '迎賓照明多半有環境光閘門，白天不會亮。');
+    _logGear('[Probe] 已解讀：BC03 車門、BC04 門鎖、BC08 倒車(bit3)與'
+        '疑似室內燈(bit1)、BC09 大燈、BC09 bit2 與 BC10 bit5 疑似防盜設防。');
+    _logGear('[Probe] 首要嫌疑：BC06 的 byte E。實車一段 15 分鐘的盲區前後'
+        '從 0x2D 變成 0x00，是唯一跨過盲區改變的位元組，但無法確定何時變的。');
+    _logGear('[Probe] 做實車動作前先確認沒有在跑掃描或快照，那期間監看是停的。'
+        '每個動作前先按「事件」標記鈕。');
     notifyListeners();
   }
 
@@ -611,6 +613,28 @@ class ObdSppService with ChangeNotifier {
   /// 留著只是每輪白花三次未命中。清單由快照比對的結果填入。
   final List<GearProbeTarget> _gearTargets = [];
 
+  /// 掃描或拍快照會把整條匯流排包下來，期間 _pollGear 直接跳過，
+  /// 監看等於完全停擺。實車就吃過這個虧：一邊跑 15 分鐘的模組探索，
+  /// 一邊在車外做鑰匙測試，結果那一分鐘一筆取樣都沒有。
+  /// 所以只要監看是開著的，開始與結束都要明講盲區這件事。
+  int _watchBlindStartMs = 0;
+
+  void _noteWatchSuspended(String what) {
+    if (!_gearProbeRunning) return;
+    _watchBlindStartMs = DateTime.now().millisecondsSinceEpoch;
+    _logGear('[Probe] ⚠ $what 期間監看完全停擺，這段時間車上發生的事一律抓不到。'
+        '要做實車動作請先等它跑完。');
+  }
+
+  void _noteWatchResumed() {
+    if (!_gearProbeRunning || _watchBlindStartMs == 0) return;
+    final int secs =
+        (DateTime.now().millisecondsSinceEpoch - _watchBlindStartMs) ~/ 1000;
+    _watchBlindStartMs = 0;
+    _logGear('[Probe] ⚠ 監看恢復，剛才有 $secs 秒的盲區。'
+        '盲區前後如果有 byte 不一樣，只能知道它變過，無法知道何時變的。');
+  }
+
   // ── DID 掃描 ─────────────────────────────────────────────────────────────
   // 每個模組只用固定的一個 DID 家族（下表由 OBD.csv 的 78 條 Mode 22 反推），
   // 所以掃描就是把該家族的 00~FF 逐一問過去，記下哪些有回應。
@@ -951,6 +975,7 @@ class ObdSppService with ChangeNotifier {
 
     _snapshotRunning = true;
     notifyListeners();
+    _noteWatchSuspended('拍快照');
 
     final int total = _discoveredDids.length;
     _logGear('[Snap] ══ 拍攝 $gear 檔快照（$total 個 DID）══');
@@ -996,6 +1021,7 @@ class ObdSppService with ChangeNotifier {
       notifyListeners();
     }
 
+    _noteWatchResumed();
     _gearSnapshots
         .add(GearSnapshot(gear, DateTime.now(), payloads, payloadsB));
     _logGear('[Snap] $gear 檔快照完成，取得 ${payloads.length}/$total 個 DID。'
@@ -1208,6 +1234,7 @@ class ObdSppService with ChangeNotifier {
     _sweepRunning = true;
     _sweepFound = 0;
     notifyListeners();
+    _noteWatchSuspended('DID 掃描');
 
     _logGear('[Sweep] ══ DID 掃描開始 ══');
     _logGear('[Sweep] ${_sweepRanges.length} 個模組 × 256 個 DID。'
@@ -1240,6 +1267,7 @@ class ObdSppService with ChangeNotifier {
         _logGear('[Sweep] 已知 DID 共 ${_discoveredDids.length} 個，已存檔，'
             '重開 App 不用重掃。接著用「拍 P / R / N / D」四張快照比對。');
       }
+      _noteWatchResumed();
     }
   }
 
@@ -1294,6 +1322,7 @@ class ObdSppService with ChangeNotifier {
     _sweepFound = 0;
     notifyListeners();
 
+    _noteWatchSuspended('模組探索');
     _logGear('[Family] ══ 模組探索開始 ══');
     _logGear('[Family] 先點名 ${_moduleHeaders.length} 個位址（約 20 秒），'
         '活著且家族還沒掃過的才進第二步');
@@ -1350,6 +1379,7 @@ class ObdSppService with ChangeNotifier {
       }
       _logGear('[Family] ══ 探索結束，本輪新增 $_sweepFound 個 DID，'
           '已知 DID 共 ${_discoveredDids.length} 個 ══');
+      _noteWatchResumed();
     }
   }
 
