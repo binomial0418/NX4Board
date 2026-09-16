@@ -272,7 +272,22 @@ class ObdSppService with ChangeNotifier {
           break;
         }
 
-        final int bits = int.parse(hex.substring(idx + 4, idx + 12), radix: 16);
+        // 這台是油電車，0100 這種廣播查詢會有好幾顆模組各自回自己的支援表。
+        // 第一版只取第一個 41xx 就收工，等於只看到最先回應的那一顆，
+        // 會漏掉其他模組支援的 PID。要把所有回應的點陣圖全部聯集起來。
+        final List<int> bitmaps = [];
+        int from = idx;
+        while (from != -1 && from + 12 <= hex.length) {
+          bitmaps.add(
+              int.parse(hex.substring(from + 4, from + 12), radix: 16));
+          from = hex.indexOf('41$pid', from + 4);
+        }
+
+        int bits = 0;
+        for (final int b in bitmaps) {
+          bits |= b;
+        }
+
         int count = 0;
         for (int i = 0; i < 32; i++) {
           // 最高位元對應該區間第一個 PID
@@ -281,7 +296,14 @@ class ObdSppService with ChangeNotifier {
             count++;
           }
         }
-        _logGear('[PID] 01$pid → 本區間支援 $count 個');
+        _logGear('[PID] 01$pid → ${bitmaps.length} 顆模組回應，'
+            '聯集後本區間支援 $count 個');
+        if (bitmaps.length > 1) {
+          for (int i = 0; i < bitmaps.length; i++) {
+            _logGear('[PID]   模組 ${i + 1} 點陣圖 '
+                '0x${bitmaps[i].toRadixString(16).padLeft(8, '0').toUpperCase()}');
+          }
+        }
 
         if ((bits & 0x01) == 0) break; // 最低位元沒亮代表沒有下一格
       }
@@ -309,6 +331,28 @@ class ObdSppService with ChangeNotifier {
       }
     }
 
+    // App 目前實際在查的 PID 跟支援表對一次。第一版沒對，結果 010B 與 0133
+    // 可能根本不被支援卻一直在查，增壓的數字也就一直是錯的。
+    const Map<int, String> inUse = {
+      0x0B: 'MAP，目前拿來算增壓',
+      0x0C: '轉速',
+      0x0D: '車速',
+      0x33: '大氣壓，目前拿來當增壓基準',
+      0x5B: '油電電量',
+      0x67: '水溫',
+    };
+    for (final MapEntry<int, String> e in inUse.entries) {
+      final String p = e.key.toRadixString(16).padLeft(2, '0').toUpperCase();
+      if (!supported.contains(e.key)) {
+        _logGear('[PID✗] 01$p 不在支援表裡，但 App 一直在查它（${e.value}）');
+      }
+    }
+
+    // 把合併查詢的原始回應抓一筆，直接看 ECU 到底回了哪幾個 PID
+    await _dumpPid('010B0C0D');
+    await _dumpPid('010B');
+    await _dumpPid('0133');
+
     if (supported.contains(0x70)) {
       _logGear('[PID] 支援 0170，直接抓一筆原始回應來看');
       await _dumpPid('0170');
@@ -319,20 +363,20 @@ class ObdSppService with ChangeNotifier {
     if (supported.contains(0x87)) await _dumpPid('0187');
   }
 
+  /// 抓一筆原始回應寫進日誌。合併查詢（例如 010B0C0D）不能用整個指令當簽章，
+  /// 所以只對齊到 41，後面回了哪些 PID 原樣印出來自己看。
   Future<void> _dumpPid(String cmd) async {
     _sweepCurrentCmd = cmd;
     final String resp = await sendCommand(cmd, timeoutMs: 2000);
     _sweepCurrentCmd = null;
     final String hex =
         resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
-    final String sig = '41${cmd.substring(2)}';
-    final int idx = hex.indexOf(sig);
+    final int idx = hex.indexOf('41');
     if (idx == -1) {
       _logGear('[PID] $cmd 無有效回應 raw=$resp');
       return;
     }
-    final String payload = hex.substring(idx + sig.length);
-    _logGear('[PID★] $cmd payload=$payload  ${_gearContext()}');
+    _logGear('[PID★] $cmd 回應=${hex.substring(idx)}  ${_gearContext()}');
   }
 
   /// 通用事件標記。不只切檔，任何「我現在要做某個動作」都能先按一下。
@@ -380,6 +424,9 @@ class ObdSppService with ChangeNotifier {
   int? fuelLevel;
   double? turbo; // 渦輪壓力 (Bar)
   double currentBaroKpa = 101.0;
+
+  /// 已經講過「本車不回報 MAP」了，避免每 300 毫秒洗一行
+  bool _mapMissingLogged = false;
   double turboBoostBar = 0.0;
   double? referenceGpsAltitude;
   int serviceDistanceRemaining = 0;
@@ -1976,24 +2023,48 @@ class ObdSppService with ChangeNotifier {
 
         // ─── 合併指令 010B0C0D：僅解析 MAP/RPM/Speed ───────────
         if (lastCmd == '010B0C0D') {
+          // 依 PID 的固定資料長度逐段走訪，不要用 indexOf 找字串。
+          //
+          // 舊寫法是 sanitized.indexOf('0B')，等於在整串十六進位裡找那兩個
+          // 字元。ECU 若不支援 0B 就不會回它，但轉速資料本身可能長得像：
+          // 704~767 rpm 的高位元組正好是 0x0B，回應變成 410C0B54，
+          // indexOf 就會把轉速的低位元組當成 MAP 讀走，算出憑空的增壓值。
+          // 實測這個區間有 64 個轉速值會中招。
+          const Map<String, int> pidLen = {'0B': 1, '0C': 2, '0D': 1};
+          final Map<String, String> vals = {};
+          int walk = idx41 + 2;
+          while (walk + 2 <= sanitized.length) {
+            final String pid = sanitized.substring(walk, walk + 2);
+            final int? len = pidLen[pid];
+            if (len == null) break; // 不認識就停，不再往下猜
+            if (walk + 2 + len * 2 > sanitized.length) break;
+            vals[pid] = sanitized.substring(walk + 2, walk + 2 + len * 2);
+            walk += 2 + len * 2;
+          }
+
           // MAP (0B)
-          final int idx0B = sanitized.indexOf('0B', idx41);
-          if (idx0B != -1 && sanitized.length >= idx0B + 4) {
+          final String? hexMap = vals['0B'];
+          if (hexMap != null) {
             try {
-              final String hexMap = sanitized.substring(idx0B + 2, idx0B + 4);
               final int mapKpa = int.parse(hexMap, radix: 16);
               turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
               turbo = double.parse(turboBoostBar.toStringAsFixed(2));
               hasTurbo = true;
+              _mapMissingLogged = false;
               _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
             } catch (_) {}
+          } else if (!_mapMissingLogged) {
+            // 只講一次，否則每 300 毫秒洗一行
+            _mapMissingLogged = true;
+            hasTurbo = false;
+            _log('[Parser Result] 回應裡沒有 0B，本車不回報 MAP，'
+                '增壓無法用歧管壓力推算 raw=$sanitized');
           }
 
           // RPM (0C)
-          final int idx0C = sanitized.indexOf('0C', idx41);
-          if (idx0C != -1 && sanitized.length >= idx0C + 6) {
+          final String? hexRpm = vals['0C'];
+          if (hexRpm != null) {
             try {
-              final String hexRpm = sanitized.substring(idx0C + 2, idx0C + 6);
               final int a = int.parse(hexRpm.substring(0, 2), radix: 16);
               final int b = int.parse(hexRpm.substring(2, 4), radix: 16);
               final int valRpm = ((a * 256) + b) ~/ 4;
@@ -2006,11 +2077,10 @@ class ObdSppService with ChangeNotifier {
           }
 
           // Speed (0D)
-          final int idx0D = sanitized.indexOf('0D', idx41);
-          if (idx0D != -1 && sanitized.length >= idx0D + 4) {
+          final int idx0D = vals.containsKey('0D') ? 0 : -1;
+          if (idx0D != -1) {
             try {
-              final String hexSpd = sanitized.substring(idx0D + 2, idx0D + 4);
-              final int valSpeed = int.parse(hexSpd, radix: 16);
+              final int valSpeed = int.parse(vals['0D']!, radix: 16);
               if (valSpeed <= 250) {
                 bool hasRecentGps = _lastGpsSpeedTime != null && 
                     DateTime.now().difference(_lastGpsSpeedTime!).inSeconds < 5;
