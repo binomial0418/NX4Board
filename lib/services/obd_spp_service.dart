@@ -480,6 +480,15 @@ class ObdSppService with ChangeNotifier {
     return 'P/N';
   }
 
+  // ── 車身 IGMP 已解出的位元（實車以解鎖並開駕駛門的事件比對）────────────
+  // 08:12:35 解鎖並開門那一刻，五個位元組同時變動：
+  //   22BC03 byte E bit5 亮  駕駛座車門開（與既有的車門位元表相符）
+  //   22BC04 byte E bit3 亮  解鎖（與既有的門鎖位元表相符）
+  //   22BC08 byte F bit1 亮  跟著車門開關同進同出，關門即滅，疑似室內燈
+  //   22BC09 byte F bit2 滅  上鎖時亮、解鎖後不再回來，疑似防盜設防
+  //   22BC10 byte F bit5 滅  同上
+  // 後三個都還沒單獨驗證，先記在這裡免得下次重查。
+
   /// 倒車：22BC08（header 770）的 byte F，bit3。
   ///
   /// 早期猜在 22BC04 的 byte E，實車證實那個 byte 從頭到尾不動，是門鎖不是檔位。
@@ -1242,24 +1251,25 @@ class ObdSppService with ChangeNotifier {
   /// 活著的才花三分鐘做家族探索。點名很便宜，兩道指令就知道在不在。
   /// 點名用的模組位址，依「這一輪想找什麼」由重要到次要排列，
   /// 這樣看到目標活著就可以中止，不用等整輪跑完。
+  /// 括號裡是實車點名與家族探索之後確認的身分。
   static const List<String> _moduleHeaders = [
-    '7A5', // 智慧鑰匙 SMK —— 鑰匙靠近偵測的旗標應該在這顆手上
-    '7D4', // OBD.csv 有列但沒標用途，車身側候選
+    '7A5', // 智慧鑰匙 SMK —— 鑰匙偵測旗標的最佳候選，但第一輪誤判為不存在
+    '7D4',
     '7D2',
-    '7D0',
-    '7B3', // 空調，部分車款是油電控制單元
+    '7D0', // 前方雷達 FCA（22FD10 的字串自報 LogicRadar / FCA）
+    '7B3', // 空調（2201xx 是溫度與風門資料）
     '7C4',
     '7A1',
     '7B1',
     '780',
     '7D6',
-    '7E1', // 變速箱 TCU（已確認活著，但資料家族還沒找到）
-    '7E2', // 油電控制單元常見位址
-    '7E3',
-    '7E4',
+    '7E1', // 變速箱 TCU（活著，但資料家族只找到識別區 F1）
+    '7E2', // 活著，同樣只有 F1
+    '7E3', // 油電相關（22E0xx 有 21 個，字串自報 GNXDH22GAMS0）
+    '7E4', // 電池管理 BMS（220102/220103 各 32 個 byte，像是電芯電壓）
     '7E5',
-    '7D1', // ABS（OBD.csv 已知）
-    '7A0', // 胎壓（OBD.csv 已知）
+    '7D1',
+    '7A0', // 胎壓
     '770', // 車身 IGMP（已整族掃過）
     '7C6', // 儀表 CLU（已整族掃過）
     '7E0', // 引擎 ECM（已整族掃過）
@@ -1293,18 +1303,12 @@ class ObdSppService with ChangeNotifier {
       final List<String> alive = [];
       for (final String header in _moduleHeaders) {
         if (!_sweepRunning || !_isConnected) break;
-        bool responded = false;
-        for (final String did in _livenessDids) {
-          if (await _probeOneDid(header, did)) {
-            responded = true;
-            break;
-          }
-        }
-        if (responded) {
-          alive.add(header);
-          _logGear('[Family✓] $header 有回應，是活的 UDS 模組');
-        } else {
+        final String verdict = await _probeLiveness(header);
+        if (verdict.isEmpty) {
           _logGear('[Family] $header 沒回應，跳過');
+        } else {
+          alive.add(header);
+          _logGear('[Family✓] $header 活著（$verdict）');
         }
       }
 
@@ -1387,6 +1391,46 @@ class ObdSppService with ChangeNotifier {
       if (fam == 'F1') continue;
       await _sweepOneRange(DidSweepRange(header, fam, '$header 家族 22$fam'));
     }
+  }
+
+  /// 點名一個位址。回傳空字串代表不在，否則回傳判定依據。
+  ///
+  /// 第一版只認「回得出 62F190 這種正回應」，結果實車把 770 判成不存在 ——
+  /// 但整份日誌裡 770 的 22BC03 到 22BC10 全部答得好好的。原因是那顆模組
+  /// 不支援識別區那幾個 DID，於是回了負回應 7F 22 31（要求超出範圍），
+  /// 而負回應被當成沒回應丟掉了。
+  ///
+  /// 負回應其實是最有力的存在證明：模組聽到了、也答了，只是不支援這個 DID。
+  /// 所以 7F 22 要跟正回應一樣算數。7A5 智慧鑰匙先前判定不存在，很可能就是
+  /// 同一個誤判。
+  Future<String> _probeLiveness(String header) async {
+    for (final String did in _livenessDids) {
+      if (!_sweepRunning || !_isConnected) return '';
+
+      _sweepCurrentCmd = did;
+      sendCommand('ATSH$header');
+      final Future<String> respFuture = sendCommand(did, timeoutMs: 1500);
+      sendCommand('ATSH7DF');
+      final String resp = await respFuture;
+
+      final String hex =
+          resp.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+
+      if (hex.contains('62${did.substring(2)}')) {
+        _sweepFound++;
+        _recordDiscovered(header, did);
+        return '$did 正回應';
+      }
+      // 7F 22 xx：負回應。最後那個 byte 是原因碼，31 = 要求超出範圍。
+      final int nrc = hex.indexOf('7F22');
+      if (nrc != -1) {
+        final String code = hex.length >= nrc + 6
+            ? hex.substring(nrc + 4, nrc + 6)
+            : '??';
+        return '$did 負回應 7F22$code，模組存在但不支援這個 DID';
+      }
+    }
+    return '';
   }
 
   /// 問一個 DID，有回應就記進已知清單並回傳 true
