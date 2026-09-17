@@ -103,12 +103,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _gearScrollPending = false;
   static const int _gearLogCap = 2000;
 
-  // 鑰匙訊號是目前的主線目標，兩張快照的標籤固定下來，比對時才對得起來
-  static const String _kKeyIn = '鑰匙在車內';
-  static const String _kKeyOut = '鑰匙離開';
+  // 鑰匙訊號是目前的主線目標。標籤刻意都帶「門開」：第一次實測兩張快照
+  // 一張門關一張門開，結果 770 那五個開門與解鎖的位元全部冒出來當候選，
+  // 把真正的訊號淹掉。兩邊都維持門開著，那些位元就會互相抵銷。
+  static const String _kKeyIn = '門開_鑰匙在';
+  static const String _kKeyOut = '門開_鑰匙離';
 
   /// 「鑰匙離開」快照的倒數秒數。要夠你走出感應範圍並等車子發出警示。
   static const int _keyOutDelay = 60;
+
+  /// 同一個狀態拍第幾張。同標籤拍兩張，比對才能濾掉會自己慢慢飄的 byte；
+  /// 只拍一張的那次實測出 247 個候選，等於沒有結論。
+  int _shotCount(String label) =>
+      ObdSppService().gearSnapshotLabels.where((String e) => e == label).length;
 
   List<Map<String, String>> _bondedDevices = [];
   bool _isScanning = false;
@@ -1361,8 +1368,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontWeight: FontWeight.bold)),
         );
 
-    final bool hasIn = shots.contains(_kKeyIn);
-    final bool hasOut = shots.contains(_kKeyOut);
+    final int nIn = _shotCount(_kKeyIn);
+    final int nOut = _shotCount(_kKeyOut);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1383,18 +1390,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ]),
 
-        step('② 拍兩張快照：鑰匙在車內 / 鑰匙離開感應範圍'),
+        step('② 駕駛門全程開著，兩種狀態各拍兩張'),
         Wrap(spacing: 6, runSpacing: 6, children: [
           btn(
-            hasIn ? '✓ 鑰匙在車內' : '拍：鑰匙在車內',
+            '鑰匙在 ($nIn/2)',
             Icons.vpn_key,
-            hasIn ? Colors.green : Colors.amber,
+            nIn >= 2 ? Colors.green : Colors.amber,
             busy ? null : () => _captureSnapshot(_kKeyIn),
           ),
           btn(
-            hasOut ? '✓ 鑰匙離開' : '拍：鑰匙離開（延遲 $_keyOutDelay 秒）',
+            '鑰匙離 ($nOut/2)  延遲$_keyOutDelay秒',
             Icons.key_off,
-            hasOut ? Colors.green : Colors.amber,
+            nOut >= 2 ? Colors.green : Colors.amber,
             busy
                 ? null
                 : () => _captureSnapshot(_kKeyOut, delay: _keyOutDelay),
@@ -1408,8 +1415,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Padding(
           padding: EdgeInsets.only(top: 4),
           child: Text(
-            '手機留在車上。按下「鑰匙離開」後倒數開始，這段時間帶著鑰匙走遠，'
-            '等車子發出無鑰匙警示，快照會在你人不在車邊時自己跑完。',
+            '① 駕駛門打開後全程不要關，兩種狀態都保持門開，開門與解鎖的訊號'
+            '才會互相抵銷。② 鑰匙放車上、人站車邊，按「鑰匙在」拍兩張。'
+            '③ 按「鑰匙離」後倒數 60 秒，帶鑰匙走遠等警示響起，在外面等它拍完，'
+            '回來再按一次拍第二張。④ 同狀態兩張才濾得掉會自己飄的 byte。',
             style: TextStyle(color: Colors.white54, fontSize: 11),
           ),
         ),
@@ -1592,8 +1601,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
                 '目標：找出「鑰匙在不在感應範圍」的訊號。車輛維持 READY、'
-                '手機留車上充電，照下面三步做。已確認不在車身模組 770 那九個'
-                '位址裡，所以這次要比對全部已知 DID。',
+                '手機留車上充電。已確認不在 770 車身模組，7A5 智慧鑰匙位址也'
+                '確實不存在，所以要比對全部已知 DID。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),

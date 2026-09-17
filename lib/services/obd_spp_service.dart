@@ -64,10 +64,14 @@ class DidSweepRange {
 /// 再拿不同檔位的快照互相比對，取樣速度就不再是問題。
 /// 比對結果的一筆：某個 DID 的某個 byte 隨檔位變動
 class _GearCandidate {
-  _GearCandidate(
-      this.did, this.byteIndex, this.distinct, this.perGear, this.payloadChars);
+  _GearCandidate(this.did, this.byteIndex, this.distinct, this.perGear,
+      this.payloadChars, this.bitsDiffer);
   final String did;
   final int byteIndex;
+
+  /// 這個 byte 在各狀態之間總共有幾個位元不一樣。
+  /// 旗標通常只翻一個位元，量值會翻好幾個，所以這是很有效的排序依據。
+  final int bitsDiffer;
 
   /// payload 的十六進位字元數。長的是多幀傳輸，即時監看取樣會慢好幾倍。
   final int payloadChars;
@@ -1121,6 +1125,7 @@ class ObdSppService with ChangeNotifier {
     int skippedLength = 0;
     int unstable = 0;
     int selfDrifting = 0;
+    final List<String> staticChanged = [];
     final List<_GearCandidate> candidates = [];
 
     for (final String did in commonDids) {
@@ -1130,6 +1135,18 @@ class ObdSppService with ChangeNotifier {
           .toSet();
       if (lengths.length != 1) {
         skippedLength++;
+        continue;
+      }
+
+      // 識別區（22F1xx）裝的是零件號、軟體版本、序號，理論上永遠不變。
+      // 它如果變了就不是車上有什麼在動，而是多幀組裝對錯了位置，
+      // 整份比對都要打折扣。所以把它們挑出來當完整性檢查，不列入候選。
+      // 實車有一次 7C4/22F100 冒出六個「變動」，全部是這個原因。
+      if (_isStaticDid(did)) {
+        final Set<String> seen = _gearSnapshots
+            .map((GearSnapshot s) => s.payloads[did]!)
+            .toSet();
+        if (seen.length > 1) staticChanged.add(did.replaceFirst('|', '/'));
         continue;
       }
 
@@ -1174,15 +1191,41 @@ class ObdSppService with ChangeNotifier {
         final int distinct = perGear.values.toSet().length;
         if (distinct < 2) continue;
 
-        candidates.add(
-            _GearCandidate(did, i, distinct, perGear, lengths.first));
+        // 所有狀態值兩兩 XOR 的聯集，看總共動到幾個位元
+        int xorAll = 0;
+        final List<int> vs = perGear.values
+            .map((String v) => int.parse(v, radix: 16))
+            .toList();
+        for (int a = 0; a < vs.length; a++) {
+          for (int b = a + 1; b < vs.length; b++) {
+            xorAll |= vs[a] ^ vs[b];
+          }
+        }
+        int bits = 0;
+        for (int k = 0; k < 8; k++) {
+          if ((xorAll >> k) & 1 == 1) bits++;
+        }
+        candidates.add(_GearCandidate(
+            did, i, distinct, perGear, lengths.first, bits));
       }
     }
 
     candidates.sort((_GearCandidate a, _GearCandidate b) {
       final int byScore = b.distinct.compareTo(a.distinct);
-      return byScore != 0 ? byScore : a.did.compareTo(b.did);
+      if (byScore != 0) return byScore;
+      // 旗標只翻一個位元，量值會翻好幾個。實車比對出 247 個候選那次，
+      // 單一位元的只佔三分之一，排在前面可以省掉大量人工篩選。
+      final int byBits = a.bitsDiffer.compareTo(b.bitsDiffer);
+      if (byBits != 0) return byBits;
+      return a.did.compareTo(b.did);
     });
+
+    if (staticChanged.isNotEmpty) {
+      _logGear('[Diff⚠] 有 ${staticChanged.length} 個識別區 DID 的內容不一樣，'
+          '但那裡裝的是零件號與版本字串、理論上永遠不變。');
+      _logGear('[Diff⚠] 代表多幀回應有組裝錯位，這份比對的可信度要打折扣。'
+          '受影響：${staticChanged.take(6).join(', ')}');
+    }
 
     _logGear('[Diff] 比對 ${commonDids.length} 個 DID，'
         '略過長度不一致 $skippedLength 個、'
@@ -1206,7 +1249,7 @@ class ObdSppService with ChangeNotifier {
           .join(' ');
       _logGear('[Diff★] ${c.did.replaceFirst('|', '/')} '
           'byte ${_gearByteLabel(c.byteIndex)} '
-          '(${c.distinct}/${gears.length} 種) $detail');
+          '(${c.distinct}/${gears.length} 種，差 ${c.bitsDiffer} 個位元) $detail');
     }
     if (candidates.length > show) {
       _logGear('[Diff] 其餘 ${candidates.length - show} 個未列出');
@@ -1573,6 +1616,14 @@ class ObdSppService with ChangeNotifier {
     final int s = speed ?? 0;
     final String ratio = (s > 0 && r > 0) ? (r / s).toStringAsFixed(1) : '-';
     return 'rpm=$r spd=$s ratio=$ratio';
+  }
+
+  /// 識別區 DID。內容是零件號、軟體版本、序號這類靜態字串，
+  /// 拿來當比對的完整性檢查：它們變了就代表讀取本身有問題。
+  bool _isStaticDid(String key) {
+    final int bar = key.indexOf('|');
+    final String cmd = bar == -1 ? key : key.substring(bar + 1);
+    return cmd.startsWith('22F1');
   }
 
   /// byte 位置用 OBD.csv 的字母表示法（A = payload 第一個 byte）。
