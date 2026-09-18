@@ -316,18 +316,47 @@
         <tr><th>品項</th><th>規格</th><th>數量</th><th>說明</th></tr>
       </thead>
       <tbody>
-        <tr><td>六角銅柱</td><td class="num">M2.5 公母 × 6 mm</td><td class="num">4</td><td>公頭鎖入模組背面的 M2.5 螺孔</td></tr>
-        <tr><td>螺絲</td><td class="num">M2.5 × 6 mm</td><td class="num">4</td><td>由背板外側穿過，鎖入銅柱母頭</td></tr>
+        <tr><td>六角銅柱</td><td class="num">M2.5 公母 × 6 或 10 mm</td><td class="num">4</td><td>長度依下方算式決定</td></tr>
+        <tr><td>螺絲</td><td class="num">M2.5 × 6 mm</td><td class="num">4</td><td>由背板外側穿過鎖入銅柱母頭。只跟板厚有關，不受銅柱長度影響</td></tr>
       </tbody>
     </table>
   </div>
 
-  <p class="lede">模組背面最高的零件距 PCB 背面約 <span class="mono">4 mm</span>（原廠圖側視圖標註），因此銅柱長度需大於 4 mm。取 6 mm 可留約 2 mm 餘裕。</p>
+  <h3>銅柱長度怎麼定</h3>
+
+  <p>背板不是靠在 PCB 上，而是靠在四根鎖點螺柱的頂面。所以要比的是
+  <strong>最高零件高出鎖點頂面多少</strong>，不是高出 PCB 多少。</p>
+
+  <p class="mono" style="padding:12px 16px;background:var(--rule-soft);max-width:68ch">銅柱長度 ≥（最高零件高度 − 鎖點凸出高度）+ 2 mm 餘裕</p>
+
+  <div class="tbl-scroll">
+    <table>
+      <caption>本板數值</caption>
+      <thead><tr><th>項目</th><th>距 PCB 背面</th><th>來源</th></tr></thead>
+      <tbody>
+        <tr><td>40PIN 母座頂面（最高零件）</td><td class="num">7.8</td><td>原廠 3D 模型 <span class="mono">HEADER-SMD-F-2_54X40</span>，已確認實際有焊</td></tr>
+        <tr><td>鎖點螺柱凸出高度</td><td class="num">約 4.0</td><td>零件 <span class="mono">SMTSO-M2_5-4ET</span>，<strong>需實測確認</strong></td></tr>
+        <tr><td>差值</td><td class="num">3.8</td><td>→ 銅柱取 <strong>6 mm</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
 
   <div class="note">
-    <span class="note-k">下單前務必確認</span>
-    <p><strong>40PIN 排針是否已焊上。</strong>原廠機構圖標示背面最高零件為 4 mm，是在排針未安裝的狀態。若你手上的板子已焊上 2.54 mm 排針，高度約 8.5 mm，銅柱要改用 <span class="mono">10 mm</span>，否則背板會壓到排針。</p>
-    <p><strong>microSD 卡槽與 USB 埠的方向。</strong>兩個 Type-C 位於模組左側邊、朝側面開口，背板不會擋到。microSD 卡槽若需要插拔，請確認背板邊緣沒有遮住取卡路徑。</p>
+    <span class="note-k">下單前務必實測這一項</span>
+    <p><strong>鎖點螺柱凸出 PCB 背面多少。</strong>板上的鎖點是表面黏著式螺柱
+    <span class="mono">SMTSO-M2_5-4ET</span>，型號顯示 4 mm，但要用游標卡尺確認。</p>
+    <p>量到 <span class="mono">約 4 mm</span> → 銅柱用 <span class="mono">6 mm</span>；量到
+    <span class="mono">接近 0</span>（螺紋與 PCB 齊平）→ 銅柱要用 <span class="mono">10 mm</span>，
+    否則背板會壓到 40PIN 母座。</p>
+    <p>更快的土法：把裁好的壓克力平放在四個鎖點上，看會不會碰到母座。</p>
+  </div>
+
+  <div class="note alt">
+    <span class="note-k">已確認</span>
+    <p><strong>40PIN 母座已焊上。</strong>原廠機構圖側視圖標的 <span class="mono">4 mm</span>
+    指的應是鎖點螺柱而非最高零件——母座在 3D 模型裡量到 7.8 mm。</p>
+    <p><strong>microSD 與 USB 埠。</strong>兩個 Type-C 位於模組左側邊、朝側面開口，背板不會擋到。
+    microSD 若需插拔，請確認背板邊緣沒有遮住取卡路徑。</p>
   </div>
 
   <h2><span class="n">05</span> CAD 檔</h2>

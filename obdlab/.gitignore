@@ -1,0 +1,4 @@
+# 掃描結果與快照是實驗產物，體積大又常變，不進版控。
+# dids.json 重建只要跑一次 discover，快照本來就該每次重拍。
+data/*.json
+data/snapshots/

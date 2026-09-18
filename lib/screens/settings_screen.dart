@@ -103,11 +103,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _gearScrollPending = false;
   static const int _gearLogCap = 2000;
 
-  // 鑰匙訊號是目前的主線目標。標籤刻意都帶「門開」：第一次實測兩張快照
-  // 一張門關一張門開，結果 770 那五個開門與解鎖的位元全部冒出來當候選，
-  // 把真正的訊號淹掉。兩邊都維持門開著，那些位元就會互相抵銷。
-  static const String _kKeyIn = '門開_鑰匙在';
-  static const String _kKeyOut = '門開_鑰匙離';
+  // 鑰匙訊號是目前的主線目標。
+  //
+  // 做法從「走遠」改成「把鑰匙放進金屬盒」。金屬盒就是法拉第籠，擋掉鑰匙
+  // 回覆用的 315/433MHz，車子就會判定沒有鑰匙。這樣人可以留在車上、車門
+  // 全程關著，開門與解鎖那五個位元根本不會動，對照組比「兩邊都開著門」
+  // 乾淨得多，而且狀態能在幾秒內來回切換、重複很多次。
+  static const String _kKeyIn = '鑰匙在車內';
+  static const String _kKeyOut = '鑰匙在鐵盒';
+
+  /// 走遠法的備援標籤。金屬盒屏蔽不足時才用，留在進階那一列。
+  static const String _kKeyAway = '鑰匙走遠';
 
   /// 「鑰匙離開」快照的倒數秒數。要夠你走出感應範圍並等車子發出警示。
   static const int _keyOutDelay = 60;
@@ -1390,21 +1396,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ]),
 
-        step('② 駕駛門全程開著，兩種狀態各拍兩張'),
+        step('② 坐在車上、車門關著，兩種狀態各拍兩張'),
         Wrap(spacing: 6, runSpacing: 6, children: [
           btn(
-            '鑰匙在 ($nIn/2)',
+            '鑰匙在車內 ($nIn/2)',
             Icons.vpn_key,
             nIn >= 2 ? Colors.green : Colors.amber,
             busy ? null : () => _captureSnapshot(_kKeyIn),
           ),
           btn(
-            '鑰匙離 ($nOut/2)  延遲$_keyOutDelay秒',
+            '鑰匙在鐵盒 ($nOut/2)',
             Icons.key_off,
             nOut >= 2 ? Colors.green : Colors.amber,
-            busy
-                ? null
-                : () => _captureSnapshot(_kKeyOut, delay: _keyOutDelay),
+            busy ? null : () => _captureSnapshot(_kKeyOut),
           ),
           if (obd.isSnapshotRunning)
             btn('中止', Icons.stop, Colors.redAccent, () {
@@ -1415,15 +1419,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Padding(
           padding: EdgeInsets.only(top: 4),
           child: Text(
-            '① 駕駛門打開後全程不要關，兩種狀態都保持門開，開門與解鎖的訊號'
-            '才會互相抵銷。② 鑰匙放車上、人站車邊，按「鑰匙在」拍兩張。'
-            '③ 按「鑰匙離」後倒數 60 秒，帶鑰匙走遠等警示響起，在外面等它拍完，'
-            '回來再按一次拍第二張。④ 同狀態兩張才濾得掉會自己飄的 byte。',
+            '先驗證屏蔽：鑰匙放進金屬盒蓋緊，確認儀表真的跳出無鑰匙警示。'
+            '沒跳就換盒子或多包幾層鋁箔，不要直接拍。\n'
+            '驗證過就坐在車上、門關著，兩種狀態各拍兩張。同狀態兩張才濾得掉'
+            '會自己慢慢飄的 byte。全程不用下車，約 8 分鐘。',
             style: TextStyle(color: Colors.white54, fontSize: 11),
           ),
         ),
 
-        step('③ 比對'),
+        step('③ 比對，然後用即時監看複驗'),
         Wrap(spacing: 6, runSpacing: 6, children: [
           btn(
             '比對快照',
@@ -1448,6 +1452,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
           ),
         ]),
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text(
+            '比對後候選會自動填進監看清單，只剩幾個、一輪幾秒。開「專注」'
+            '按「即時監看」，然後按「事件」標記、鑰匙進盒、等一下、再按標記、'
+            '鑰匙出盒，來回五次。跟得上全部轉換的那個位元就是答案。',
+            style: TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        ),
 
         // ── 進階 ────────────────────────────────────────────────────
         step('進階'),
@@ -1476,6 +1489,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 shots.contains(g) ? Colors.green : Colors.white24,
                 busy ? null : () => _captureSnapshot(g),
                 small: true),
+          btn('鑰匙走遠(延遲$_keyOutDelay秒)', Icons.directions_walk, Colors.white24,
+              busy
+                  ? null
+                  : () => _captureSnapshot(_kKeyAway, delay: _keyOutDelay),
+              small: true),
           btn('標準 PID', Icons.fact_check, Colors.white24,
               busy
                   ? null
@@ -1600,9 +1618,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                '目標：找出「鑰匙在不在感應範圍」的訊號。車輛維持 READY、'
-                '手機留車上充電。已確認不在 770 車身模組，7A5 智慧鑰匙位址也'
-                '確實不存在，所以要比對全部已知 DID。',
+                '目標：找出「鑰匙在不在感應範圍」的訊號。車輛維持 READY。'
+                '已確認不在 770 車身模組，7A5 智慧鑰匙位址也確實不存在，'
+                '所以要比對全部已知 DID。用金屬盒屏蔽鑰匙來製造對照狀態。',
                 style: TextStyle(color: Colors.white54, fontSize: 11),
               ),
             ),
