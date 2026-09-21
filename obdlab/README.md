@@ -28,10 +28,12 @@
 ## 架構
 
 ```
-Mac ──藍牙 SPP──► ELM327 傳輸器 ──OBD-II──► 車輛 CAN
+Mac ──BLE（CoreBluetooth）──► ELM327 傳輸器 ──OBD-II──► 車輛 CAN
  │
- ├── elm.py       序列連線、初始化序列、回應整理
- ├── uds.py       UDS 請求判讀、負回應、Mode 01 逐段走訪
+ ├── ble.py       BLE 傳輸層，直接呼叫 CoreBluetooth
+ ├── daemon.py    常駐連線，指令走 Unix socket 進來
+ ├── elm.py       ELM327 初始化序列、回應整理
+ ├── uds.py       UDS 請求判讀、負回應、Mode 01 逐區塊走訪
  ├── discover.py  模組點名、家族探索、DID 掃描
  ├── snapshot.py  快照拍攝與四道過濾的比對
  ├── store.py     JSON 持久化，中斷了不用重來
@@ -39,6 +41,21 @@ Mac ──藍牙 SPP──► ELM327 傳輸器 ──OBD-II──► 車輛 CAN
 ```
 
 唯一的硬體需求是**車上要有 Mac**。傳輸器不用換，就是現在那顆。
+
+### 為什麼是 BLE 不是序列埠
+
+原本打算走傳統藍牙序列埠，實測不可行。`/dev/cu.Android-Vlink` 在配對後
+一直存在，開埠瞬間成功（0.00 秒），但寫入不會觸發 RFCOMM 連線，
+`system_profiler` 全程顯示 Not Connected。只有在系統設定裡手動按連線
+那條鏈路才會起來，而且閒置就掉。macOS 沒有提供從指令列建立 SPP 連線的
+介面，`blueutil` 之類的工具也做不到。
+
+BLE 的 central 角色可以完全程式化，這個限制就消失了。代價是要自己處理
+CoreBluetooth 的執行緒模型，細節寫在 `ble.py` 的開頭。
+
+也沒有用 bleak：它 1.1.1 版在這台機器上會誤報「Bluetooth device is
+turned off」，原因是它在主執行緒上阻塞等一個需要主執行緒才送得到的
+狀態回呼，自己鎖死自己。
 
 ## 開始使用
 
@@ -51,7 +68,8 @@ python3 run.py ports          # 確認序列埠出現了
 python3 run.py probe          # 連線、跑初始化、印 ELM 版本
 ```
 
-`pyserial` 已確認安裝在這台機器上（3.5），不需要額外安裝。
+不需要安裝任何套件。BLE 走 `pyobjc` 的 CoreBluetooth 綁定，
+macOS 上的 Python 本來就有。
 
 ## 指令
 
@@ -99,7 +117,10 @@ import snapshot  # 檢視 module docstring 裡的規則
 - [x] 回應整理與位元組標號用合成資料驗證過
 - [x] 比對核心用實車已確認的 R 檔結果自我測試通過
 - [x] 代碼對應表整理完成（[OBD_CODES.md](OBD_CODES.md)）
-- [ ] **還沒在實車上跑過任何一行** — 傳輸器尚未配對到 Mac
+- [x] 實車連線成功，ELM327 v2.3，走 BLE
+- [x] 確認多顆 ECU 會同時回應廣播查詢，並修好 App 對應的解析退化
+- [x] 增壓：確認無專用 PID、量到零點偏差 2 kPa、加上自動校正
+- [ ] 負載下的增壓實測（空轉做不出增壓，要上路）
 - [ ] 鑰匙訊號：主線目標，見 TODO
 
 ## 與 App 的分工

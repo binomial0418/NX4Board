@@ -49,6 +49,20 @@ class Elm:
         self.active_header = "7DF"
         self.last_cmd = ""
 
+        # 藍牙 RFCOMM 剛建立時還不穩，馬上送指令常常整包掉。
+        # 實測第一次連線正常、第二次整個沒回應就是這個原因。
+        # 先等一下、清乾淨緩衝區，再送一個裸 CR 讓 ELM 回到指令狀態。
+        time.sleep(0.5)
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
+        try:
+            self.ser.write(b"\r")
+            self.ser.flush()
+            time.sleep(0.2)
+            self.ser.reset_input_buffer()
+        except Exception:
+            pass
+
     # ── 低階 ────────────────────────────────────────────────────────────
     def close(self) -> None:
         try:
@@ -88,16 +102,29 @@ class Elm:
 
     # ── 初始化 ──────────────────────────────────────────────────────────
     def init(self) -> str:
-        """跑初始化序列，回傳 ATZ 報出來的版本字串。"""
+        """跑初始化序列，回傳 ATZ 報出來的版本字串。
+
+        ATZ 重試三次：藍牙連線剛起來時第一道指令常常沒有回應，
+        但第二道就正常了。直接放棄會讓整個工具看起來時好時壞。
+        """
         version = ""
-        for i, cmd in enumerate(self.INIT):
-            raw = self.send(cmd, timeout=6.0 if cmd == "ATZ" else 3.0)
-            if cmd == "ATZ":
-                version = " ".join(raw.split())
-            elif "ERROR" in raw.upper() and "ATAL" not in cmd:
+        for attempt in range(3):
+            raw = self.send("ATZ", timeout=6.0)
+            if raw.strip():
+                version = " ".join(raw.split()).replace(">", "").strip()
+                break
+            if self.verbose:
+                print(f"  ATZ 第 {attempt + 1} 次沒回應，重試")
+            time.sleep(0.8)
+        else:
+            raise ElmError("ATZ 連續三次沒有回應。傳輸器可能睡著了，"
+                           "或被手機 App 佔用。")
+        time.sleep(0.3)
+
+        for cmd in self.INIT[1:]:      # ATZ 已經單獨處理過
+            raw = self.send(cmd, timeout=3.0)
+            if "ERROR" in raw.upper():
                 raise ElmError(f"初始化在 {cmd} 失敗：{raw!r}")
-            if i == 0:
-                time.sleep(0.3)
         return version
 
     def set_header(self, header: str) -> None:

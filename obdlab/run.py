@@ -225,33 +225,42 @@ def cmd_pids(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="obdlab：Mac 直連 OBD 訊號分析")
-    ap.add_argument("--port")
-    ap.add_argument("--verbose", action="store_true")
+    # 全域選項放進 parent，子指令前後都能寫。
+    # argparse 預設只認「主解析器 → 子指令」這個順序，
+    # 但手打時很自然會寫成 `run.py probe --verbose`，那樣會被拒絕。
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--port")
+    common.add_argument("--verbose", action="store_true")
+
+    ap = argparse.ArgumentParser(description="obdlab：Mac 直連 OBD 訊號分析",
+                                 parents=[common])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("ports").set_defaults(fn=cmd_ports)
-    sub.add_parser("probe").set_defaults(fn=cmd_probe)
-    sub.add_parser("modules").set_defaults(fn=cmd_modules)
-    sub.add_parser("discover").set_defaults(fn=cmd_discover)
-    sub.add_parser("diff").set_defaults(fn=cmd_diff)
-    sub.add_parser("pids").set_defaults(fn=cmd_pids)
+    def add(name, fn):
+        p = sub.add_parser(name, parents=[common])
+        p.set_defaults(fn=fn)
+        return p
 
-    p = sub.add_parser("raw"); p.set_defaults(fn=cmd_raw)
+    add("ports", cmd_ports)
+    add("probe", cmd_probe)
+    add("modules", cmd_modules)
+    add("discover", cmd_discover)
+    add("diff", cmd_diff)
+    add("pids", cmd_pids)
+
+    p = add("raw", cmd_raw)
     p.add_argument("cmd"); p.add_argument("--header", default="7DF")
     p.add_argument("--timeout", type=float, default=2.0)
 
-    p = sub.add_parser("families"); p.set_defaults(fn=cmd_families)
-    p.add_argument("header")
+    p = add("families", cmd_families); p.add_argument("header")
 
-    p = sub.add_parser("sweep"); p.set_defaults(fn=cmd_sweep)
+    p = add("sweep", cmd_sweep)
     p.add_argument("header"); p.add_argument("family")
 
-    p = sub.add_parser("snap"); p.set_defaults(fn=cmd_snap)
+    p = add("snap", cmd_snap)
     p.add_argument("label"); p.add_argument("--delay", type=int, default=0)
 
-    p = sub.add_parser("watch"); p.set_defaults(fn=cmd_watch)
-    p.add_argument("dids", nargs="+")
+    p = add("watch", cmd_watch); p.add_argument("dids", nargs="+")
 
     args = ap.parse_args()
     args.fn(args)
