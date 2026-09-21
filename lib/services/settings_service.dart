@@ -55,6 +55,14 @@ class SettingsService {
     if (lowBeam) return esp32BrightnessLowBeam;
     return esp32BrightnessDay;
   }
+  /// MAP 與大氣壓兩顆感測器之間的零點差（kPa）。
+  ///
+  /// 實測熄火靜止時 MAP 讀 99、大氣壓讀 101，差 2 kPa，算出來的增壓
+  /// 就永遠偏 -0.02 Bar。存起來是為了重新連線後立刻就有正確的零點，
+  /// 不用等引擎再停一次才重新學。
+  double get mapZeroOffsetKpa =>
+      _prefs?.getDouble('map_zero_offset_kpa') ?? 0.0;
+
   /// DID 掃描找到的位址清單，格式 'HEADER|CMD'。
   /// 掃一次要四分鐘，存起來重開 App 就不用重掃。
   List<String> get discoveredDids =>
@@ -108,6 +116,10 @@ class SettingsService {
 
   Future<void> setEsp32BrightnessHighBeam(int percent) async {
     await _prefs?.setInt('esp32_brightness_high', percent.clamp(0, 100));
+  }
+
+  Future<void> setMapZeroOffsetKpa(double kpa) async {
+    await _prefs?.setDouble('map_zero_offset_kpa', kpa);
   }
 
   Future<void> setDiscoveredDids(List<String> dids) async {

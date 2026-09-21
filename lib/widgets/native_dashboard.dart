@@ -940,7 +940,10 @@ class _NativeDashboardState extends State<NativeDashboard>
                 ),
               ),
               Text(
-                '$sign${turbo.toStringAsFixed(2)}',
+                // 一位小數。MAP 是單一位元組、1 kPa 一格等於 0.01 Bar，
+                // 顯示到第二位時每一格量化誤差都看得見，數字會一直抖。
+                // 0.1 Bar 一格等於 10 個計數，視覺上就穩了。
+                '$sign${turbo.toStringAsFixed(1)}',
                 style: const TextStyle(
                   fontSize: 110,
                   fontWeight: FontWeight.w900,

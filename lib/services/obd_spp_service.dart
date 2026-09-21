@@ -433,6 +433,37 @@ class ObdSppService with ChangeNotifier {
 
   /// 已經講過「本車不回報 MAP」了，避免每 300 毫秒洗一行
   bool _mapMissingLogged = false;
+
+  // ── 增壓零點校正 ────────────────────────────────────────────────────────
+  // MAP 與大氣壓是兩顆不同的感測器，彼此有固定的校正差。實測熄火靜止時
+  // MAP 讀 99、大氣壓讀 101，所以顯示永遠偏 -0.02 Bar。
+  //
+  // 引擎停止時進氣歧管會經由節氣門與大氣平衡，此時兩者之差就是那個偏移量。
+  // 油電車在 READY 狀態下引擎常常是停的，所以校正機會很多，甚至行駛中
+  // 純電行駛時也成立。但剛熄火那幾秒歧管還在平衡，要等穩定才採樣。
+  int _engineOffSamples = 0;
+  static const int _kZeroCalibSamples = 10; // 快輪詢 300ms 一次，約 3 秒
+  static const double _kZeroCalibMaxKpa = 10.0; // 超出這個範圍視為讀數異常
+
+  void _maybeCalibrateBoostZero(int mapKpa) {
+    if ((rpm ?? -1) != 0) {
+      _engineOffSamples = 0;
+      return;
+    }
+    if (++_engineOffSamples < _kZeroCalibSamples) return;
+    _engineOffSamples = _kZeroCalibSamples; // 別讓它無限增長
+
+    final double offset = mapKpa - currentBaroKpa;
+    if (offset.abs() > _kZeroCalibMaxKpa) return; // 離譜就不要學
+    if ((offset - _mapZeroOffsetKpa).abs() < 0.5) return; // 沒變就不寫
+
+    _mapZeroOffsetKpa = offset;
+    SettingsService().setMapZeroOffsetKpa(offset);
+    _log('[Boost] 零點校正：引擎停止時 MAP=$mapKpa、大氣壓=$currentBaroKpa，'
+        '偏移 ${offset.toStringAsFixed(1)} kPa');
+  }
+
+  double _mapZeroOffsetKpa = 0.0;
   double turboBoostBar = 0.0;
   double? referenceGpsAltitude;
   int serviceDistanceRemaining = 0;
@@ -806,6 +837,7 @@ class ObdSppService with ChangeNotifier {
   }
 
   Future<void> init() async {
+    _mapZeroOffsetKpa = SettingsService().mapZeroOffsetKpa;
     startPowerListener();
     final String savedMac = SettingsService().obdMac;
     if (savedMac.isNotEmpty) {
@@ -2193,16 +2225,31 @@ class ObdSppService with ChangeNotifier {
           // 704~767 rpm 的高位元組正好是 0x0B，回應變成 410C0B54，
           // indexOf 就會把轉速的低位元組當成 MAP 讀走，算出憑空的增壓值。
           // 實測這個區間有 64 個轉速值會中招。
+          // 這台是油電車，廣播查詢會有好幾顆 ECU 各自回應，而 ATH0 之下
+          // 那些回應會被串成一整條。實測 010B0C0D 回的是
+          //   410C0000 | 410C0000 | 410B630C00000D00
+          // 三個區塊接在一起，而且只有第三塊才有 MAP。
+          //
+          // 所以不能只從第一個 41 一路走到底：走到第二個區塊的 41 就會停，
+          // MAP 永遠讀不到。要逐區塊走，一塊走到不認識的位元組就去找下一個
+          // 41 再繼續，先出現的值優先。
           const Map<String, int> pidLen = {'0B': 1, '0C': 2, '0D': 1};
           final Map<String, String> vals = {};
-          int walk = idx41 + 2;
-          while (walk + 2 <= sanitized.length) {
-            final String pid = sanitized.substring(walk, walk + 2);
-            final int? len = pidLen[pid];
-            if (len == null) break; // 不認識就停，不再往下猜
-            if (walk + 2 + len * 2 > sanitized.length) break;
-            vals[pid] = sanitized.substring(walk + 2, walk + 2 + len * 2);
-            walk += 2 + len * 2;
+          int block = 0;
+          while (true) {
+            block = sanitized.indexOf('41', block);
+            if (block == -1) break;
+            int walk = block + 2;
+            while (walk + 2 <= sanitized.length) {
+              final String pid = sanitized.substring(walk, walk + 2);
+              final int? len = pidLen[pid];
+              if (len == null) break;
+              if (walk + 2 + len * 2 > sanitized.length) break;
+              vals.putIfAbsent(
+                  pid, () => sanitized.substring(walk + 2, walk + 2 + len * 2));
+              walk += 2 + len * 2;
+            }
+            block = walk > block + 2 ? walk : block + 2;
           }
 
           // MAP (0B)
@@ -2210,11 +2257,14 @@ class ObdSppService with ChangeNotifier {
           if (hexMap != null) {
             try {
               final int mapKpa = int.parse(hexMap, radix: 16);
-              turboBoostBar = (mapKpa - currentBaroKpa) / 100.0;
+              _maybeCalibrateBoostZero(mapKpa);
+              turboBoostBar =
+                  (mapKpa - currentBaroKpa - _mapZeroOffsetKpa) / 100.0;
               turbo = double.parse(turboBoostBar.toStringAsFixed(2));
               hasTurbo = true;
               _mapMissingLogged = false;
-              _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa)');
+              _log('[Parser Result] Turbo=$turbo Bar (MAP=$mapKpa kPa, '
+                  '零點偏移 ${_mapZeroOffsetKpa.toStringAsFixed(1)})');
             } catch (_) {}
           } else if (!_mapMissingLogged) {
             // 只講一次，否則每 300 毫秒洗一行
