@@ -2289,11 +2289,12 @@ class ObdSppService with ChangeNotifier {
             } catch (_) {}
           }
 
-          // Speed (0D)
-          final int idx0D = vals.containsKey('0D') ? 0 : -1;
-          if (idx0D != -1) {
+          // Speed (0D)。車速一律以 OBD 為準，GPS 只是儀表端的後備來源
+          // （native_dashboard._displaySpeed：obdSpeed 為 null 才看 GPS）。
+          final String? hexSpd = vals['0D'];
+          if (hexSpd != null) {
             try {
-              final int valSpeed = int.parse(vals['0D']!, radix: 16);
+              final int valSpeed = int.parse(hexSpd, radix: 16);
               if (valSpeed <= 250) {
                 bool hasRecentGps = _lastGpsSpeedTime != null && 
                     DateTime.now().difference(_lastGpsSpeedTime!).inSeconds < 5;
