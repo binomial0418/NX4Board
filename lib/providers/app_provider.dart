@@ -61,9 +61,13 @@ class AppProvider extends ChangeNotifier {
   bool? _lastObservedHighBeam;
   Timer? _highBeamDebounce;
 
-  // 國道/快速道路旗標委派至 RoadTypeService（滑動分數 + 座標快取）
-  bool get isOnHighway => RoadTypeService().isOnHighway;
-  bool get isOnExpressway => RoadTypeService().isOnExpressway;
+  /// 目前路型：道路追蹤有結果時以它為準（能分辨高架與正下方的平面道路），
+  /// 圖資無法判定時退回 RoadTypeService 的地標判定。
+  RoadType get effectiveRoadType =>
+      SpeedLimitService().trackedRoadType ?? RoadTypeService().currentRoadType;
+
+  bool get isOnHighway => effectiveRoadType == RoadType.highway;
+  bool get isOnExpressway => effectiveRoadType == RoadType.expressway;
 
   // GPS upload tracking (Standardized tid: gps)
   DateTime? _lastGpsSentTime;
@@ -88,6 +92,11 @@ class AppProvider extends ChangeNotifier {
 
   /// 速限是否為依道路分級推定，而非實際標註
   bool get isSpeedLimitInferred => SpeedLimitService().isInferred;
+
+  /// 高架與平面判定沒把握時為 true，此時下面兩個值是另一種可能
+  bool get isLevelAmbiguous => SpeedLimitService().isLevelAmbiguous;
+  String get alternativeRoadName => SpeedLimitService().alternativeRoadName;
+  int? get alternativeSpeedLimit => SpeedLimitService().alternativeLimit;
   bool get isLoading => _isLoading;
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
@@ -427,7 +436,8 @@ class AppProvider extends ChangeNotifier {
 
     // ── 測速照相偵測 ──
     final camInfo = camService.checkNearbyCamera(
-      currentRoadType: RoadTypeService().currentRoadType,
+      currentRoadType: effectiveRoadType,
+      surfaceConfirmed: SpeedLimitService().surfaceConfirmed,
     );
 
     if (camInfo != null) {
@@ -451,8 +461,7 @@ class AppProvider extends ChangeNotifier {
       //   區間測速        → 100m
       //   平面道路固定測速  → 500m
       //   國道/快速道路    → 1000m
-      final bool isNormalRoad =
-          RoadTypeService().currentRoadType == RoadType.none;
+      final bool isNormalRoad = effectiveRoadType == RoadType.none;
       final int alertThresholdM = isZone ? 100 : (isNormalRoad ? 500 : 1000);
       if (distM <= alertThresholdM) {
         TtsService().speakCameraAlert(camInfo, speedKmh);

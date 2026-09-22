@@ -44,8 +44,16 @@ class OsmTileService {
   bool _initialized = false;
   bool get isInitialized => _initialized;
 
+  /// LRU 快取：Dart 的 Map 保留插入順序，命中時重新插入即移到最新，
+  /// 淘汰時移除最舊的一筆。值為 null 代表該格不在圖資範圍內。
   final Map<int, List<OsmRoad>?> _cache = {};
-  final List<int> _cacheOrder = [];
+
+  /// 讀取中的 tile，同一格同時被要求時共用同一次讀取
+  final Map<int, Future<List<OsmRoad>?>> _pending = {};
+
+  /// RandomAccessFile 不允許並行的非同步操作（會拋出
+  /// "An async operation is currently pending"），所有讀取都排進這條佇列依序執行。
+  Future<void> _ioQueue = Future<void>.value();
 
   int get tileCount => _idxX?.length ?? 0;
 
@@ -153,41 +161,25 @@ class OsmTileService {
   int _cacheKey(int x, int y) => (x << 20) | y;
 
   void _remember(int key, List<OsmRoad>? roads) {
+    _cache.remove(key);
     _cache[key] = roads;
-    _cacheOrder.add(key);
-    while (_cacheOrder.length > _cacheMax) {
-      _cache.remove(_cacheOrder.removeAt(0));
+    while (_cache.length > _cacheMax) {
+      _cache.remove(_cache.keys.first);
     }
   }
 
+  /// 快取查詢；命中時更新為最近使用。回傳 (是否命中, 值)。
+  (bool, List<OsmRoad>?) _lookup(int key) {
+    if (!_cache.containsKey(key)) return (false, null);
+    final v = _cache.remove(key);
+    _cache[key] = v;
+    return (true, v);
+  }
+
   /// 取得該座標所在 tile 的道路；範圍外或該格無道路回傳 null。
-  Future<List<OsmRoad>?> tileAt(double lat, double lon) async {
-    if (!_initialized) return null;
-    final x = lonToTileX(lon);
-    final y = latToTileY(lat);
-    final key = _cacheKey(x, y);
-    if (_cache.containsKey(key)) return _cache[key];
-
-    final i = _findIndex(x, y);
-    if (i < 0) {
-      _remember(key, null); // 範圍外，記住避免重複搜尋
-      return null;
-    }
-
-    try {
-      await _file!.setPosition(_dataStart + _idxOffset![i]);
-      final blob = await _file!.read(_idxLength![i]);
-      final raw = gzip.decode(blob);
-      final decoded = json.decode(utf8.decode(raw)) as List<dynamic>;
-      final roads = decoded
-          .map((e) => OsmRoad.fromJson(e as Map<String, dynamic>))
-          .toList(growable: false);
-      _remember(key, roads);
-      return roads;
-    } catch (e) {
-      debugPrint('❌ 讀取 tile $x/$y 失敗: $e');
-      return null;
-    }
+  Future<List<OsmRoad>?> tileAt(double lat, double lon) {
+    if (!_initialized) return Future.value(null);
+    return _load(lonToTileX(lon), latToTileY(lat));
   }
 
   /// 同步取用已快取的 tile，未快取回傳 null。
@@ -196,7 +188,7 @@ class OsmTileService {
   /// [prefetchAround] 在背景補上，下一個定位點就能用。
   List<OsmRoad>? cachedTileAt(double lat, double lon) {
     if (!_initialized) return null;
-    return _cache[_cacheKey(lonToTileX(lon), latToTileY(lat))];
+    return _lookup(_cacheKey(lonToTileX(lon), latToTileY(lat))).$2;
   }
 
   /// 該座標是否已載入（含「範圍外」的否定結果）
@@ -206,54 +198,74 @@ class OsmTileService {
   }
 
   /// 背景載入所在格與周圍 8 格，讓跨越 tile 邊界時不中斷。
-  /// 重複呼叫不會重複讀檔，已在快取或處理中的格會被略過。
+  /// 所在格排在最前面，已在快取或讀取中的格會被略過。
   void prefetchAround(double lat, double lon) {
     if (!_initialized) return;
     final cx = lonToTileX(lon);
     final cy = latToTileY(lat);
 
+    _load(cx, cy);
     for (int dx = -1; dx <= 1; dx++) {
       for (int dy = -1; dy <= 1; dy++) {
-        final x = cx + dx;
-        final y = cy + dy;
-        final key = _cacheKey(x, y);
-        if (_cache.containsKey(key) || _pending.contains(key)) continue;
-        _pending.add(key);
-        _loadTile(x, y).whenComplete(() => _pending.remove(key));
+        if (dx == 0 && dy == 0) continue;
+        _load(cx + dx, cy + dy);
       }
     }
   }
 
-  final Set<int> _pending = <int>{};
-
-  Future<void> _loadTile(int x, int y) async {
+  /// 讀取單一 tile：先查快取，再共用進行中的讀取，最後才排進 I/O 佇列。
+  Future<List<OsmRoad>?> _load(int x, int y) {
     final key = _cacheKey(x, y);
+    final (hit, value) = _lookup(key);
+    if (hit) return Future.value(value);
+
+    final inFlight = _pending[key];
+    if (inFlight != null) return inFlight;
+
     final i = _findIndex(x, y);
     if (i < 0) {
-      _remember(key, null);
-      return;
+      _remember(key, null); // 範圍外，記住避免重複搜尋
+      return Future.value(null);
     }
-    try {
-      await _file!.setPosition(_dataStart + _idxOffset![i]);
-      final blob = await _file!.read(_idxLength![i]);
-      final decoded =
-          json.decode(utf8.decode(gzip.decode(blob))) as List<dynamic>;
-      _remember(
-        key,
-        decoded
-            .map((e) => OsmRoad.fromJson(e as Map<String, dynamic>))
-            .toList(growable: false),
-      );
-    } catch (e) {
+
+    final future = _enqueueRead(_dataStart + _idxOffset![i], _idxLength![i])
+        .then<List<OsmRoad>?>((blob) {
+      final decoded = json.decode(utf8.decode(gzip.decode(blob))) as List<dynamic>;
+      final roads = decoded
+          .map((e) => OsmRoad.fromJson(e as Map<String, dynamic>))
+          .toList(growable: false);
+      _remember(key, roads);
+      return roads;
+    }).catchError((Object e) {
+      // 不寫入快取，下次會重試
       debugPrint('❌ 讀取 tile $x/$y 失敗: $e');
-    }
+      return null;
+    }).whenComplete(() {
+      // 必須用區塊寫法：箭頭函式會回傳 remove() 的結果，也就是這個 future 自己，
+      // whenComplete 會等待回傳的 future，形成自己等自己的死結。
+      _pending.remove(key);
+    });
+
+    _pending[key] = future;
+    return future;
+  }
+
+  /// 把一次 seek + read 排進佇列，確保同一時間只有一個檔案操作
+  Future<List<int>> _enqueueRead(int position, int length) {
+    final result = _ioQueue.then((_) async {
+      await _file!.setPosition(position);
+      return _file!.read(length);
+    });
+    // 佇列本身不能因為單次失敗而中斷
+    _ioQueue = result.then((_) {}, onError: (_) {});
+    return result;
   }
 
   Future<void> dispose() async {
     await _file?.close();
     _file = null;
     _cache.clear();
-    _cacheOrder.clear();
+    _pending.clear();
     _initialized = false;
   }
 }

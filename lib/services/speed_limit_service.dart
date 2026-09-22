@@ -4,7 +4,7 @@ import '../models/osm_road.dart';
 import '../models/speed_sign.dart';
 import 'csv_parser.dart';
 import 'osm_tile_service.dart';
-import 'road_matcher.dart';
+import 'road_tracker.dart';
 import 'road_type_service.dart' show RoadType;
 
 /// 速限的來源，決定可信度也決定 UI 是否標示為推定值
@@ -74,6 +74,37 @@ class SpeedLimitService {
   double _matchDistanceM = 0;
   double get matchDistanceM => _matchDistanceM;
 
+  /// 以連續性追蹤所在道路，解決高架與平面重疊時逐點比對會來回跳動的問題
+  final RoadTracker _tracker = RoadTracker();
+  DateTime? _lastTrackTime;
+
+  /// 定位中斷超過這個時間就重新開始追蹤，舊的道路狀態已不可信
+  static const Duration _trackerResetGap = Duration(seconds: 30);
+
+  /// 由道路追蹤推得的路型；圖資無法判定時為 null，呼叫端應退回 RoadTypeService
+  RoadType? _trackedRoadType;
+  RoadType? get trackedRoadType => _trackedRoadType;
+
+  /// 追蹤器有把握「在平面道路上」。測速照相據此排除國道／快速道路的相機，
+  /// 避免行駛在高架正下方時被上方的相機誤報。
+  bool _surfaceConfirmed = false;
+  bool get surfaceConfirmed => _surfaceConfirmed;
+
+  /// 高架／平面判定沒把握時，另一系統最可能的道路與其速限
+  OsmRoad? _alternativeRoad;
+  int? _alternativeLimit;
+  OsmRoad? get alternativeRoad => _alternativeRoad;
+  int? get alternativeLimit => _alternativeLimit;
+  String get alternativeRoadName => _alternativeRoad?.displayName ?? '';
+
+  /// 高架與平面的判定是否不確定，且兩者速限不同（此時 [alternativeRoad] 有值）
+  bool get isLevelAmbiguous => _alternativeRoad != null;
+
+  /// 追蹤器對「高架或平面」沒把握，不論兩者速限是否相同。
+  /// 測速照相在此狀態下兩邊都查，寧可多報也不漏報。
+  bool _levelUncertain = false;
+  bool get isLevelUncertain => _levelUncertain;
+
   /// 目前路名，無法判定時為空字串
   String get currentRoadName => _currentRoad?.displayName ?? '';
 
@@ -88,6 +119,14 @@ class SpeedLimitService {
   void setSignsForTest(List<SpeedSign> signs) {
     _allSigns = signs;
     _initialized = true;
+  }
+
+  /// 供測試在不同軌跡之間清除追蹤狀態
+  @visibleForTesting
+  void resetTrackingForTest() {
+    _tracker.reset();
+    _lastTrackTime = null;
+    _clearSystemState();
   }
 
   /// 供測試直接驗證速限判定鏈
@@ -126,17 +165,24 @@ class SpeedLimitService {
 
     final roads = tiles.cachedTileAt(lat, lng);
     if (roads != null && roads.isNotEmpty) {
-      final heading = (headingDeg != null &&
-              headingDeg >= 0 &&
-              speedKmh >= RoadMatcher.headingMinSpeedKmh)
-          ? headingDeg
-          : null;
+      final now = DateTime.now();
+      if (_lastTrackTime != null && now.difference(_lastTrackTime!) > _trackerResetGap) {
+        _tracker.reset();
+      }
+      _lastTrackTime = now;
 
-      final match = RoadMatcher.nearest(roads, lat, lng, heading);
-      if (match != null) {
-        _currentRoad = match.road;
-        _matchDistanceM = match.distance;
-        return _resolveLimit(match.road, lat, lng);
+      final tracked = _tracker.update(
+        roads,
+        lat,
+        lng,
+        headingDeg: headingDeg,
+        speedKmh: speedKmh,
+      );
+      if (tracked != null) {
+        _currentRoad = tracked.road;
+        _matchDistanceM = tracked.distance;
+        _updateSystemState(tracked.road, lat, lng);
+        return _resolveLimit(tracked.road, lat, lng);
       }
 
       // tile 已載入但不在任何道路 40 公尺內
@@ -144,35 +190,81 @@ class SpeedLimitService {
       _matchDistanceM = 0;
     }
 
+    _clearSystemState();
+
     // 圖資尚未載入或範圍外 → 沿用舊有路型判定
     return _fallbackByRoadType(roadType);
   }
 
-  /// 決定速限：OSM 標註 → 同路省道牌面 → 分級推定
-  int? _resolveLimit(OsmRoad road, double lat, double lng) {
-    final tagged = parseMaxspeed(road.maxspeed);
-    if (tagged != null) {
-      _currentLimit = tagged;
-      _source = LimitSource.osm;
-      return tagged;
+  /// 依追蹤結果更新路型與「另一可能」。
+  ///
+  /// 有把握時直接給出路型；沒把握時路型交給呼叫端的保守處理（掃描所有相機），
+  /// 並找出另一系統的候選道路，供 UI 同時呈現兩個速限。
+  void _updateSystemState(OsmRoad road, double lat, double lng) {
+    _alternativeRoad = null;
+    _alternativeLimit = null;
+
+    _levelUncertain = !_tracker.isSystemConfident;
+    if (!_levelUncertain) {
+      _trackedRoadType = _roadTypeOf(road);
+      _surfaceConfirmed = _trackedRoadType == RoadType.none;
+      return;
     }
+
+    _trackedRoadType = RoadType.none;
+    _surfaceConfirmed = false;
+
+    final alt = _tracker.alternative();
+    if (alt == null) return;
+    final altLimit = _limitFor(alt.road, lat, lng).$1;
+    // 速限相同就沒有必要讓駕駛看兩個數字
+    if (altLimit == null || altLimit == _limitFor(road, lat, lng).$1) return;
+    _alternativeRoad = alt.road;
+    _alternativeLimit = altLimit;
+  }
+
+  void _clearSystemState() {
+    _levelUncertain = false;
+    _trackedRoadType = null;
+    _surfaceConfirmed = false;
+    _alternativeRoad = null;
+    _alternativeLimit = null;
+  }
+
+  /// OSM 道路分級對應到既有的路型：國道系統 → highway，快速道路系統 → expressway
+  static RoadType _roadTypeOf(OsmRoad road) {
+    switch (road.highway) {
+      case 'motorway':
+      case 'motorway_link':
+        return RoadType.highway;
+      case 'trunk':
+      case 'trunk_link':
+        return RoadType.expressway;
+      default:
+        return RoadType.none;
+    }
+  }
+
+  /// 決定速限並更新目前狀態：OSM 標註 → 同路省道牌面 → 分級推定
+  int? _resolveLimit(OsmRoad road, double lat, double lng) {
+    final (limit, source) = _limitFor(road, lat, lng);
+    _source = source;
+    if (limit != null) _currentLimit = limit;
+    return limit;
+  }
+
+  /// 計算某條路的速限與來源，不改動任何狀態
+  (int?, LimitSource) _limitFor(OsmRoad road, double lat, double lng) {
+    final tagged = parseMaxspeed(road.maxspeed);
+    if (tagged != null) return (tagged, LimitSource.osm);
 
     final signLimit = _findSignOnRoad(road, lat, lng);
-    if (signLimit != null) {
-      _currentLimit = signLimit;
-      _source = LimitSource.sign;
-      return signLimit;
-    }
+    if (signLimit != null) return (signLimit, LimitSource.sign);
 
     final inferred = _defaultLimits[road.highway];
-    if (inferred != null) {
-      _currentLimit = inferred;
-      _source = LimitSource.inferred;
-      return inferred;
-    }
+    if (inferred != null) return (inferred, LimitSource.inferred);
 
-    _source = LimitSource.none;
-    return null;
+    return (null, LimitSource.none);
   }
 
   /// 找出與這條路同編號、且在 [_signRadiusM] 內最近的省道牌面。
@@ -231,6 +323,9 @@ class SpeedLimitService {
     _source = LimitSource.none;
     return null;
   }
+
+  /// 依道路分級推定的速限，未知分級回傳 null
+  static int? defaultLimitFor(String highway) => _defaultLimits[highway];
 
   /// 解析 OSM 的 maxspeed 值，無法解析回傳 null
   static int? parseMaxspeed(String? value) {

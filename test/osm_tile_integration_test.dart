@@ -62,4 +62,33 @@ void main() {
     expect(taichung['roads'], greaterThan(0));
     expect(taichung['top'], isNotEmpty);
   });
+
+  // 迴歸測試：RandomAccessFile 不允許並行操作，預抓 8 個鄰格若同時讀取，
+  // 除了第一個都會失敗，連帶讓所在格讀不到、整個 OSM 比對被跳過。
+  test('並行預抓與讀取不會互相干擾', () async {
+    final tiles = OsmTileService();
+    await tiles.initFromFile('assets/speed_tiles.bin');
+
+    const lat = 24.2000, lon = 120.9000; // 先前測試沒碰過的格子，確保未快取
+    tiles.prefetchAround(lat, lon);
+    final results = await Future.wait([
+      tiles.tileAt(lat, lon),
+      tiles.tileAt(lat + 0.01, lon),
+      tiles.tileAt(lat, lon + 0.01),
+    ]);
+    for (final r in results) {
+      expect(r, isNotNull);
+    }
+
+    // 預抓的 9 格都要進快取，不能有任何一格因並行衝突而遺失
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await tiles.tileAt(lat, lon); // 等 I/O 佇列排空
+    final step = 360.0 / (1 << tiles.zoom);
+    for (int dx = -1; dx <= 1; dx++) {
+      for (int dy = -1; dy <= 1; dy++) {
+        expect(tiles.hasTileAt(lat + dy * step * 0.9, lon + dx * step), isTrue,
+            reason: '鄰格 ($dx,$dy) 未載入');
+      }
+    }
+  });
 }

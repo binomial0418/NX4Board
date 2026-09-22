@@ -104,6 +104,14 @@ class CameraService {
 
   List<Position> get trajectory => List.unmodifiable(_trajectory);
 
+  /// 供測試注入相機資料，略過 rootBundle
+  @visibleForTesting
+  void setCamerasForTest(List<SpeedCamera> cameras) {
+    _cameras = cameras;
+    _trajectory.clear();
+    _isInitialized = true;
+  }
+
   void addPosition(Position pos) {
     _trajectory.add(pos);
     if (_trajectory.length > _maxTrajectorySize) {
@@ -112,9 +120,16 @@ class CameraService {
   }
 
   /// 偵測附近測速照相
-  /// [currentRoadType] 由 RoadTypeService 提供，用於過濾同道路類型的相機
+  /// [currentRoadType] 用於過濾同道路類型的相機
   /// 並動態調整搜尋半徑（國道/快速道路 2km，其他 1km）
-  Map<String, dynamic>? checkNearbyCamera({RoadType currentRoadType = RoadType.none}) {
+  ///
+  /// [surfaceConfirmed] 為 true 代表道路追蹤有把握目前在平面道路上，
+  /// 此時排除國道/快速道路的相機——行駛在高架正下方時，上方高架的相機
+  /// 水平距離很近，不排除就會誤報。
+  Map<String, dynamic>? checkNearbyCamera({
+    RoadType currentRoadType = RoadType.none,
+    bool surfaceConfirmed = false,
+  }) {
     if (_trajectory.length < 2) return null;
 
     final first = _trajectory.first;
@@ -149,7 +164,9 @@ class CameraService {
       // 非對稱過濾策略：
       //   確認在高速路（highway/expressway）→ 只掃同類，排除平面誤報
       //   路型為 none（含剛上匝道的切換過渡期）→ 全掃，避免入口處漏報
+      //   確認在平面道路 → 排除高速路相機
       if (currentRoadType != RoadType.none && cam.roadType != currentRoadType) continue;
+      if (surfaceConfirmed && cam.roadType != RoadType.none) continue;
 
       if ((cam.latitude - refLat).abs() > bboxDeg ||
           (cam.longitude - refLon).abs() > bboxDeg) { continue; }

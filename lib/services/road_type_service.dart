@@ -44,6 +44,15 @@ class RoadTypeService {
   bool get isOnHighway => _currentRoadType == RoadType.highway;
   bool get isOnExpressway => _currentRoadType == RoadType.expressway;
 
+  /// 供測試在不同軌跡之間清除狀態（地標資料保留）
+  @visibleForTesting
+  void resetForTest() {
+    _typeCache.clear();
+    _highwayScore = 0;
+    _expresswayScore = 0;
+    _currentRoadType = RoadType.none;
+  }
+
   Future<void> init() async {
     if (_initialized) return;
     try {
