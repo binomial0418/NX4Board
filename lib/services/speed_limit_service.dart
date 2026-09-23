@@ -37,10 +37,13 @@ class SpeedLimitService {
   factory SpeedLimitService() => _instance;
   SpeedLimitService._internal();
 
-  /// OSM 未標註 maxspeed 時，依道路分級推定的速限
+  /// OSM 未標註 maxspeed 時，依道路分級推定的速限。
+  ///
+  /// motorway 與 trunk 取自全台已標註路段依長度的中位數：
+  /// motorway 110 km/h 佔 56%、100 佔 33%；trunk 90 佔 35%、80 佔 30%、100 佔 18%。
   static const Map<String, int> _defaultLimits = {
-    'motorway': 100,
-    'trunk': 80,
+    'motorway': 110,
+    'trunk': 90,
     'primary': 60,
     'secondary': 50,
     'tertiary': 50,
@@ -58,6 +61,19 @@ class SpeedLimitService {
   /// 省道牌面的比對半徑。因為已先確認位於同一條省道上，
   /// 可以比舊版的 150 公尺放寬，牌面本來就設得稀疏。
   static const double _signRadiusM = 500.0;
+
+  /// 快速公路與國道系統不查牌面。
+  ///
+  /// 牌面資料是點位，沒有記錄屬於主線還是匝道，而匝道的公路編號與主線相同。
+  /// 實測台61 梧棲段未標速限的主線，500 公尺內最近的同編號牌面有 20% 是匝道的
+  /// 40、25% 是 60，只有 23% 拿到正確的 90。這類道路改用 OSM 標註加分級推定，
+  /// 覆蓋率與可信度都比較高（motorway 100%、trunk 60%）。
+  static const Set<String> _skipSignClasses = {
+    'motorway',
+    'trunk',
+    'motorway_link',
+    'trunk_link',
+  };
 
   List<SpeedSign> _allSigns = [];
   bool _initialized = false;
@@ -272,6 +288,7 @@ class SpeedLimitService {
   /// 先比對公路編號再比距離，可排除橫向道路上的牌面——
   /// 這是舊版「150 公尺內取最近」做不到的。
   int? _findSignOnRoad(OsmRoad road, double lat, double lng) {
+    if (_skipSignClasses.contains(road.highway)) return null;
     final refs = normalizedRefs(road.ref);
     if (refs.isEmpty || _allSigns.isEmpty) return null;
 

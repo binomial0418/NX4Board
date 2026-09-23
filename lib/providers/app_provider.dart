@@ -93,8 +93,13 @@ class AppProvider extends ChangeNotifier {
   /// 速限是否為依道路分級推定，而非實際標註
   bool get isSpeedLimitInferred => SpeedLimitService().isInferred;
 
-  /// 高架與平面判定沒把握時為 true，此時下面兩個值是另一種可能
+  /// 高架與平面判定沒把握時為 true，此時下面幾個值是另一種可能
   bool get isLevelAmbiguous => SpeedLimitService().isLevelAmbiguous;
+
+  /// 所在道路與另一可能道路的層級（來自 OSM 的 layer / bridge / tunnel），
+  /// 數值大的在上。兩者不同時，UI 用上下箭頭標示哪個是高架。
+  int get currentRoadLevel => SpeedLimitService().currentRoad?.level ?? 0;
+  int get alternativeRoadLevel => SpeedLimitService().alternativeRoad?.level ?? 0;
   String get alternativeRoadName => SpeedLimitService().alternativeRoadName;
   int? get alternativeSpeedLimit => SpeedLimitService().alternativeLimit;
   bool get isLoading => _isLoading;
@@ -120,6 +125,10 @@ class AppProvider extends ChangeNotifier {
   double? get obdOdometer => _isDemoEnabled ? 33610.0 : _obdService.odometer;
   int? get obdFuel => _isDemoEnabled ? 75 : _obdService.fuelLevel;
   double? get obdTurbo => _isDemoEnabled ? _demoTurbo : _obdService.turbo;
+
+  /// 相對節氣門開度（%，PID 0145）。放在增壓旁邊，用來判讀增壓數值。
+  int? get obdThrottle =>
+      _isDemoEnabled ? 0 : _obdService.throttlePercent;
   bool get isReversing => _isDemoEnabled ? _demoIsReversing : _obdService.isReversing;
 
   /// D 檔（22E000 byte N bit3，實車驗證）

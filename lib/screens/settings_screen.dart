@@ -404,6 +404,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       "soc": double.parse((65.5 - cycle * 0.05).toStringAsFixed(1)),
       "fuel": 50 - cycle ~/ 100,
       "speed_limit": speedLimit,
+      // 週期中段模擬「高架與平面判別不出來」與「推定速限」，用來驗證 ESP32 的
+      // ALT / EST 兩個標記；測速照相警示期間兩者應自動隱藏
+      "limit_alt": cycle >= 60 && cycle < 120 ? 60 : 0,
+      // 前半段模擬「另一條在下面」、後半段「在上面」，兩個箭頭都能看到
+      "limit_alt_above": cycle >= 90,
+      "limit_inferred": cycle >= 30 && cycle < 120,
       // 用絕對 tick 而非 cycle，否則每跑完一圈里程會倒退
       "odo": 33676 + t ~/ 40,
       "turbo": double.parse(turbo.toStringAsFixed(2)),

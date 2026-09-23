@@ -434,6 +434,17 @@ class ObdSppService with ChangeNotifier {
   /// 已經講過「本車不回報 MAP」了，避免每 300 毫秒洗一行
   bool _mapMissingLogged = false;
 
+  /// 相對節氣門開度（%），PID 0145。
+  ///
+  /// 用 0145 而不是 0111：0111 是絕對位置，完全放開時實測讀 18%，
+  /// 直接顯示會讓人以為油門踩著。0145 放開時約 1~8%，接近 0。
+  ///
+  /// 這個值是判讀增壓的關鍵。油電車的引擎會在原地自己轉到 2000 轉以上
+  /// 幫電池充電，但那時節氣門是關的、歧管是真空，增壓當然是負值。
+  /// 實測 1600~2000 轉那 550 筆樣本的 MAP 平均只有 24 kPa。
+  /// 沒有節氣門開度在旁邊，很容易誤以為增壓讀數壞了。
+  int? throttlePercent;
+
   // ── 增壓零點校正 ────────────────────────────────────────────────────────
   // MAP 與大氣壓是兩顆不同的感測器，彼此有固定的校正差。實測熄火靜止時
   // MAP 讀 99、大氣壓讀 101，所以顯示永遠偏 -0.02 Bar。
@@ -850,7 +861,7 @@ class ObdSppService with ChangeNotifier {
   Future<void> pollAllNow() async {
     if (!_isConnected) return;
     _log('[OBD] pollAllNow() triggered');
-    sendCommand('010B0C0D'); // Turbo + RPM + Speed
+    sendCommand('010B0C0D45'); // Turbo + RPM + Speed + 節氣門
     sendCommand('015B');     // HEV SOC
     sendCommand('0167');     // Coolant
     sendCommand('ATSH7C6');
@@ -2113,6 +2124,7 @@ class ObdSppService with ChangeNotifier {
     hasReversing = false;
     isDriveGear = false;
     hasDriveGear = false;
+    throttlePercent = null;
     isLowBeamOn = false;
     isHighBeamOn = false;
     hasHeadlights = false;
@@ -2216,8 +2228,8 @@ class ObdSppService with ChangeNotifier {
         final int idx41 = sanitized.indexOf('41');
         if (idx41 == -1) return; // 無效回應
 
-        // ─── 合併指令 010B0C0D：僅解析 MAP/RPM/Speed ───────────
-        if (lastCmd == '010B0C0D') {
+        // ─── 合併指令 010B0C0D45：MAP / 轉速 / 車速 / 節氣門 ───────────
+        if (lastCmd == '010B0C0D45') {
           // 依 PID 的固定資料長度逐段走訪，不要用 indexOf 找字串。
           //
           // 舊寫法是 sanitized.indexOf('0B')，等於在整串十六進位裡找那兩個
@@ -2233,7 +2245,9 @@ class ObdSppService with ChangeNotifier {
           // 所以不能只從第一個 41 一路走到底：走到第二個區塊的 41 就會停，
           // MAP 永遠讀不到。要逐區塊走，一塊走到不認識的位元組就去找下一個
           // 41 再繼續，先出現的值優先。
-          const Map<String, int> pidLen = {'0B': 1, '0C': 2, '0D': 1};
+          const Map<String, int> pidLen = {
+            '0B': 1, '0C': 2, '0D': 1, '45': 1,
+          };
           final Map<String, String> vals = {};
           int block = 0;
           while (true) {
@@ -2287,6 +2301,13 @@ class ObdSppService with ChangeNotifier {
                 _log('[Parser Result] RPM=$rpm');
               }
             } catch (_) {}
+          }
+
+          // 相對節氣門 (45)：A × 100 / 255
+          final String? hexThr = vals['45'];
+          if (hexThr != null) {
+            final int raw = int.parse(hexThr, radix: 16);
+            throttlePercent = (raw * 100 / 255).round();
           }
 
           // Speed (0D)。車速一律以 OBD 為準，GPS 只是儀表端的後備來源
@@ -2760,8 +2781,8 @@ class ObdSppService with ChangeNotifier {
         _scheduleFastPoll();
         return;
       }
-      // 合併請求：010B (Turbo), 010C (RPM), 010D (Speed)
-      sendCommand('010B0C0D');
+      // 合併請求：010B MAP、010C 轉速、010D 車速、0145 相對節氣門
+      sendCommand('010B0C0D45');
       _scheduleFastPoll();
     });
   }

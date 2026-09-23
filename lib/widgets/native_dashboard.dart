@@ -759,6 +759,14 @@ class _NativeDashboardState extends State<NativeDashboard>
     }
 
     // Normal speed limit
+    //
+    // 卡片最多出現兩個數字：主速限，以及高架／平面判別不出來時另一條路的速限。
+    // 兩條路的層級不同時，各自標上下箭頭，讓駕駛一眼看出哪個是高架。
+    final int? altLimit = p.isLevelAmbiguous ? p.alternativeSpeedLimit : null;
+    final bool showArrows =
+        altLimit != null && p.currentRoadLevel != p.alternativeRoadLevel;
+    final bool mainIsUpper = p.currentRoadLevel > p.alternativeRoadLevel;
+
     return _DataCard(
       borderColor: borderColor,
       highlightCtrl: _hlCtrls['speedlimit']!,
@@ -778,20 +786,68 @@ class _NativeDashboardState extends State<NativeDashboard>
               ),
             ),
             Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    p.roadSpeedLimit.toString(),
-                    style: const TextStyle(
-                      fontSize: 280, // increased from 220
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      height: 1.0,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (showArrows)
+                              Icon(
+                                mainIsUpper
+                                    ? Icons.arrow_upward
+                                    : Icons.arrow_downward,
+                                size: 110,
+                                color: Colors.white,
+                              ),
+                            Text(
+                              p.roadSpeedLimit.toString(),
+                              style: const TextStyle(
+                                fontSize: 280, // increased from 220
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                height: 1.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  // 高架與正下方平面道路判別不出來時，並列另一條路的速限。
+                  // 兩者速限相同時 alternativeSpeedLimit 為 null，不會佔位。
+                  if (altLimit != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 20),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (showArrows)
+                            Icon(
+                              mainIsUpper
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
+                              size: 52,
+                              color: const Color(0xff9ca3af), // gray-400
+                            ),
+                          Text(
+                            altLimit.toString(),
+                            style: const TextStyle(
+                              fontSize: 120,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xff9ca3af),
+                              height: 1.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
           ],
@@ -910,13 +966,13 @@ class _NativeDashboardState extends State<NativeDashboard>
         ),
         Expanded(
           flex: 1,
-          child: _buildTurboSection(turbo),
+          child: _buildTurboSection(turbo, p.obdThrottle),
         ),
       ],
     );
   }
 
-  Widget _buildTurboSection(double turbo) {
+  Widget _buildTurboSection(double turbo, int? throttle) {
     final sign = turbo >= 0 ? '+' : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -924,43 +980,32 @@ class _NativeDashboardState extends State<NativeDashboard>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Value label: Use symmetrical Row to align the decimal point to center
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Invisible dummy to balance the " BAR" suffix on the right
-              const Opacity(
-                opacity: 0,
-                child: Text(
-                  ' BAR',
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.w900,
+          // 節氣門疊在同一列的左側。用 Stack 而不是把它塞進下面那個 Row，
+          // 是因為那個 Row 靠「隱形的 BAR」維持小數點置中，插東西進去會歪。
+          // 寬度對齊下方 750 寬的增壓長條，左緣才切齊。
+          SizedBox(
+            width: 750,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Text(
+                      throttle == null ? '--%' : '$throttle%',
+                      style: const TextStyle(
+                        fontSize: 56,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xff9ca3af), // gray-400
+                        height: 1.0,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              Text(
-                // 一位小數。MAP 是單一位元組、1 kPa 一格等於 0.01 Bar，
-                // 顯示到第二位時每一格量化誤差都看得見，數字會一直抖。
-                // 0.1 Bar 一格等於 10 個計數，視覺上就穩了。
-                '$sign${turbo.toStringAsFixed(1)}',
-                style: const TextStyle(
-                  fontSize: 110,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  height: 1.0,
-                ),
-              ),
-              const Text(
-                ' BAR',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white70,
-                  height: 1.0,
-                ),
-              ),
-            ],
+                _turboValueRow(sign, turbo),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -992,6 +1037,40 @@ class _NativeDashboardState extends State<NativeDashboard>
       ),
     );
   }
+
+  /// 增壓數值那一列。靠左右兩個 ' BAR' 對稱維持小數點置中，
+  /// 左邊那個是隱形的，只為了佔位。
+  Widget _turboValueRow(String sign, double turbo) => Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Opacity(
+            opacity: 0,
+            child: Text(' BAR',
+                style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900)),
+          ),
+          Text(
+            // 一位小數。MAP 是單一位元組、1 kPa 一格等於 0.01 Bar，
+            // 顯示到第二位時每一格量化誤差都看得見，數字會一直抖。
+            '$sign${turbo.toStringAsFixed(1)}',
+            style: const TextStyle(
+              fontSize: 110,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              height: 1.0,
+            ),
+          ),
+          const Text(
+            ' BAR',
+            style: TextStyle(
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              color: Colors.white70,
+              height: 1.0,
+            ),
+          ),
+        ],
+      );
 
   Widget _tickLabel(String s) => Text(
         s,

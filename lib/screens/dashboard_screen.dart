@@ -698,7 +698,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// 協定格式：
   /// ```json
   /// {"_type":"esp32_dash","speed":75,"rpm":1750,"coolant":88,"soc":65.5,
-  ///  "fuel":50,"speed_limit":90,
+  ///  "fuel":50,"speed_limit":90,"limit_alt":60,"limit_alt_above":false,
   ///  "odo":33676,"turbo":0.15,"time":"18:04:37","date":"09/01 週一",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
@@ -731,6 +731,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       "soc": provider.obdHevSoc ?? 0,
       "fuel": provider.obdFuel ?? 0,
       "speed_limit": provider.roadSpeedLimit,
+      // 高架與正下方平面道路判別不出來、且兩者速限不同時的另一個可能值；
+      // 0 表示判定有把握。路名不送，ESP32 的中文字型只收錄卡片抬頭用的字。
+      "limit_alt": provider.alternativeSpeedLimit ?? 0,
+      // 另一條路在上面（高架）還是下面，ESP32 據此顯示上下箭頭
+      "limit_alt_above": provider.alternativeRoadLevel > provider.currentRoadLevel,
+      // 速限是依道路分級推定，而非 OSM 標註或省道牌面實測（目前僅供記錄，畫面不顯示）
+      "limit_inferred": provider.isSpeedLimitInferred,
       "odo": provider.obdOdometer?.round() ?? 0,
       "turbo": provider.obdTurbo ?? 0.0,
       // ESP32 沒有 RTC，日期時間由手機端提供

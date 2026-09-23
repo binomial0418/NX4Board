@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../models/osm_road.dart';
+import 'speed_limit_service.dart';
 
 /// 追蹤結果
 class TrackedRoad {
@@ -51,10 +52,29 @@ class RoadTracker {
   /// 在交會點換路，離開交會點後就不可能再轉入。
   final double junctionRadiusM;
 
-  /// 跳到不相連道路的機率。不能為 0，否則錯過匝道後永遠無法修正。
+  /// 跳到不相連道路的機率。只在「目前這條路已經無法解釋所在位置」時啟用，
+  /// 也就是它的距離超過 [jumpDistanceM]。
+  ///
+  /// GPS 誤差有時間相關性，偏向隔壁道路的偏差常持續十幾秒，足以讓一個固定的
+  /// 小機率被突破——高架與正下方的側車道就會反覆互跳。改成有條件之後，兩條
+  /// 路都還貼合時不准跳，真的偏離了才允許，才能兼顧穩定與修正能力。
   final double pJump;
+  final double jumpDistanceM;
 
   static const double _mPerDegLat = 110540.0;
+
+  /// 車速合理性：目前車速超過候選道路速限這麼多之後開始扣分。
+  ///
+  /// 高架與正下方的側車道常相距不到 30 公尺，位置資訊不足以分辨，
+  /// 但兩者速限差距很大（例如台61 的 80 對側車道的 50），車速就成了關鍵證據。
+  /// 因為機率會正規化，這個懲罰只改變「候選之間」的相對權重——在一般道路上
+  /// 超速不會有副作用，除非附近真的有速限更高的路。
+  final double speedMarginKmh;
+  final double speedScaleKmh;
+  final double speedMaxPenalty;
+
+  /// 低於此車速不採用車速證據（怠速、塞車時沒有鑑別力）
+  final double speedEvidenceMinKmh;
 
   /// 平面道路與快速路系統（國道、快速道路及其匝道）之間轉換時，
   /// 在 [pConnected] 之上再乘的係數。
@@ -70,8 +90,13 @@ class RoadTracker {
     this.sigmaM = 12.0,
     this.pConnected = 0.03,
     this.pJump = 0.0002,
+    this.jumpDistanceM = 45.0,
     this.junctionRadiusM = 30.0,
     this.systemChangeFactor = 0.1,
+    this.speedMarginKmh = 15.0,
+    this.speedScaleKmh = 15.0,
+    this.speedMaxPenalty = 2.3, // ×0.1
+    this.speedEvidenceMinKmh = 20.0,
   });
 
   /// 系統判定信心度低於此值視為不確定（實測此區間錯誤率 26~43%）
@@ -124,7 +149,7 @@ class RoadTracker {
             ? headingDeg
             : null;
 
-    final obs = _observe(roads, lat, lon, heading);
+    final obs = _observe(roads, lat, lon, heading, speedKmh);
     final fromLat = _prevLat ?? lat;
     final fromLon = _prevLon ?? lon;
     _prevLat = lat;
@@ -156,7 +181,10 @@ class RoadTracker {
                 ? pConnected
                 : pConnected * systemChangeFactor;
           } else {
-            t = pJump;
+            // 前一條路還能好好解釋目前位置就不准跳；不在候選中則視為無限遠
+            final prevObs = obs[prevId];
+            final prevDist = prevObs?.distance ?? double.infinity;
+            t = prevDist > jumpDistanceM ? pJump : 0.0;
           }
           prior += p * t;
         });
@@ -231,11 +259,24 @@ class RoadTracker {
     return TrackedRoad(obs.road, bestP, obs.distance);
   }
 
+  /// 車速遠超過某條路的速限時，降低「正在這條路上」的可能性
+  double _speedCost(OsmRoad road, double speedKmh) {
+    if (speedKmh < speedEvidenceMinKmh) return 0;
+    final limit = SpeedLimitService.parseMaxspeed(road.maxspeed) ??
+        SpeedLimitService.defaultLimitFor(road.highway);
+    if (limit == null) return 0;
+    final excess = speedKmh - limit - speedMarginKmh;
+    if (excess <= 0) return 0;
+    final cost = excess / speedScaleKmh;
+    return cost > speedMaxPenalty ? speedMaxPenalty : cost;
+  }
+
   Map<String, _Observation> _observe(
     List<OsmRoad> roads,
     double lat,
     double lon,
     double? heading,
+    double speedKmh,
   ) {
     final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180.0);
     final out = <String, _Observation>{};
@@ -243,6 +284,7 @@ class RoadTracker {
     for (final road in roads) {
       final oneway = road.oneway == 'yes' || road.oneway == 'true' || road.oneway == '1';
       final reversed = road.oneway == '-1';
+      final speedPenalty = _speedCost(road, speedKmh);
 
       double bestCost = double.infinity;
       double bestDist = double.infinity;
@@ -257,7 +299,7 @@ class RoadTracker {
           final d = _pointSegmentDistance(ax, ay, bx, by);
           if (d > candidateRadiusM) continue;
 
-          double cost = d * d / (2 * sigmaM * sigmaM);
+          double cost = d * d / (2 * sigmaM * sigmaM) + speedPenalty;
           if (heading != null) {
             final bearing = (math.atan2(bx - ax, by - ay) * 180 / math.pi + 360) % 360;
             double diff = (bearing - heading).abs() % 360;
