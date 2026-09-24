@@ -61,7 +61,7 @@ static lv_color_t *buf1;
 // 90  = 逆時針 90 度：面板的排線側朝畫面右邊
 // 270 = 順時針 90 度：面板的排線側朝畫面左邊
 // 實機裝上去發現上下顛倒就改成另一個值，觸控座標會跟著一起翻。
-#define DISP_ROTATION 90
+#define DISP_ROTATION 270
 
 static ppa_client_handle_t s_ppa = NULL;
 static void *s_fb = NULL;
