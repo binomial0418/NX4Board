@@ -256,6 +256,7 @@ static lv_obj_t *s_fuel_value;
 static lv_obj_t *s_limit_card;
 static lv_obj_t *s_limit_title;
 static lv_obj_t *s_limit_value;
+static lv_obj_t *s_limit_alt;  // 另一可能的速限，前面帶上下箭頭
 
 static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
@@ -491,6 +492,14 @@ static void build_column2(void) {
                                  NULL, F_LIMIT, H_LIMIT, &s_limit_value,
                                  &s_limit_title);
   lv_obj_align(s_limit_value, LV_ALIGN_TOP_LEFT, VALUE_X, VALUE_Y);
+
+  // 箭頭用 LVGL 內建的符號（montserrat 字型本身就含 FontAwesome 符號），
+  // 不必重新產生圖示字型。主速限旁邊放不下箭頭——145px 字型的數字寬 88px，
+  // 三位數就佔滿卡片可用寬度——所以只標在這個次要數字上：
+  // 「↓60」即代表另一條路在下方，也就是目前判定在高架上。
+  s_limit_alt = make_label(s_limit_card, "", &lv_font_montserrat_26, C_UNIT);
+  lv_obj_align(s_limit_alt, LV_ALIGN_TOP_RIGHT, -14, TITLE_Y + 4);
+  lv_obj_add_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ── 中央：時速 / 轉速 / 增壓的垂直堆疊 ──────────────────────────────────
@@ -630,6 +639,21 @@ static void set_camera_mode(bool active, int camera_limit, int speed_limit) {
     s_cam_blink_on = false;
     lv_obj_set_style_bg_color(s_limit_card, lv_color_hex(C_CARD), 0);
   }
+}
+
+/// 速限卡片右上角的次要速限（純顯示，不影響任何警示）。
+///
+/// 高架與正下方的平面道路判別不出來、且兩者速限不同時顯示，
+/// 前面的箭頭指出這個速限屬於上方還是下方的道路。
+/// 測速照相警示期間隱藏，避免與警示數字混淆。
+static void set_limit_extras(int alt_limit, bool alt_above, bool camera_active) {
+  if (camera_active || alt_limit <= 0) {
+    lv_obj_add_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_label_set_text_fmt(s_limit_alt, "%s%d",
+                        alt_above ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, alt_limit);
+  lv_obj_clear_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_dashboard_create(void) {
@@ -902,6 +926,12 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     set_camera_mode(data->camera_active, data->camera_limit,
                     data->speed_limit);
   }
+  if (force || data->limit_alt != p->limit_alt ||
+      data->limit_alt_above != p->limit_alt_above ||
+      data->camera_active != p->camera_active) {
+    set_limit_extras(data->limit_alt, data->limit_alt_above,
+                     data->camera_active);
+  }
 
   s_last = *data;
   s_last_valid = true;
@@ -945,6 +975,7 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_odo_value, opa, 0);
   lv_obj_set_style_text_opa(s_fuel_value, opa, 0);
   lv_obj_set_style_text_opa(s_limit_value, opa, 0);
+  lv_obj_set_style_text_opa(s_limit_alt, opa, 0);
   lv_obj_set_style_text_opa(s_turbo_value, opa, 0);
   lv_obj_set_style_opa(s_turbo_bar, opa, 0);
   for (int i = 0; i < 4; i++) {
@@ -959,5 +990,6 @@ void ui_dashboard_set_stale(bool stale) {
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限
     set_camera_mode(false, 0, s_last.speed_limit);
+    set_limit_extras(s_last.limit_alt, s_last.limit_alt_above, false);
   }
 }

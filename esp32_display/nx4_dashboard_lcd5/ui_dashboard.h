@@ -27,6 +27,11 @@ typedef struct {
   float soc;        // 混合動力電池 %
   int fuel;         // 油量 %
   int speed_limit;  // 目前路段速限 km/h，0 表示無資料
+  // 高架與正下方平面道路判別不出來、且兩者速限不同時，另一條路的速限；
+  // 0 表示判定有把握或兩者速限相同
+  int limit_alt;
+  // 另一條路在上面（高架）還是下面，決定箭頭方向
+  bool limit_alt_above;
   int odo;          // 里程 km
   float turbo;      // 渦輪增壓 Bar
   int tire_fl;      // 胎壓 psi

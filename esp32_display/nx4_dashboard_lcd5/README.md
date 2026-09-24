@@ -81,6 +81,8 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
   "soc": 65.5,
   "fuel": 50,
   "speed_limit": 90,
+  "limit_alt": 60,
+  "limit_alt_above": false,
   "odo": 33676,
   "turbo": 0.15,
   "time": "18:04:37",
@@ -102,6 +104,9 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
 | `soc` | float | 混合動力電池 % |
 | `fuel` | int | 油量 % |
 | `speed_limit` | int | 目前路段速限 km/h，`0` 表示無資料 |
+| `limit_alt` | int | 另一可能的速限 km/h，`0` 表示無。高架與正下方平面道路判別不出來、且兩者速限不同時才有值 |
+| `limit_alt_above` | bool | 該速限所屬道路在上方（高架）還是下方。卡片右上角顯示為 `↑nn` / `↓nn`，箭頭用 LVGL 內建符號，不需重新產生字型 |
+| `limit_inferred` | bool | 速限為依道路分級推定。手機端仍會送出，供記錄用，ESP32 不顯示 |
 | `odo` | int | 里程 km |
 | `turbo` | float | 渦輪增壓 Bar，範圍 -1.0 ~ +1.0 |
 | `time` | string | `HH:MM:SS`，ESP32 無 RTC，時鐘由手機端提供。畫面只顯示到分鐘，但秒數仍用於本機 `lv_timer` 的累加，手機斷線後才能正確跨分鐘（只送 `HH:MM` 的舊格式也相容） |

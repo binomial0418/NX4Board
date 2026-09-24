@@ -12,7 +12,7 @@
 // {
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
-//   "fuel": 50, "speed_limit": 90,
+//   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false,
 //   "odo": 33676, "turbo": 0.15, "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90},
@@ -248,6 +248,9 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   g_dash.soc = doc["soc"] | g_dash.soc;
   g_dash.fuel = doc["fuel"] | g_dash.fuel;
   g_dash.speed_limit = doc["speed_limit"] | g_dash.speed_limit;
+  // 缺欄位時歸零，避免沿用上一包的舊值（判定恢復有把握後 ALT 才會消失）
+  g_dash.limit_alt = doc["limit_alt"] | 0;
+  g_dash.limit_alt_above = doc["limit_alt_above"] | false;
   g_dash.odo = doc["odo"] | g_dash.odo;
   g_dash.turbo = doc["turbo"] | g_dash.turbo;
 

@@ -95,6 +95,23 @@ void main() {
       expect(svc.source, LimitSource.inferred);
     });
 
+    test('快速公路主線不採用牌面，避免抓到匝道的牌子', () {
+      // 牌面資料沒有區分主線與匝道，而匝道的公路編號和主線相同
+      svc.setSignsForTest([_sign('台61', 40)]);
+      final limit = svc.resolveLimitForTest(
+          _road(ref: '61', highway: 'trunk'), _lat, _lon);
+      expect(limit, 90); // 分級推定，不是旁邊匝道的 40
+      expect(svc.source, LimitSource.inferred);
+    });
+
+    test('平面省道仍採用牌面', () {
+      svc.setSignsForTest([_sign('台17', 70)]);
+      final limit = svc.resolveLimitForTest(
+          _road(ref: '17', highway: 'primary'), _lat, _lon);
+      expect(limit, 70);
+      expect(svc.source, LimitSource.sign);
+    });
+
     test('非省道且無標註 → 依分級推定', () {
       final limit = svc.resolveLimitForTest(
           _road(ref: null, highway: 'residential'), _lat, _lon);
@@ -111,8 +128,8 @@ void main() {
     });
 
     test('各分級推定值', () {
-      expect(svc.resolveLimitForTest(_road(highway: 'motorway'), _lat, _lon), 100);
-      expect(svc.resolveLimitForTest(_road(highway: 'trunk'), _lat, _lon), 80);
+      expect(svc.resolveLimitForTest(_road(highway: 'motorway'), _lat, _lon), 110);
+      expect(svc.resolveLimitForTest(_road(highway: 'trunk'), _lat, _lon), 90);
       expect(svc.resolveLimitForTest(_road(highway: 'secondary'), _lat, _lon), 50);
       expect(svc.resolveLimitForTest(_road(highway: 'service'), _lat, _lon), 30);
     });
