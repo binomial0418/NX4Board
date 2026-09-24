@@ -34,6 +34,7 @@ typedef struct {
   bool limit_alt_above;
   int odo;          // 里程 km
   float turbo;      // 渦輪增壓 Bar
+  int throttle;     // 相對節氣門開度 %（PID 0145），-1 表示尚未取得
   int tire_fl;      // 胎壓 psi
   int tire_fr;
   int tire_rl;

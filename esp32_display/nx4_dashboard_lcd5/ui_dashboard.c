@@ -52,6 +52,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define F_FUEL &nx4_font_num_100
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
+#define F_THROTTLE &lv_font_montserrat_48
 #define F_ODO &nx4_font_num_46
 #define F_LIMIT &nx4_font_num_145
 // 卡片抬頭用 32px，比內文標籤大一級。里程與油箱是「行內標籤」不是抬頭，
@@ -101,6 +102,8 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define C_ALERT 0xFF2D2D
 #define C_AMBER 0xF97316  // 時鐘色條
 #define C_GREEN 0x22C55E
+// 節氣門開度：比照手機端用 gray-400，明確次於白色的增壓數值
+#define C_THROTTLE 0x9CA3AF
 
 // ── 版面（LVGL 邏輯 1280 x 720；面板實體 720x1280 由 PPA 旋轉）──────────
 // 由 nx4_dashboard（1024x600）等比重算：x 約 x1.25、y 約 x1.2。
@@ -214,7 +217,15 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define TURBO_Y 580
 #define TURBO_CX STACK_CX
 #define TURBO_BAR_W 450
+#define TURBO_BAR_X (TURBO_CX - TURBO_BAR_W / 2)
 #define TURBO_BAR_Y 643
+#define H_TURBO 45
+// 增壓數值改為靠右對齊，緊鄰 BAR 單位（BAR 佔 1198..1255），
+// 把左邊讓給節氣門開度。時速與轉速維持置中，只有這一列是成對的。
+#define TURBO_VALUE_RIGHT 1180
+// 節氣門切齊增壓長條的左緣，底部與增壓數值對齊（montserrat_48 行高 52）
+#define THROTTLE_X TURBO_BAR_X
+#define THROTTLE_Y (TURBO_Y + H_TURBO - 52)
 #define SPEED_UNIT_Y 375
 #define RPM_UNIT_Y 518
 #define TURBO_UNIT_Y 596
@@ -262,6 +273,7 @@ static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
 static lv_obj_t *s_speed_unit;
 static lv_obj_t *s_rpm_unit;
+static lv_obj_t *s_throttle_value;
 static lv_obj_t *s_turbo_value;
 static lv_obj_t *s_turbo_unit;
 static lv_obj_t *s_turbo_bar;
@@ -344,6 +356,7 @@ static void clock_tick_cb(lv_timer_t *timer) {
 
 void nx4_dash_data_init(nx4_dash_data_t *data) {
   memset(data, 0, sizeof(nx4_dash_data_t));
+  data->throttle = -1;   // 0 是合法的節氣門讀數，未取得要用 -1
   strcpy(data->clock, "--:--:--");
   strcpy(data->date, "--/--");
 }
@@ -522,6 +535,10 @@ static void build_speed_stack(void) {
   lv_obj_align(s_rpm_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS, RPM_UNIT_Y);
   lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
 
+  // 節氣門開度。位置固定在增壓長條左緣，只更新文字。
+  s_throttle_value = make_label(s_scr, "--%", F_THROTTLE, C_THROTTLE);
+  lv_obj_set_pos(s_throttle_value, THROTTLE_X, THROTTLE_Y);
+
   // 渦輪增壓
   s_turbo_value = make_label(s_scr, "+0.00", F_TURBO, C_TEXT);
   s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_26, C_LABEL);
@@ -529,7 +546,7 @@ static void build_speed_stack(void) {
 
   s_turbo_bar = lv_bar_create(s_scr);
   lv_obj_set_size(s_turbo_bar, TURBO_BAR_W, 8);
-  lv_obj_set_pos(s_turbo_bar, TURBO_CX - TURBO_BAR_W / 2, TURBO_BAR_Y);
+  lv_obj_set_pos(s_turbo_bar, TURBO_BAR_X, TURBO_BAR_Y);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(0x2A303B), LV_PART_MAIN);
   lv_obj_set_style_bg_color(s_turbo_bar, lv_color_hex(C_BLUE),
                             LV_PART_INDICATOR);
@@ -736,10 +753,10 @@ static void anim_turbo_cb(void *var, int32_t v) {
                         mag / 100, mag % 100);
   lv_bar_set_value(s_turbo_bar, v, LV_ANIM_OFF);
 
-  // 單位位置固定，這裡只置中數值
+  // 靠右對齊到 BAR 單位前方。左邊留給節氣門，兩者相距超過 200px，不會相撞。
   lv_obj_update_layout(s_turbo_value);
-  lv_obj_set_pos(s_turbo_value, TURBO_CX - lv_obj_get_width(s_turbo_value) / 2,
-                 TURBO_Y);
+  lv_obj_set_pos(s_turbo_value,
+                 TURBO_VALUE_RIGHT - lv_obj_get_width(s_turbo_value), TURBO_Y);
 }
 
 /// 啟動一段補間。同一組 (var, exec_cb) 再次啟動會自動取代前一段動畫，
@@ -876,6 +893,15 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   }
 
 
+  // 節氣門開度
+  if (force || data->throttle != p->throttle) {
+    if (data->throttle < 0) {
+      lv_label_set_text(s_throttle_value, "--%");
+    } else {
+      lv_label_set_text_fmt(s_throttle_value, "%d%%", data->throttle);
+    }
+  }
+
   // 渦輪增壓（以補間平滑過渡）
   if (force || data->turbo != p->turbo) {
     float turbo = data->turbo;
@@ -977,6 +1003,7 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_limit_value, opa, 0);
   lv_obj_set_style_text_opa(s_limit_alt, opa, 0);
   lv_obj_set_style_text_opa(s_turbo_value, opa, 0);
+  lv_obj_set_style_text_opa(s_throttle_value, opa, 0);
   lv_obj_set_style_opa(s_turbo_bar, opa, 0);
   for (int i = 0; i < 4; i++) {
     lv_obj_set_style_text_opa(s_tire_value[i], opa, 0);

@@ -740,6 +740,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       "limit_inferred": provider.isSpeedLimitInferred,
       "odo": provider.obdOdometer?.round() ?? 0,
       "turbo": provider.obdTurbo ?? 0.0,
+      // 相對節氣門開度 %（PID 0145）。顯示在增壓數值左側，用來判讀增壓是否可信
+      // ——油電車引擎原地充電時轉速高但節氣門關閉，增壓本來就會是負值。
+      // -1 表示尚未取得，板子端顯示 "--%"。
+      "throttle": provider.obdThrottle ?? -1,
       // ESP32 沒有 RTC，日期時間由手機端提供
       "time": DateFormat('HH:mm:ss').format(now),
       "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',

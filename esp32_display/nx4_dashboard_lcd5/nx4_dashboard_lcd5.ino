@@ -13,7 +13,8 @@
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
 //   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false,
-//   "odo": 33676, "turbo": 0.15, "time": "18:04:37", "date": "09/01 週一",
+//   "odo": 33676, "turbo": 0.15, "throttle": 12,
+//   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90},
 //   "lights": {"low": true, "high": false},
@@ -210,6 +211,7 @@ static bool g_log_next_payload = false;
 #define FIELD_LIGHTS (1 << 4)
 #define FIELD_BRIGHT (1 << 5)
 #define FIELD_DOORS (1 << 6)
+#define FIELD_THROTTLE (1 << 7)
 
 static void handleDashPayload(uint8_t *payload, size_t length) {
   // 連線後的第一筆原樣印出，直接看得到手機到底送了什麼
@@ -233,6 +235,7 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!doc["lights"].isNull()) g_seen_fields |= FIELD_LIGHTS;
   if (!doc["brightness"].isNull()) g_seen_fields |= FIELD_BRIGHT;
   if (!doc["doors"].isNull()) g_seen_fields |= FIELD_DOORS;
+  if (!doc["throttle"].isNull()) g_seen_fields |= FIELD_THROTTLE;
 
   // 只處理本機認得的協定，其餘（例如第一通道的 BVB-7980）直接忽略
   const char *type = doc["_type"] | "";
@@ -253,6 +256,8 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   g_dash.limit_alt_above = doc["limit_alt_above"] | false;
   g_dash.odo = doc["odo"] | g_dash.odo;
   g_dash.turbo = doc["turbo"] | g_dash.turbo;
+  // 節氣門：0 是合法讀數，所以沿用預設值而不是 0
+  g_dash.throttle = doc["throttle"] | g_dash.throttle;
 
   const char *clock = doc["time"] | "";
   if (clock[0] != '\0') {
@@ -521,14 +526,15 @@ static void serviceWifi() {
     // 只要有 client 就檢查欄位齊不齊，缺哪個直接點名
     if (webSocket.connectedClients() > 0) {
       Serial.printf(
-          "[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c doors=%c",
+          "[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c doors=%c thr=%c",
           (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
           (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
           (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
           (g_seen_fields & FIELD_TURBO) ? 'Y' : 'N',
           (g_seen_fields & FIELD_LIGHTS) ? 'Y' : 'N',
           (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N',
-          (g_seen_fields & FIELD_DOORS) ? 'Y' : 'N');
+          (g_seen_fields & FIELD_DOORS) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_THROTTLE) ? 'Y' : 'N');
       if ((g_seen_fields & (FIELD_ODO | FIELD_TIME | FIELD_DATE)) !=
           (FIELD_ODO | FIELD_TIME | FIELD_DATE)) {
         Serial.print("   <- 手機 App 版本可能過舊，缺少的欄位不會更新");
