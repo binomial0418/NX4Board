@@ -1,0 +1,43 @@
+# ── 目標與分割表 ─────────────────────────────────────────────────────────
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# ── PSRAM ────────────────────────────────────────────────────────────────
+# LVGL 的兩塊繪圖緩衝各 1280x720x2 = 1.8MB，一定要放 PSRAM。
+# 沒開 PSRAM 會在 heap_caps_aligned_alloc 後的 assert 直接當掉。
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_HEX=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# ── LVGL ─────────────────────────────────────────────────────────────────
+# 用專案自己的 lv_conf.h（見最上層 CMakeLists 的 LV_CONF_PATH），
+# 不用 LVGL 元件的 Kconfig，這樣與 Arduino 版共用同一份設定。
+CONFIG_LV_CONF_SKIP=n
+
+# ── WebSocket Server ─────────────────────────────────────────────────────
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# ── 序列埠 ───────────────────────────────────────────────────────────────
+# 本板是 WCH CH343 USB-UART 接到 UART0，不是 USB-Serial-JTAG。
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# ── 編譯 ─────────────────────────────────────────────────────────────────
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# 主任務跑 LVGL，堆疊要夠大
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# ── Bootloader 瘦身 ──────────────────────────────────────────────────────
+# IDF 5.5.5 的 bootloader 預設是 0x60c0，超出分割表位移 0x8000 的上限
+# （0x2000..0x8000 只有 0x6000 可用）。
+#
+# 另一條路是把分割表往後移到 0xA000，但那樣 nvs 就不會落在 0x9000，
+# 從 Arduino 版換過來時已存的 WiFi 憑證與音量會讀不到。這裡選擇改用
+# -Os 並調低 bootloader 日誌等級，省下的空間綽綽有餘。
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y

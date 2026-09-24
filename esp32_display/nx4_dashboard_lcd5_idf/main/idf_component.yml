@@ -1,0 +1,26 @@
+## NX4Board ESP-IDF 版的元件相依
+dependencies:
+  idf:
+    version: ">=5.3,<6.0"
+
+  # LVGL 8.4：與 Arduino 版同一個大版本，UI 程式碼才能原封不動搬過來。
+  # 不要升到 9.x，v9 的 API（lv_disp_drv_t、lv_obj_align 等）全面改過。
+  lvgl/lvgl: "~8.4.0"
+
+  # ── ESP-Hosted：本專案改用 ESP-IDF 的主要理由 ──────────────────────────
+  #
+  # ESP32-P4 本身沒有射頻，Wi-Fi/BLE 全部經由板上的 ESP32-C6 副處理器走
+  # SDIO。主從韌體版本必須相容。
+  #
+  # Waveshare 在他們自己的 04_wifistation 範例裡註明「本倉庫不重建 C6
+  # slave image」，並在 IDF < 6.0 時把 esp_hosted 釘在 1.4.x——那就是這塊
+  # 板子出廠 C6 韌體的版本。
+  #
+  # Arduino core 綁死的是 2.11.6，差了一個大版本以上，RPC 協定早就不同，
+  # 症狀是 Req_GetCoprocessorFwVersion 逾時（slave 版本讀成 0.0.0）、
+  # 連線正常但封包大量遺失、畫面凍結數十秒。
+  #
+  # 所以這裡跟著 Waveshare 釘版本，去配合出廠的 C6，而不是反過來冒險
+  # 重刷副處理器。改動這兩行之前請先確認 C6 韌體版本。
+  espressif/esp_hosted: "1.4.*"
+  espressif/esp_wifi_remote: "0.14.*"

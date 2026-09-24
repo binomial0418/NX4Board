@@ -1,0 +1,10 @@
+# NX4Board ESP-IDF 版分割表
+#
+# nvs 的位置與大小刻意與 Arduino 版的 default_32MB.csv 一致（0x9000 / 0x5000），
+# 這樣從 Arduino 版換過來時，已經存在 NVS 的 WiFi 憑證與語音音量不會遺失。
+#
+# app 給 6MB：目前約 2.2MB，其中 235KB 是預錄語音，留足成長空間。
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+factory,    app,  factory, 0x10000,  0x600000,
