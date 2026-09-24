@@ -702,7 +702,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   ///  "odo":33676,"turbo":0.15,"time":"18:04:37","date":"09/01 週一",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
-  ///  "lights":{"low":true,"high":false},"brightness":40}
+  ///  "lights":{"low":true,"high":false},"reversing":false,"brightness":40}
   /// ```
   void _sendEsp32DashData() {
     if (!mounted) return;
@@ -761,6 +761,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         "low": provider.isLowBeamOn,
         "high": provider.isHighBeamOn,
       },
+      // 倒車檔（22BC08 byte F bit3）。板子端比照本機儀表，把時速數字整個
+      // 換成琥珀色的 R。P 與 N 沒有已知訊號可以區分，這裡只送得出 R。
+      "reversing": provider.isReversing,
       // 車門 / 門鎖 / 後車廂，對應手機端狀態區的三個指示燈
       // （22BC04 只有前兩門有解鎖訊號，見 AppProvider.isDoorUnlocked）
       "doors": {
