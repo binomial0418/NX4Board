@@ -43,6 +43,7 @@ typedef struct {
   int camera_limit;    // 該測速照相的速限 km/h
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
+  bool reversing;      // 倒車檔（時速位置改顯示 R）
   bool door_open;      // 任一車門開啟
   bool door_unlocked;  // 任一車門解鎖（22BC04 只有前兩門有訊號）
   bool trunk_open;     // 後車廂開啟

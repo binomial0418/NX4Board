@@ -34,6 +34,7 @@ LV_FONT_DECLARE(nx4_font_tc_32);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_80);
+LV_FONT_DECLARE(nx4_font_icons_40);
 
 #define F_SPEED &nx4_font_num_310s
 #define F_RPM &nx4_font_num_96s
@@ -68,6 +69,13 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 #define ICO_UNLOCK "\xEE\x80\x83"    // U+E003 lock-open-variant（純鎖頭，不帶車門背景）
 #define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
 
+// 里程 / 油箱的行內標籤改用圖示取代中文字。碼位刻意從 U+E010 起跳，
+// 與上面 80px 指示燈條的 U+E000-E004 分開，免得同一組位元組在不同字型下
+// 代表不同圖示。
+#define ICO_ODO "\xEE\x80\x90"       // U+E010 counter（里程表滾輪）
+#define ICO_FUEL "\xEE\x80\x91"      // U+E011 gas-station（加油槍）
+#define F_ICON_LABEL &nx4_font_icons_40
+
 // 字距：SemiBold 筆畫仍偏重，拉開字距讓數字之間透氣
 #define LS_SPEED 11
 #define LS_RPM 4
@@ -101,6 +109,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 測速照相的「底色」，底色用太亮的紅會讓上面的白字變得刺眼。
 #define C_ALERT 0xFF2D2D
 #define C_AMBER 0xF97316  // 時鐘色條
+#define C_REVERSE 0xFBBF24 // 倒車的 R，與 App 儀表同色（amber-400）
 #define C_GREEN 0x22C55E
 // 節氣門開度：比照手機端用 gray-400，明確次於白色的增壓數值
 #define C_THROTTLE 0x9CA3AF
@@ -136,6 +145,14 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 全部相對於卡片左上角。改 CARD_H 時這一組要一起重算，
 // 否則分隔線與油箱那一列會疊在一起。
 #define TITLE_Y 12
+
+// 速限卡片右上角的次要速限。字級由標題右緣到卡片右邊界的空檔決定：
+// 卡片 284 - 標題「道路速限」128 - 起點 20 - 右邊界 14 = 122px 可用。
+// 以 lv_font_conv 產生的字寬實測，montserrat_48 的最壞情況「↓120」要
+// 119.3px，只剩 2.7px 就貼上標題；44 的最壞情況 109.4px，留 12.6px。
+// 垂直上抬 2px，讓 44px 的字與 32px 的標題看起來在同一列。
+#define ALT_Y (TITLE_Y - 2)
+#define F_ALT &lv_font_montserrat_44
 #define DATE_Y 46
 // 時鐘是少數被「寬度」而非高度卡死的：'0' 是最寬的數字（0.662 em），
 // "00:00" 在 110px 下佔 315px，起點 16 → 右緣 331，卡片寬 356 還留 25px。
@@ -156,7 +173,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 抬頭由 26px 放大到 32px 之後（行高 32→38），可用高度少了 6px，
 // 上緣與列距各退 1~3px 吸收掉。
 #define TIRE_DY 80
-#define ODO_LABEL_Y 41
+#define ODO_LABEL_Y 42   // 圖示行高 30（原中文標籤 32），下移 1px 維持原本的垂直中心
 #define ODO_VALUE_Y 27
 #define ODO_UNIT_Y 46
 // 里程排成緊湊的一組「里程 XXXXXX K」。數字欄是固定寬度、靠右對齊，
@@ -170,7 +187,7 @@ LV_FONT_DECLARE(nx4_font_icons_80);
 // 一位數與兩位數切換時視覺重心不會跳動。欄位右界留給靠右的 % 單位。
 #define FUEL_VALUE_X 78
 #define FUEL_FIELD_W 174
-#define FUEL_LABEL_Y 135
+#define FUEL_LABEL_Y 136 // 同上
 #define FUEL_VALUE_Y 118
 #define FUEL_UNIT_Y (FUEL_VALUE_Y + H_FUEL - 24)
 
@@ -299,6 +316,10 @@ static char s_current_ssid[36];
 static int s_speed_shown;
 static int s_rpm_shown;
 static int s_turbo_shown; // 百分之一 Bar
+// 已寫進畫面的十分之一 Bar（含正負號）。顯示只到一位小數，但補間仍以
+// 百分之一為單位跑，若每一步都重設文字會白白 invalidate，所以另外記一份。
+// 999 是「尚未寫過」的哨兵值，強制更新時用它繞過比較。
+static int s_turbo_deci_shown = 999;
 static uint32_t s_speed_last_ms;
 static uint32_t s_rpm_last_ms;
 static uint32_t s_turbo_last_ms;
@@ -469,7 +490,7 @@ static void build_column2(void) {
   // 里程 + 油箱：兩列，中間一條細分隔線
   card = make_card(COL2_X, ROW2_Y, COL2_W, CARD_H, C_CYAN);
 
-  lv_obj_t *odo_label = make_label(card, "里程", F_LABEL, C_LABEL);
+  lv_obj_t *odo_label = make_label(card, ICO_ODO, F_ICON_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
   // 固定寬度 + 靠右對齊 = 前方補空。位數變動時 K 不會跟著移動。
   s_odo_value = make_label(card, "--", F_ODO, C_TEXT);
@@ -488,7 +509,7 @@ static void build_column2(void) {
   lv_obj_set_style_border_width(divider, 0, 0);
   lv_obj_set_style_radius(divider, 0, 0);
 
-  lv_obj_t *fuel_label = make_label(card, "油箱", F_LABEL, C_LABEL);
+  lv_obj_t *fuel_label = make_label(card, ICO_FUEL, F_ICON_LABEL, C_LABEL);
   lv_obj_align(fuel_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, FUEL_LABEL_Y);
   // 只會是 1-99，固定寬度 + 置中，位數變動時重心不跳。
   s_fuel_value = make_label(card, "--", F_FUEL, C_TEXT);
@@ -510,8 +531,8 @@ static void build_column2(void) {
   // 不必重新產生圖示字型。主速限旁邊放不下箭頭——145px 字型的數字寬 88px，
   // 三位數就佔滿卡片可用寬度——所以只標在這個次要數字上：
   // 「↓60」即代表另一條路在下方，也就是目前判定在高架上。
-  s_limit_alt = make_label(s_limit_card, "", &lv_font_montserrat_26, C_UNIT);
-  lv_obj_align(s_limit_alt, LV_ALIGN_TOP_RIGHT, -14, TITLE_Y + 4);
+  s_limit_alt = make_label(s_limit_card, "", F_ALT, C_UNIT);
+  lv_obj_align(s_limit_alt, LV_ALIGN_TOP_RIGHT, -14, ALT_Y);
   lv_obj_add_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -540,7 +561,7 @@ static void build_speed_stack(void) {
   lv_obj_set_pos(s_throttle_value, THROTTLE_X, THROTTLE_Y);
 
   // 渦輪增壓
-  s_turbo_value = make_label(s_scr, "+0.00", F_TURBO, C_TEXT);
+  s_turbo_value = make_label(s_scr, "+0.0", F_TURBO, C_TEXT);
   s_turbo_unit = make_label(s_scr, "BAR", &lv_font_montserrat_26, C_LABEL);
   lv_obj_align(s_turbo_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS, TURBO_UNIT_Y);
 
@@ -748,10 +769,20 @@ static void anim_turbo_cb(void *var, int32_t v) {
   if (v == s_turbo_shown) return;
   s_turbo_shown = v;
 
+  // 只顯示一位小數。MAP 是單一位元組、1 kPa 一格等於 0.01 Bar，顯示到第二位
+  // 時每一格量化誤差都看得見，數字會一直抖（手機端同樣的理由，見 fac9f31）。
   int mag = v < 0 ? -v : v;
-  lv_label_set_text_fmt(s_turbo_value, "%c%d.%02d", v < 0 ? '-' : '+',
-                        mag / 100, mag % 100);
+  int deci = (mag + 5) / 10;                 // 四捨五入到十分位
+  // deci 歸零時一律顯示正號，避免出現 "-0.0"
+  int sdeci = (v < 0 && deci > 0) ? -deci : deci;
+
+  // 長條吃完整解析度，每一步都更新；文字只在十分位真的變了才重寫
   lv_bar_set_value(s_turbo_bar, v, LV_ANIM_OFF);
+  if (sdeci == s_turbo_deci_shown) return;
+  s_turbo_deci_shown = sdeci;
+
+  lv_label_set_text_fmt(s_turbo_value, "%c%d.%d", sdeci < 0 ? '-' : '+',
+                        deci / 10, deci % 10);
 
   // 靠右對齊到 BAR 單位前方。左邊留給節氣門，兩者相距超過 200px，不會相撞。
   lv_obj_update_layout(s_turbo_value);
@@ -795,21 +826,37 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   const bool force = !s_last_valid || was_stale;
   const nx4_dash_data_t *p = &s_last;
 
-  // 時速：大字 + 進度弧（以補間平滑過渡）
-  if (force || data->speed != p->speed) {
+  // 時速：大字（以補間平滑過渡）。倒車時整個換成琥珀色的 R，比照 App 儀表。
+  if (force || data->speed != p->speed || data->reversing != p->reversing) {
     int speed = data->speed;
     if (speed < 0) speed = 0;
-    // 超速時（有速限資料且超出 5 km/h）時速轉紅
-    bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
-    lv_obj_set_style_text_color(s_speed_value,
-                                lv_color_hex(over ? C_ALERT : C_TEXT), 0);
-    if (force) {
-      s_speed_last_ms = 0;
-      s_speed_shown = speed + 1; // 迫使 cb 實際寫入
-      anim_speed_cb(NULL, speed);
+    if (data->reversing) {
+      // 已經在倒車就維持原樣；倒車中時速仍會跳動，不擋的話每筆資料
+      // 都會重寫一次同樣的 "R"
+      if (force || !p->reversing) {
+        // 停掉補間，否則它會在 R 上面繼續寫數字
+        lv_anim_del(s_speed_value, anim_speed_cb);
+        lv_obj_set_style_text_color(s_speed_value, lv_color_hex(C_REVERSE), 0);
+        lv_label_set_text(s_speed_value, "R");
+        lv_obj_update_layout(s_speed_value);
+        lv_obj_set_pos(s_speed_value,
+                       STACK_CX - lv_obj_get_width(s_speed_value) / 2, SPEED_Y);
+        // 讓退出倒車時 cb 一定會重寫（s_speed_shown 目前對應的是 "R"）
+        s_speed_shown = -1;
+      }
     } else {
-      start_anim(s_speed_value, anim_speed_cb, s_speed_shown, speed,
-                 anim_ms(&s_speed_last_ms));
+      // 超速時（有速限資料且超出 5 km/h）時速轉紅
+      bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
+      lv_obj_set_style_text_color(s_speed_value,
+                                  lv_color_hex(over ? C_ALERT : C_TEXT), 0);
+      if (force || p->reversing) {
+        s_speed_last_ms = 0;
+        s_speed_shown = speed + 1; // 迫使 cb 實際寫入
+        anim_speed_cb(NULL, speed);
+      } else {
+        start_anim(s_speed_value, anim_speed_cb, s_speed_shown, speed,
+                   anim_ms(&s_speed_last_ms));
+      }
     }
   }
 
@@ -911,6 +958,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
     if (force) {
       s_turbo_last_ms = 0;
       s_turbo_shown = centi + 1;
+      s_turbo_deci_shown = 999;   // 強制重寫文字
       anim_turbo_cb(NULL, centi);
     } else {
       start_anim(s_turbo_value, anim_turbo_cb, s_turbo_shown, centi,

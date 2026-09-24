@@ -367,7 +367,7 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 
 | 檔案 | 內容 | line_height | 用途 |
 |---|---|---|---|
-| `nx4_font_num_310s.c` | Montserrat **SemiBold** 310 px，`0-9` `-` | 224 | 時速大字 |
+| `nx4_font_num_310s.c` | Montserrat **SemiBold** 310 px，`0-9` `-` `R` | 224 | 時速大字（倒車時顯示 `R`）|
 | `nx4_font_num_96s.c` | Montserrat **SemiBold** 96 px，`0-9` `E` `V` `-` | 70 | 轉速（含 `EV`） |
 | `nx4_font_num_145.c` | Montserrat 145 px，`0-9` `-` `!` | 104 | 水溫、道路速限 |
 | `nx4_font_num_112.c` | Montserrat 112 px，`0-9` `.` `-` | 80 | Hev 電池 |
@@ -379,6 +379,7 @@ CDCOnBoot=cdc,USBMode=hwcdc,ChipVariant=postv3
 | `nx4_font_tc_26.c` | Noto Sans TC 26 px，ASCII + 57 個漢字 | 32 | 里程 / 油箱的行內標籤、設定面板 |
 | `nx4_font_tc_32.c` | Noto Sans TC 32 px，同一組字集 | 38 | 卡片抬頭與日期 |
 | `nx4_font_icons_80.c` | MDI 4 個 + 自製 1 個，80 px | 71 | 右側指示燈條 |
+| `nx4_font_icons_40.c` | MDI 2 個，40 px | 30 | 里程 / 油箱的行內標籤 |
 
 ### 字級為什麼是這些數字
 
@@ -613,6 +614,33 @@ npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
 `ui_dashboard.c` 上方的 `ICO_*` 巨集是這五個碼位的 UTF-8 字面值，
 **改動 `--range` 順序時要一起改**。
 
+里程與油箱的行內標籤另外用一個 40px 的字型，碼位從 `U+E010` 起跳，
+刻意與上面的 `U+E000`-`U+E004` 分開，免得同一組位元組在不同字型下指到
+不同圖示：
+
+| 碼位 | MDI 名稱 | 原始碼位 | 用途 |
+|---|---|---|---|
+| `U+E010` | `counter` | `U+F0199` | 里程 |
+| `U+E011` | `gas-station` | `U+F0298` | 油箱 |
+
+```bash
+npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
+  --lv-include lvgl.h --font mdi.ttf --size 40 \
+  --range '0xF0199=>0xE010' --range '0xF0298=>0xE011' \
+  -o nx4_font_icons_40.c
+```
+
+> **MDI 的碼位會隨版本位移。** 產生前務必用 glyph 名稱反查，不要沿用舊碼位：
+> 例如 `gas-station` 在較新的 webfont 裡是 `U+F0298`，用舊的 `U+F0338` 會
+> 畫出一個「斷鏈」圖示，而且不會有任何錯誤訊息。
+>
+> ```python
+> from fontTools.ttLib import TTFont
+> rev = {}
+> for cp, g in TTFont("mdi.ttf").getBestCmap().items(): rev.setdefault(g, cp)
+> print(hex(rev["gas-station"]))
+> ```
+
 > Regular 以外的字重必須用**靜態**的 TTF。Google Fonts 上游發布的
 > `Montserrat[wght].ttf` 與 `NotoSansTC[wght].ttf` 都是可變字型，而且**預設
 > 字重是 100（Thin）不是 400**，直接餵給 lv_font_conv 會得到極細的字。
@@ -643,6 +671,8 @@ npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
 conv() { npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 \
            --format lvgl --lv-include lvgl.h "$@"; }
 
+conv --font $F/Montserrat-SemiBold.ttf --size 310 \
+     --range 0x30-0x39 --range 0x2D --range 0x52 -o nx4_font_num_310s.c
 conv --font $F/Montserrat-SemiBold.ttf --size 184 \
      --range 0x30-0x39 --range 0x2D -o nx4_font_num_184s.c
 conv --font $F/Montserrat-SemiBold.ttf --size 92 \
@@ -718,7 +748,8 @@ WebSocket 的邏輯完全相同。`src/touch`、`lv_conf.h`、字型沿用未改
 | 畫面上下顛倒 | 把 `.ino` 的 `DISP_ROTATION` 由 `90` 改成 `270`，畫面與觸控會一起翻 |
 | 序列埠出現 `[PPA] 旋轉失敗` | PPA 對區塊對齊有要求。確認 `my_rounder()` 有掛上 `disp_drv.rounder_cb`，且繪圖緩衝是 `heap_caps_aligned_alloc(64, ...)` 配出來的 |
 | 觸控完全沒反應 | 看開機日誌有沒有 `GT911 位址 0x..`。印出 `在 0x5D 與 0x14 都沒有回應` 代表 I2C 不通（檢查 `TP_I2C_SDA/SCL`）；有位址但點不到，看 `[TOUCH] raw=(..) lvgl=(..)` 的換算對不對 |
-| 開機後一直 `WiFi ...` | 看序列日誌的 `[WiFi] 斷線, reason=N`：15=密碼錯誤、201=找不到 AP、202/203=認證或關聯失敗。韌體每 10 秒會自動重送 `begin()`，實測 ESP-Hosted 首次常以 `reason=8` 失敗、第二次才成功，屬正常 |
+| 開機後一直 `WiFi ...` | 看序列日誌的 `[WiFi] 斷線, reason=N`：15=密碼錯誤、201=找不到 AP、202/203=認證或關聯失敗。韌體每 10 秒會自動重送 `begin()`。首次常以 `reason=8`/`203` 失敗、第二次才成功——**這不正常**，是下方「ESP-Hosted 版本不符」的徵兆之一 |
+| 連線正常但畫面每隔一陣子凍結數十秒 | 見下方「ESP-Hosted 版本不符」 |
 | 狀態列一直 `NO LINK` | App 端 IP/Port 是否正確、是否已打開「啟用 ESP32 儀表推送」、兩者是否同網段 |
 | 數值全部灰掉 | 超過 `DATA_TIMEOUT_MS`（預設 5 秒）沒收到推送，多半是手機端斷線或未在充電狀態 |
 | `JSON 解析失敗` | 檢查是否誤把第一通道（`BVB-7980`）的 IP/Port 填成 ESP32 的 |
@@ -732,3 +763,56 @@ WebSocket 的邏輯完全相同。`src/touch`、`lv_conf.h`、字型沿用未改
 | 設定過的 WiFi 想改回 config.h | NVS 優先於 config.h，需清除 NVS 才會回退 |
 | 亮度只有全亮或全暗 | 本板背光路徑會對 PWM 做交流耦合。若 100% 時反而不亮，把 `hx8394_lcd.cpp` 的滿載 duty 由 1023 降到 1000 左右，讓波形保持有切換 |
 | 亮度不會隨大燈變化 | 序列監視器看有無 `[BRT] 螢幕亮度 -> N%`；沒有代表手機端沒讀到 22BC09（App 日誌搜尋 `Headlights`），可能該車的 IGMP 請求 Header 不是 `ATSH302` |
+
+### ESP-Hosted 版本不符（已知問題，尚未處理）
+
+ESP32-P4 本身沒有射頻，Wi-Fi/BLE 全部經由板上的 ESP32-C6 副處理器，走 SDIO
+以 ESP-Hosted 協定轉送。**目前 Arduino core 的主機端與 C6 出廠韌體版本不相容。**
+
+開機時心跳會直接印出來：
+
+```
+[HOSTED] host=2.11.6  slave=0.0.0  ch=10
+E rpc_core: Response not received for [0x15e](Req_GetCoprocessorFwVersion)
+```
+
+`slave=0.0.0` 不是真的版本號，而是 C6 根本不回應版本查詢這個 RPC。
+Waveshare 的 `04_wifistation/main/idf_component.yml` 註明他們不重建 C6 slave
+image，並在 IDF < 6.0 時把 `esp_hosted` 釘在 **1.4.x**——那才是出廠韌體的版本，
+與 Arduino core 綁死的 **2.11.6** 差了一個大版本以上。
+
+**症狀**：連線建立正常、`clients=1` 維持著，但封包大量遺失，畫面凍結數十秒後
+又自己恢復。丟包率隨封包變大急遽惡化：
+
+| ICMP 封包大小 | 丟包率 |
+|---|---|
+| 16 B | 5% |
+| 500 B | 25% |
+| 1200 B | 95% |
+
+第二通道的推送約 470 bytes，正落在開始惡化的區間。
+
+**確認不是這些原因**（都實測排除）：訊號強度（RSSI −38～−44 dBm）、Wi-Fi 省電
+模式（心跳的 `ps=off`）、音訊的 I2S 中斷（編一版 `NX4_ENABLE_AUDIO 0` 的韌體，
+丟包反而更差）、網路本身（同時 ping 閘道 0% 丟包 / 10.9ms）、主迴圈被卡住
+（ICMP 由 lwIP 任務處理，不經 `loop()`）。
+
+**兩條修法**，都還沒做：
+
+1. **把 C6 韌體更新到 2.11.6**。官方檔案在
+   `https://espressif.github.io/arduino-esp32/hosted/esp32c6-v2.11.6.bin`。
+   可用 core 附的 `ESP_HostedOTA`，或從板上的 C6 燒錄埠有線燒錄（上電前 IO9 對
+   GND、TTL 接 TX/RX、按住 BOOT 阻止 P4 控制 C6 reset）。OTA 寫的是閒置分割區，
+   下載失敗不會變磚。但注意 `hostedActivateUpdate()` 在 slave 版本 < 2.6.0 時會
+   **吞掉啟用失敗並回報成功**，不能信那行 SUCCESS，要重開機重讀版本才算數。
+2. **改用 ESP-IDF（< 6.0）**，把 `esp_hosted` 釘在 `1.4.*` 配合出廠的 C6，完全
+   不必動硬體。本專案的 LCD / 觸控 / 音訊驅動本來就是純 IDF API（`esp_lcd`、
+   `driver/ledc`、`driver/i2s`），Arduino 相依性全部集中在
+   `nx4_dashboard_lcd5.ino` 一個檔案（WiFi / Serial / WebSocketsServer /
+   Preferences / millis），UI 與字型可原封不動搬過去。
+
+決定之前最低成本的驗證：直接編 Waveshare 的 `04_wifistation` 範例燒進去量丟包
+率。降到接近 0% 就證實是版本配對問題，否則得往硬體或 2.4GHz 環境找。
+
+> 桌上的測試環境有 7 台 2.4GHz 鄰機、板子被分到 ch10；車上是連手機熱點、距離
+> 近、沒有鄰台競爭，實際影響可能小得多。先在車上實測再決定要不要處理。

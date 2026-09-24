@@ -45,6 +45,12 @@
 #include "pins_config.h"
 #include "src/lcd/hx8394_lcd.h"
 #include "src/touch/gt911_touch.h"
+// 診斷用：設成 0 可編出完全不初始化音訊的版本，用來排除 I2S/ES8311
+// 對網路堆疊的干擾。正常版本必須是 1。
+#ifndef NX4_ENABLE_AUDIO
+#define NX4_ENABLE_AUDIO 1
+#endif
+#include "src/audio/nx4_tts.h"
 #include "ui_dashboard.h"
 #include "ui_settings.h"
 
@@ -212,6 +218,7 @@ static bool g_log_next_payload = false;
 #define FIELD_BRIGHT (1 << 5)
 #define FIELD_DOORS (1 << 6)
 #define FIELD_THROTTLE (1 << 7)
+#define FIELD_REVERSING (1 << 8)
 
 static void handleDashPayload(uint8_t *payload, size_t length) {
   // 連線後的第一筆原樣印出，直接看得到手機到底送了什麼
@@ -236,6 +243,7 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!doc["brightness"].isNull()) g_seen_fields |= FIELD_BRIGHT;
   if (!doc["doors"].isNull()) g_seen_fields |= FIELD_DOORS;
   if (!doc["throttle"].isNull()) g_seen_fields |= FIELD_THROTTLE;
+  if (!doc["reversing"].isNull()) g_seen_fields |= FIELD_REVERSING;
 
   // 只處理本機認得的協定，其餘（例如第一通道的 BVB-7980）直接忽略
   const char *type = doc["_type"] | "";
@@ -285,11 +293,34 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
     g_dash.camera_limit = camera["limit"] | 0;
   }
 
+  // 倒車：缺欄位時視為非倒車。舊版 App 不送這個欄位，沿用上次值會卡在 R。
+  g_dash.reversing = doc["reversing"] | false;
+
   JsonObjectConst lights = doc["lights"];
   if (!lights.isNull()) {
     g_dash.low_beam = lights["low"] | false;
     g_dash.high_beam = lights["high"] | false;
   }
+
+  // 語音試聽鉤子：{"tts_say": "代號"} 直接播一段音檔（代號見 nx4_voice_clips.c），
+  // {"tts_lead": 毫秒} 調開頭靜音。
+  // 純粹是調音用的，儀表 App 不會送這個欄位。
+  if (doc["tts_lead"].is<int>()) nx4_tts_set_lead_in_ms(doc["tts_lead"].as<int>());
+  const char *tts_say = doc["tts_say"] | (const char *)nullptr;
+  if (tts_say && *tts_say) nx4_tts_say(tts_say);
+
+  // 語音播報：只在狀態翻轉的那一刻念一次。第二通道每 200ms 推一次，
+  // 若照 g_dash 現值判斷會變成每包都念。
+  static bool s_said_high_beam = false;
+  static bool s_said_camera = false;
+  if (g_dash.high_beam != s_said_high_beam) {
+    s_said_high_beam = g_dash.high_beam;
+    nx4_tts_high_beam(s_said_high_beam);
+  }
+  if (g_dash.camera_active && !s_said_camera) {
+    nx4_tts_camera_alert(g_dash.camera_limit);
+  }
+  s_said_camera = g_dash.camera_active;
 
   // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
   // 整個 doors 物件缺席時沿用上一次的值（協定上合法，見 [FIELD] 診斷）；
@@ -355,6 +386,7 @@ static Preferences g_prefs;
 static String g_ssid;
 static String g_pass;
 static bool g_scan_pending = false;
+static int g_volume = -1;
 
 static void loadCredentials() {
   g_prefs.begin("nx4wifi", true);
@@ -376,6 +408,25 @@ static void saveCredentials(const char *ssid, const char *pass) {
   g_prefs.putString("ssid", ssid);
   g_prefs.putString("pass", pass);
   g_prefs.end();
+}
+
+/// 語音音量存在同一個 NVS namespace，開機時在初始化音訊之前讀，
+/// 這樣 nx4_tts_init() 設定 codec 時就已經是使用者選的值。
+static int loadVolume() {
+  g_prefs.begin("nx4wifi", true);
+  int v = g_prefs.getInt("volume", -1);
+  g_prefs.end();
+  return v;
+}
+
+/// 設定面板的音量滑桿放開：套用、存檔、播一段測試音讓使用者當場聽到。
+static void onSettingsVolume(int volume) {
+  nx4_tts_set_volume(volume);
+  g_prefs.begin("nx4wifi", false);
+  g_prefs.putInt("volume", volume);
+  g_prefs.end();
+  Serial.printf("[語音] 音量 %d%%\n", volume);
+  nx4_tts_say("boot");   // 「系統啟動」，長度適中，拿來當試聽音
 }
 
 /// 設定面板按下「儲存並連線」
@@ -442,13 +493,13 @@ static void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
                     info.wifi_sta_disconnected.reason);
       if (ui_settings_is_open()) ui_settings_set_status("連線失敗");
       break;
-    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
       Serial.printf("[WiFi] 取得 IP: %s\n", WiFi.localIP().toString().c_str());
       if (ui_settings_is_open()) ui_settings_set_status("已連線");
       // 關聯完成後才關省電模式：在 begin() 之前呼叫會讓 ESP-Hosted
       // 重新初始化，導致剛送出的連線請求被以 reason=8 (ASSOC_LEAVE) 中止
       WiFi.setSleep(false);
-      break;
+    } break;
     default:
       break;
   }
@@ -515,10 +566,14 @@ static void serviceWifi() {
     uint32_t fps = (g_flush_count * 1000) / (now - (last_beat - 10000));
     g_flush_count = 0;
     Serial.printf(
-        "[HB] WiFi=%s(st=%d) IP=%s clients=%u lastData=%lums BRT=%d%% "
+        "[HB] WiFi=%s(st=%d) IP=%s rssi=%ddBm ps=%s clients=%u lastData=%lums BRT=%d%% "
         "fps=%lu speed=%d rpm=%d low=%d high=%d\n",
         connected ? "up" : "down", (int)WiFi.status(),
         connected ? WiFi.localIP().toString().c_str() : "-",
+        // 訊號強度：收不到資料時第一個要看的就是這個。P4 本身沒有射頻，
+        // 網路全部經由 ESP32-C6 副處理器轉送，鏈路品質差會表現成
+        // 「連線還在、但 lastData 一路累積」而不是斷線。
+        connected ? (int)WiFi.RSSI() : 0, connected && WiFi.getSleep() ? "on" : "off",
         webSocket.connectedClients(), (unsigned long)age, g_brightness,
         (unsigned long)fps, g_dash.speed, g_dash.rpm, g_dash.low_beam,
         g_dash.high_beam);
@@ -526,7 +581,7 @@ static void serviceWifi() {
     // 只要有 client 就檢查欄位齊不齊，缺哪個直接點名
     if (webSocket.connectedClients() > 0) {
       Serial.printf(
-          "[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c doors=%c thr=%c",
+          "[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c doors=%c thr=%c rev=%c",
           (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
           (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
           (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
@@ -534,7 +589,8 @@ static void serviceWifi() {
           (g_seen_fields & FIELD_LIGHTS) ? 'Y' : 'N',
           (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N',
           (g_seen_fields & FIELD_DOORS) ? 'Y' : 'N',
-          (g_seen_fields & FIELD_THROTTLE) ? 'Y' : 'N');
+          (g_seen_fields & FIELD_THROTTLE) ? 'Y' : 'N',
+          (g_seen_fields & FIELD_REVERSING) ? 'Y' : 'N');
       if ((g_seen_fields & (FIELD_ODO | FIELD_TIME | FIELD_DATE)) !=
           (FIELD_ODO | FIELD_TIME | FIELD_DATE)) {
         Serial.print("   <- 手機 App 版本可能過舊，缺少的欄位不會更新");
@@ -566,6 +622,16 @@ void setup() {
       },
   };
   i2c_new_master_bus(&i2c_bus_conf, &i2c_handle);
+
+  // 語音（ES8311）。與觸控共用同一條 I2C 匯流排，
+  // 所以必須在 i2c_new_master_bus() 之後、且不另開 I2C。
+  // 失敗不影響儀表本身，播報呼叫會被安全忽略。
+#if NX4_ENABLE_AUDIO
+  g_volume = loadVolume();
+  if (g_volume >= 0) nx4_tts_set_volume(g_volume);   // 必須在 init 之前
+  nx4_tts_init(i2c_handle);
+  if (g_volume < 0) g_volume = nx4_tts_get_volume();  // 沒存過就沿用預設
+#endif
 
   lcd.begin();
   touch.begin();
@@ -612,7 +678,8 @@ void setup() {
   // 不在此呼叫 ui_dashboard_update()：那會把全 0 的初始結構畫上去，
   // 讓畫面在還沒收到任何資料時就顯示 0 km/h、EV 等看似真實的狀態。
   // 保留各 label 建立時的 "--"，第一筆資料抵達時自然會 force 全面更新。
-  ui_settings_set_callbacks(onSettingsApply, onSettingsScan);
+  ui_settings_set_callbacks(onSettingsApply, onSettingsScan, onSettingsVolume);
+  ui_settings_set_volume(g_volume);
   loadCredentials();
   ui_dashboard_set_ssid(g_ssid.c_str());
 
@@ -627,11 +694,37 @@ void setup() {
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
 
+  // 開機提示音。放在 setup 最後，這時畫面與網路都已就緒，
+  // 使用者聽到「系統啟動」時看到的也是可用的儀表。
+  nx4_tts_say("boot");
+
   Serial.println("Setup done");
+}
+
+/// ESP-Hosted 版本對照，連上線後只跑一次。
+///
+/// P4 沒有射頻，網路全部經由 ESP32-C6 副處理器走 SDIO。主從韌體版本不一致時
+/// 症狀是「連得上但封包大量遺失、延遲數秒」，不會有明顯錯誤訊息。
+///
+/// 注意這些呼叫會走 RPC 到 C6，逾時要等數秒，**不能放進 WiFi 事件處理器**，
+/// 否則會把事件任務卡住、連線流程跟著出問題。
+static void logHostedVersionsOnce() {
+  static bool done = false;
+  if (done || WiFi.status() != WL_CONNECTED) return;
+  done = true;
+
+  uint32_t hm = 0, hn = 0, hp = 0, sm = 0, sn = 0, sp = 0;
+  hostedGetHostVersion(&hm, &hn, &hp);
+  hostedGetSlaveVersion(&sm, &sn, &sp);
+  Serial.printf("[HOSTED] host=%lu.%lu.%lu slave=%lu.%lu.%lu ch=%d\n",
+                (unsigned long)hm, (unsigned long)hn, (unsigned long)hp,
+                (unsigned long)sm, (unsigned long)sn, (unsigned long)sp,
+                WiFi.channel());
 }
 
 void loop() {
   webSocket.loop();
+  logHostedVersionsOnce();
   serviceWifi();
   serviceScan();
 

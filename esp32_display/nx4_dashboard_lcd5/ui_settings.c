@@ -21,14 +21,18 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 #define PANEL_X 12
 #define PANEL_Y 8
 #define PANEL_W (LCD_H_RES - 2 * PANEL_X)
-#define PANEL_H 350 // 下半部留給鍵盤
+#define PANEL_H 416 // 下半部留給鍵盤
+
+// 卡片底部的音量列。原本卡片只有 350 高、鍵盤從 366 起跳，
+// 為了塞這一列把鍵盤壓矮 66px（仍有 282px，四排按鍵綽綽有餘）。
+#define VOL_Y 340
 
 #define LIST_X 16
 #define LIST_W 440
 #define FORM_X (LIST_X + LIST_W + 24)
 #define FORM_W (PANEL_W - FORM_X - 16)
 
-#define KB_Y 366
+#define KB_Y 432
 #define KB_H (LCD_V_RES - KB_Y - 6)
 
 static lv_obj_t *s_panel;
@@ -37,15 +41,20 @@ static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_pass_ta;
 static lv_obj_t *s_status;
 static lv_obj_t *s_kb;
+static lv_obj_t *s_vol_slider;
+static lv_obj_t *s_vol_value;
 
 static nx4_settings_apply_cb_t s_apply_cb;
 static nx4_settings_scan_cb_t s_scan_cb;
+static nx4_settings_volume_cb_t s_volume_cb;
 static bool s_open;
 
 void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
-                               nx4_settings_scan_cb_t scan) {
+                               nx4_settings_scan_cb_t scan,
+                               nx4_settings_volume_cb_t volume) {
   s_apply_cb = apply;
   s_scan_cb = scan;
+  s_volume_cb = volume;
 }
 
 // ── 事件 ────────────────────────────────────────────────────────────────
@@ -84,6 +93,18 @@ static void save_btn_cb(lv_event_t *e) {
   }
   ui_settings_set_status("連線中...");
   if (s_apply_cb) s_apply_cb(ssid, lv_textarea_get_text(s_pass_ta));
+}
+
+/// 音量滑桿。拖曳過程只更新右邊的數字，真正套用與試聽放到放開時，
+/// 否則手指滑過去會一路觸發、把播放佇列灌滿。
+static void vol_changed_cb(lv_event_t *e) {
+  int v = (int)lv_slider_get_value(lv_event_get_target(e));
+  lv_label_set_text_fmt(s_vol_value, "%d%%", v);
+}
+
+static void vol_released_cb(lv_event_t *e) {
+  int v = (int)lv_slider_get_value(lv_event_get_target(e));
+  if (s_volume_cb) s_volume_cb(v);
 }
 
 static void close_btn_cb(lv_event_t *e) {
@@ -184,6 +205,37 @@ void ui_settings_create(void) {
   make_button(card, "儲存並連線", FORM_X, 276, 180, C_BLUE, save_btn_cb);
   make_button(card, "取消", FORM_X + 196, 276, 120, C_FIELD, close_btn_cb);
 
+  // 底：音量。分隔線 + 標籤 + 滑桿 + 百分比。
+  lv_obj_t *sep = lv_obj_create(card);
+  lv_obj_set_pos(sep, LIST_X, VOL_Y - 18);
+  lv_obj_set_size(sep, PANEL_W - 2 * LIST_X, 1);
+  lv_obj_set_style_bg_color(sep, lv_color_hex(C_FIELD), 0);
+  lv_obj_set_style_border_width(sep, 0, 0);
+  lv_obj_set_style_radius(sep, 0, 0);
+
+  lv_obj_t *vol_label = lv_label_create(card);
+  lv_label_set_text(vol_label, "語音音量");
+  lv_obj_set_style_text_font(vol_label, F_LABEL, 0);
+  lv_obj_set_style_text_color(vol_label, lv_color_hex(C_LABEL), 0);
+  lv_obj_set_pos(vol_label, LIST_X, VOL_Y + 8);
+
+  s_vol_slider = lv_slider_create(card);
+  lv_obj_set_pos(s_vol_slider, LIST_X + 130, VOL_Y + 14);
+  lv_obj_set_size(s_vol_slider, PANEL_W - LIST_X - 130 - 110, 18);
+  lv_slider_set_range(s_vol_slider, 0, 100);
+  lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(C_FIELD), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(C_BLUE), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(C_BLUE), LV_PART_KNOB);
+  lv_obj_set_style_pad_all(s_vol_slider, 10, LV_PART_KNOB);
+  lv_obj_add_event_cb(s_vol_slider, vol_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_add_event_cb(s_vol_slider, vol_released_cb, LV_EVENT_RELEASED, NULL);
+
+  s_vol_value = lv_label_create(card);
+  lv_label_set_text(s_vol_value, "--");
+  lv_obj_set_style_text_font(s_vol_value, F_LABEL, 0);
+  lv_obj_set_style_text_color(s_vol_value, lv_color_hex(C_TEXT), 0);
+  lv_obj_set_pos(s_vol_value, PANEL_W - 96, VOL_Y + 8);
+
   // 下：維持預設的 ASCII 鍵盤。
   //
   // 注意：lv_keyboard_constructor() 內建就呼叫了
@@ -205,6 +257,15 @@ void ui_settings_debug_geometry(char *buf, size_t n) {
               (int)lv_obj_get_x(s_ssid_ta), (int)lv_obj_get_y(s_ssid_ta),
               (int)lv_obj_get_width(s_ssid_ta),
               (int)lv_obj_get_height(s_ssid_ta));
+}
+
+void ui_settings_set_volume(int volume) {
+  if (volume < 0) volume = 0;
+  if (volume > 100) volume = 100;
+  // LV_ANIM_OFF + 直接設值，不會發出 VALUE_CHANGED，所以不必擔心
+  // 開機預填時誤觸 volume callback 而播出測試音。
+  lv_slider_set_value(s_vol_slider, volume, LV_ANIM_OFF);
+  lv_label_set_text_fmt(s_vol_value, "%d%%", volume);
 }
 
 // ── 開關 ────────────────────────────────────────────────────────────────
