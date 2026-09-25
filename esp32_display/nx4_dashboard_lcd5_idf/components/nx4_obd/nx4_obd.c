@@ -344,7 +344,7 @@ ok:
 }
 
 static void obd_task(void *arg) {
-    int64_t last_slow = 0, last_min = 0, last_igmp = 0, last_gear = 0;
+    int64_t last_slow = 0, last_min = 0, last_igmp = 0;
 
     for (;;) {
         if (!nx4_ble_ready()) {
@@ -399,12 +399,8 @@ static void obd_task(void *arg) {
             poll_igmp();
         }
 
-        if (now - last_gear >= 1000) {          // D 檔（目前畫面沒用到，先留著）
-            last_gear = now;
-            elm_send("ATSH7E0", 1000);
-            elm_send("22E000", 1500);
-            elm_send("ATSH7DF", 1000);
-        }
+        // 手機端還會輪詢 22E000 判斷 D 檔，但這個畫面沒有檔位顯示
+        // （倒車的 R 來自 22BC08），所以不送——每秒三道指令在 BLE 上不便宜。
 
         vTaskDelay(pdMS_TO_TICKS(300));
     }
