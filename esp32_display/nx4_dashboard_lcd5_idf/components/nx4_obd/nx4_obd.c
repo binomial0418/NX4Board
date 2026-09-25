@@ -394,7 +394,17 @@ static void obd_task(void *arg) {
             elm_send("ATSH7DF", 1000);
         }
 
-        if (now - last_igmp >= 1000) {          // 大燈 / 車門 / 門鎖 / 倒車
+        // 大燈 / 車門 / 門鎖 / 倒車。間隔依車速調整（照搬手機端 _pollIgmp）：
+        // 車門與門鎖幾乎只在靜止時變動，行進間查得再勤也不會有事情發生，
+        // 不如把匯流排讓給 300ms 的時速/轉速快輪詢。
+        //
+        // 這一批是 6 道指令（Header + 四個 PID + 還原 Header），在 BLE 上
+        // 單道來回大約 100ms 起跳，行進間若還是每秒一批，光這批就吃掉大半
+        // 秒的匯流排時間，快輪詢會被推到 1 秒以上。
+        xSemaphoreTake(s_data_lock, portMAX_DELAY);
+        bool moving = s_data.has_speed && s_data.speed > 5;
+        xSemaphoreGive(s_data_lock);
+        if (now - last_igmp >= (moving ? 3000 : 1000)) {
             last_igmp = now;
             poll_igmp();
         }
@@ -402,7 +412,12 @@ static void obd_task(void *arg) {
         // 手機端還會輪詢 22E000 判斷 D 檔，但這個畫面沒有檔位顯示
         // （倒車的 R 來自 22BC08），所以不送——每秒三道指令在 BLE 上不便宜。
 
-        vTaskDelay(pdMS_TO_TICKS(300));
+        // 快輪詢的目標節奏是 300ms。上面那些指令花掉的時間要扣掉，
+        // 否則實際間隔會變成「300ms + 本圈所有指令的來回時間」，
+        // 慢輪詢那幾批一跑，時速與轉速就會明顯頓一下。
+        int64_t spent = (esp_timer_get_time() / 1000) - now;
+        if (spent < 300) vTaskDelay(pdMS_TO_TICKS(300 - spent));
+        else taskYIELD();
     }
 }
 
