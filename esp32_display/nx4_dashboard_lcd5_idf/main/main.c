@@ -59,6 +59,7 @@
 #define NX4_ENABLE_AUDIO 1
 #endif
 #include "nx4_tts.h"
+#include "nx4_ble.h"
 
 // ── 螢幕旋轉 ────────────────────────────────────────────────────────────
 // 面板實體 720x1280（直向），LVGL 畫的是 1280x720（橫向）。
@@ -466,6 +467,11 @@ static void serviceWifi(void) {
     }
 }
 
+/// 暫時的 BLE 收包探針，只把 dongle 吐回來的東西印出來。
+static void ble_rx_probe(const uint8_t *data, size_t len) {
+    printf("[BLE-RX] %.*s\n", (int)len, (const char *)data);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 void app_main(void) {
     printf("\nNX4Board ESP32-P4 Dashboard (ESP-IDF)\n");
@@ -562,6 +568,11 @@ void app_main(void) {
     // 開機提示音。放在最後，這時畫面與網路都已就緒，
     // 使用者聽到「系統啟動」時看到的也是可用的儀表。
     nx4_tts_say("boot");
+
+    // TODO(直連OBD)：目前只是把 BLE 拉起來、把 dongle 回傳的位元組原樣印出，
+    // 用來驗證 C6 的 BLE controller 走 ESP-Hosted VHCI 可用、且 18F0/2AF0/2AF1
+    // 這組 UUID 在這顆 dongle 上正確。ELM 指令層與 PID 解析還沒接上。
+    nx4_ble_start("IOS-VLINK", ble_rx_probe);
 
     printf("Setup done\n");
 

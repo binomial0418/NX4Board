@@ -41,3 +41,25 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # -Os 並調低 bootloader 日誌等級，省下的空間綽綽有餘。
 CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+# ── BLE（直連 OBD 用）────────────────────────────────────────────────────
+# ESP32-P4 沒有射頻，BLE controller 在 C6 上，host 端跑在 P4，兩者之間走
+# ESP-Hosted 的 VHCI。所以 controller 要停用（BT_CONTROLLER_DISABLED），
+# 而 NimBLE 的 UART transport 也要關掉，改用 hosted 的 VHCI。
+#
+# 選 NimBLE 而非 Bluedroid：只需要 central + GATT client，NimBLE 體積小很多。
+#
+# 注意 C6 只有 BLE，**沒有 Bluetooth Classic**（soc_caps.h 沒有
+# SOC_BT_CLASSIC_SUPPORTED），所以手機端那條 SPP/RFCOMM 的路在這塊板子上
+# 走不通，OBD dongle 必須以 BLE 模式連。
+CONFIG_BT_ENABLED=y
+CONFIG_BT_CONTROLLER_DISABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_TRANSPORT_UART=n
+CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE=y
+CONFIG_ESP_HOSTED_NIMBLE_HCI_VHCI=y
+# 只做 central，不需要 peripheral 的廣播角色
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
