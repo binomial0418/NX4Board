@@ -59,7 +59,7 @@
 #define NX4_ENABLE_AUDIO 1
 #endif
 #include "nx4_tts.h"
-#include "nx4_ble.h"
+#include "nx4_obd.h"
 
 // ── 螢幕旋轉 ────────────────────────────────────────────────────────────
 // 面板實體 720x1280（直向），LVGL 畫的是 1280x720（橫向）。
@@ -85,6 +85,15 @@ static uint32_t g_flush_count = 0;
 static int      g_brightness = 100;
 static int64_t  g_brightness_hold_until = 0;
 static int      g_volume = -1;
+
+// 車輛資料來源。true = 直連 OBD。
+//
+// 兩個來源是並存的，不是二選一：板子上沒有 GPS 元件，所以速限、替代速限、
+// 測速照相、時間日期、背光這些「GPS/手機才算得出來」的欄位，**不論哪個模式
+// 都走 WebSocket**。直連 OBD 只是把車輛數值（車速、轉速、水溫、電池、油量、
+// 里程、增壓、節氣門、胎壓、大燈、車門、倒車）的來源換成本機解析。
+static bool g_obd_direct = false;
+static char g_obd_name[NX4_OBD_NAME_LEN] = NX4_OBD_NAME_DEFAULT;
 
 /// 取代 Arduino 的 millis()
 static inline int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
@@ -276,20 +285,13 @@ static void handleDashPayload(const char *payload, size_t length) {
         return;
     }
 
-    // 缺欄位時保留上一次的值，避免畫面跳動
-    g_dash.speed = j_int(doc, "speed", g_dash.speed);
-    g_dash.rpm = j_int(doc, "rpm", g_dash.rpm);
-    g_dash.coolant = j_int(doc, "coolant", g_dash.coolant);
-    g_dash.soc = j_float(doc, "soc", g_dash.soc);
-    g_dash.fuel = j_int(doc, "fuel", g_dash.fuel);
+    // ── GPS / 手機端算出來的欄位：兩個模式都採用 ─────────────────────
+    // 板子上沒有 GPS 元件，速限、替代速限、測速照相都要靠手機的定位與圖資，
+    // 時間日期與背光也是手機端決定的，所以這一段不受資料來源開關影響。
     g_dash.speed_limit = j_int(doc, "speed_limit", g_dash.speed_limit);
     // 缺欄位時歸零，避免沿用上一包的舊值（判定恢復有把握後 ALT 才會消失）
     g_dash.limit_alt = j_int(doc, "limit_alt", 0);
     g_dash.limit_alt_above = j_bool(doc, "limit_alt_above", false);
-    g_dash.odo = j_int(doc, "odo", g_dash.odo);
-    g_dash.turbo = j_float(doc, "turbo", g_dash.turbo);
-    // 節氣門：0 是合法讀數，所以沿用上一次的值而不是 0
-    g_dash.throttle = j_int(doc, "throttle", g_dash.throttle);
 
     const char *clock = j_str(doc, "time");
     if (clock && clock[0]) {
@@ -302,27 +304,52 @@ static void handleDashPayload(const char *payload, size_t length) {
         g_dash.date[sizeof(g_dash.date) - 1] = '\0';
     }
 
-    const cJSON *tires = cJSON_GetObjectItemCaseSensitive(doc, "tires");
-    if (cJSON_IsObject(tires)) {
-        g_dash.tire_fl = j_int(tires, "fl", g_dash.tire_fl);
-        g_dash.tire_fr = j_int(tires, "fr", g_dash.tire_fr);
-        g_dash.tire_rl = j_int(tires, "rl", g_dash.tire_rl);
-        g_dash.tire_rr = j_int(tires, "rr", g_dash.tire_rr);
-    }
-
     const cJSON *camera = cJSON_GetObjectItemCaseSensitive(doc, "camera");
     if (cJSON_IsObject(camera)) {
         g_dash.camera_active = j_bool(camera, "active", false);
         g_dash.camera_limit = j_int(camera, "limit", 0);
     }
 
-    // 倒車：缺欄位時視為非倒車。舊版 App 不送這個欄位，沿用上次值會卡在 R。
-    g_dash.reversing = j_bool(doc, "reversing", false);
+    // ── 車輛數值：只有 WebSocket 模式才採用 ──────────────────────────
+    // 直連 OBD 時這些由本機解析供應（見 obd_apply()），若不擋掉，
+    // 200ms 一次的推送會把 OBD 讀到的值蓋掉。
+    if (!g_obd_direct) {
+        // 缺欄位時保留上一次的值，避免畫面跳動
+        g_dash.speed = j_int(doc, "speed", g_dash.speed);
+        g_dash.rpm = j_int(doc, "rpm", g_dash.rpm);
+        g_dash.coolant = j_int(doc, "coolant", g_dash.coolant);
+        g_dash.soc = j_float(doc, "soc", g_dash.soc);
+        g_dash.fuel = j_int(doc, "fuel", g_dash.fuel);
+        g_dash.odo = j_int(doc, "odo", g_dash.odo);
+        g_dash.turbo = j_float(doc, "turbo", g_dash.turbo);
+        // 節氣門：0 是合法讀數，所以沿用上一次的值而不是 0
+        g_dash.throttle = j_int(doc, "throttle", g_dash.throttle);
+        // 倒車：缺欄位時視為非倒車。舊版 App 不送，沿用上次值會卡在 R。
+        g_dash.reversing = j_bool(doc, "reversing", false);
 
-    const cJSON *lights = cJSON_GetObjectItemCaseSensitive(doc, "lights");
-    if (cJSON_IsObject(lights)) {
-        g_dash.low_beam = j_bool(lights, "low", false);
-        g_dash.high_beam = j_bool(lights, "high", false);
+        const cJSON *tires = cJSON_GetObjectItemCaseSensitive(doc, "tires");
+        if (cJSON_IsObject(tires)) {
+            g_dash.tire_fl = j_int(tires, "fl", g_dash.tire_fl);
+            g_dash.tire_fr = j_int(tires, "fr", g_dash.tire_fr);
+            g_dash.tire_rl = j_int(tires, "rl", g_dash.tire_rl);
+            g_dash.tire_rr = j_int(tires, "rr", g_dash.tire_rr);
+        }
+
+        const cJSON *lights = cJSON_GetObjectItemCaseSensitive(doc, "lights");
+        if (cJSON_IsObject(lights)) {
+            g_dash.low_beam = j_bool(lights, "low", false);
+            g_dash.high_beam = j_bool(lights, "high", false);
+        }
+
+        // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
+        // 整個 doors 物件缺席時沿用上一次的值（協定上合法，見 [FIELD] 診斷）；
+        // 物件在但某個鍵缺席時視為 false，因為「沒送」就代表沒有該警示。
+        const cJSON *doors = cJSON_GetObjectItemCaseSensitive(doc, "doors");
+        if (cJSON_IsObject(doors)) {
+            g_dash.door_open = j_bool(doors, "open", false);
+            g_dash.door_unlocked = j_bool(doors, "unlocked", false);
+            g_dash.trunk_open = j_bool(doors, "trunk", false);
+        }
     }
 
     // 語音試聽鉤子：{"tts_say": "代號"} 直接播一段音檔（代號見 nx4_voice_clips.c），
@@ -331,29 +358,6 @@ static void handleDashPayload(const char *payload, size_t length) {
     if (j_has(doc, "tts_lead")) nx4_tts_set_lead_in_ms(j_int(doc, "tts_lead", 400));
     const char *tts_say = j_str(doc, "tts_say");
     if (tts_say && *tts_say) nx4_tts_say(tts_say);
-
-    // 語音播報：只在狀態翻轉的那一刻念一次。第二通道每 200ms 推一次，
-    // 若照 g_dash 現值判斷會變成每包都念。
-    static bool s_said_high_beam = false;
-    static bool s_said_camera = false;
-    if (g_dash.high_beam != s_said_high_beam) {
-        s_said_high_beam = g_dash.high_beam;
-        nx4_tts_high_beam(s_said_high_beam);
-    }
-    if (g_dash.camera_active && !s_said_camera) {
-        nx4_tts_camera_alert(g_dash.camera_limit);
-    }
-    s_said_camera = g_dash.camera_active;
-
-    // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
-    // 整個 doors 物件缺席時沿用上一次的值（協定上合法，見 [FIELD] 診斷）；
-    // 物件在但某個鍵缺席時視為 false，因為「沒送」就代表沒有該警示。
-    const cJSON *doors = cJSON_GetObjectItemCaseSensitive(doc, "doors");
-    if (cJSON_IsObject(doors)) {
-        g_dash.door_open = j_bool(doors, "open", false);
-        g_dash.door_unlocked = j_bool(doors, "unlocked", false);
-        g_dash.trunk_open = j_bool(doors, "trunk", false);
-    }
 
     // 亮度：帶 brightness_hold_ms 的（設定頁測試按鈕）優先，並在該期間
     // 忽略儀表推送的亮度，否則 200ms 一次的推送會馬上把測試值蓋掉
@@ -381,6 +385,69 @@ static void onSettingsApply(const char *ssid, const char *pass) {
 }
 
 static void onSettingsScan(void) { nx4_wifi_scan_start(); }
+
+/// 資料來源切換 / OBD 裝置名稱改變。
+static void onSettingsSource(bool direct, const char *obd_name) {
+    bool name_changed = obd_name && strcmp(obd_name, g_obd_name) != 0;
+    if (name_changed) strlcpy(g_obd_name, obd_name, sizeof(g_obd_name));
+    g_obd_direct = direct;
+    nx4_nvs_save_source(direct, g_obd_name);
+    printf("[來源] %s，OBD 裝置「%s」\n", direct ? "直連 OBD" : "WebSocket",
+           g_obd_name);
+    if (name_changed) nx4_obd_set_name(g_obd_name);
+}
+
+/// 語音播報：只在狀態翻轉的那一刻念一次。
+///
+/// 放在主迴圈而不是 WebSocket 的解析裡——直連 OBD 模式下大燈狀態來自 OBD，
+/// 不會隨著 WS 封包進來，擺在解析裡就不會觸發。
+static void serviceVoice(void) {
+    static bool said_high_beam = false;
+    static bool said_camera = false;
+    if (g_dash.high_beam != said_high_beam) {
+        said_high_beam = g_dash.high_beam;
+        nx4_tts_high_beam(said_high_beam);
+    }
+    if (g_dash.camera_active && !said_camera) {
+        nx4_tts_camera_alert(g_dash.camera_limit);
+    }
+    said_camera = g_dash.camera_active;
+}
+
+/// 把 OBD 解析結果搬進畫面資料。只搬「讀到過」的欄位，沒讀到的保留 "--"。
+///
+/// 注意不碰 speed_limit / limit_alt / camera / clock / date——那些是 GPS 與
+/// 手機端算出來的，固定由 WebSocket 供應（板子上沒有 GPS 元件）。
+static void obd_apply(void) {
+    nx4_obd_data_t o;
+    nx4_obd_snapshot(&o);
+
+    if (o.has_speed)    g_dash.speed = o.speed;
+    if (o.has_rpm)      g_dash.rpm = o.rpm;
+    if (o.has_coolant)  g_dash.coolant = o.coolant;
+    if (o.has_soc)      g_dash.soc = o.soc;
+    if (o.has_fuel)     g_dash.fuel = o.fuel;
+    if (o.has_odo)      g_dash.odo = o.odo;
+    if (o.has_turbo)    g_dash.turbo = o.turbo;
+    if (o.has_throttle) g_dash.throttle = o.throttle;
+    if (o.has_tpms) {
+        g_dash.tire_fl = o.tire_fl; g_dash.tire_fr = o.tire_fr;
+        g_dash.tire_rl = o.tire_rl; g_dash.tire_rr = o.tire_rr;
+    }
+    if (o.has_lights) {
+        g_dash.low_beam = o.low_beam;
+        g_dash.high_beam = o.high_beam;
+    }
+    if (o.has_doors) {
+        g_dash.door_open = o.door_open;
+        g_dash.trunk_open = o.trunk_open;
+    }
+    if (o.has_lock)      g_dash.door_unlocked = o.door_unlocked;
+    if (o.has_reversing) g_dash.reversing = o.reversing;
+
+    g_dash_dirty = true;
+    g_last_data_ms = now_ms();   // 有 OBD 在餵就不要讓畫面淡出
+}
 
 /// 音量滑桿放開：套用、存檔、播一段測試音讓使用者當場聽到。
 static void onSettingsVolume(int volume) {
@@ -467,11 +534,6 @@ static void serviceWifi(void) {
     }
 }
 
-/// 暫時的 BLE 收包探針，只把 dongle 吐回來的東西印出來。
-static void ble_rx_probe(const uint8_t *data, size_t len) {
-    printf("[BLE-RX] %.*s\n", (int)len, (const char *)data);
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 void app_main(void) {
     printf("\nNX4Board ESP32-P4 Dashboard (ESP-IDF)\n");
@@ -551,8 +613,19 @@ void app_main(void) {
     // 不在此呼叫 ui_dashboard_update()：那會把全 0 的初始結構畫上去，
     // 讓畫面在還沒收到任何資料時就顯示 0 km/h、EV 等看似真實的狀態。
     // 保留各 label 建立時的 "--"，第一筆資料抵達時自然會 force 全面更新。
-    ui_settings_set_callbacks(onSettingsApply, onSettingsScan, onSettingsVolume);
+    ui_settings_set_callbacks(onSettingsApply, onSettingsScan, onSettingsVolume,
+                              onSettingsSource);
     ui_settings_set_volume(g_volume);
+
+    g_obd_direct = nx4_nvs_load_obd_direct();
+    nx4_nvs_load_obd_name(g_obd_name, sizeof(g_obd_name));
+    ui_settings_set_source(g_obd_direct, g_obd_name);
+    printf("[來源] %s，OBD 裝置「%s」\n",
+           g_obd_direct ? "直連 OBD" : "WebSocket", g_obd_name);
+
+    // BLE 一律啟動：即使目前是 WebSocket 模式，先連好 dongle，
+    // 使用者在設定頁切過去時才不用再等一次掃描與 ELM 初始化。
+    nx4_obd_start(g_obd_name);
 
     nx4_wifi_start();
     ui_dashboard_set_ssid(nx4_wifi_ssid());
@@ -569,11 +642,6 @@ void app_main(void) {
     // 使用者聽到「系統啟動」時看到的也是可用的儀表。
     nx4_tts_say("boot");
 
-    // TODO(直連OBD)：目前只是把 BLE 拉起來、把 dongle 回傳的位元組原樣印出，
-    // 用來驗證 C6 的 BLE controller 走 ESP-Hosted VHCI 可用、且 18F0/2AF0/2AF1
-    // 這組 UUID 在這顆 dongle 上正確。ELM 指令層與 PID 解析還沒接上。
-    nx4_ble_start("IOS-VLINK", ble_rx_probe);
-
     printf("Setup done\n");
 
     static char rx[NX4_WS_BUF_SIZE];
@@ -585,6 +653,15 @@ void app_main(void) {
         size_t n = nx4_ws_take(rx, sizeof(rx));
         if (n > 0) handleDashPayload(rx, n);
 
+        // 直連 OBD：每 100ms 把最新解析結果搬進畫面。OBD 任務是獨立跑的，
+        // 這裡只是取快照，不會被藍牙的延遲拖住。
+        if (g_obd_direct) {
+            static int64_t last_obd = 0;
+            int64_t t = now_ms();
+            if (t - last_obd >= 100) { last_obd = t; obd_apply(); }
+        }
+
+        serviceVoice();
         serviceWifi();
         serviceScan();
 

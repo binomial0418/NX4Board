@@ -22,10 +22,15 @@ typedef void (*nx4_settings_apply_cb_t)(const char *ssid, const char *pass);
 typedef void (*nx4_settings_scan_cb_t)(void);
 /// 使用者放開音量滑桿（0~100）。實作端應套用音量、播一段測試音、寫入 NVS。
 typedef void (*nx4_settings_volume_cb_t)(int volume);
+/// 使用者切換車輛資料來源，或改了 OBD 裝置名稱。實作端應寫入 NVS 並套用。
+/// direct 為 true 代表「直連 OBD」，false 代表「WebSocket」。
+/// GPS 相關資料（速限、測速照相、時間）一律走 WebSocket，不受這個開關影響。
+typedef void (*nx4_settings_source_cb_t)(bool direct, const char *obd_name);
 
 void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
                                nx4_settings_scan_cb_t scan,
-                               nx4_settings_volume_cb_t volume);
+                               nx4_settings_volume_cb_t volume,
+                               nx4_settings_source_cb_t source);
 
 /// 建立面板（開機時呼叫一次，預設隱藏）
 void ui_settings_create(void);
@@ -41,6 +46,9 @@ void ui_settings_add_network(const char *ssid, int rssi, bool locked);
 
 /// 預填音量滑桿（開機讀完 NVS 後呼叫一次）。不會觸發 volume callback。
 void ui_settings_set_volume(int volume);
+
+/// 預填資料來源與 OBD 裝置名稱（開機讀完 NVS 後呼叫一次）。不會觸發 callback。
+void ui_settings_set_source(bool direct, const char *obd_name);
 
 /// 面板下方的狀態列文字（掃描中、連線中、連線失敗…）
 void ui_settings_set_status(const char *text);

@@ -68,6 +68,36 @@ int nx4_nvs_load_volume(void) {
     return (int)v;
 }
 
+bool nx4_nvs_load_obd_direct(void) {
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        if (nvs_get_u8(h, "obd_direct", &v) != ESP_OK) v = 0;
+        nvs_close(h);
+    }
+    return v != 0;
+}
+
+void nx4_nvs_load_obd_name(char *out, size_t n) {
+    nvs_handle_t h;
+    out[0] = '\0';
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t len = n;
+        if (nvs_get_str(h, "obd_name", out, &len) != ESP_OK) out[0] = '\0';
+        nvs_close(h);
+    }
+    if (out[0] == '\0') strlcpy(out, NX4_OBD_NAME_DEFAULT, n);
+}
+
+void nx4_nvs_save_source(bool direct, const char *obd_name) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, "obd_direct", direct ? 1 : 0);
+    if (obd_name && obd_name[0]) nvs_set_str(h, "obd_name", obd_name);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 void nx4_nvs_save_volume(int volume) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;

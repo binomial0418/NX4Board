@@ -21,18 +21,23 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 #define PANEL_X 12
 #define PANEL_Y 8
 #define PANEL_W (LCD_H_RES - 2 * PANEL_X)
-#define PANEL_H 416 // 下半部留給鍵盤
+#define PANEL_H 480 // 下半部留給鍵盤
 
 // 卡片底部的音量列。原本卡片只有 350 高、鍵盤從 366 起跳，
 // 為了塞這一列把鍵盤壓矮 66px（仍有 282px，四排按鍵綽綽有餘）。
 #define VOL_Y 340
+
+// 車輛資料來源那一列。為了塞這列，卡片再由 416 加高到 480、鍵盤由 282 壓到
+// 218（四排按鍵每排仍有 54px，觸控綽綽有餘）。
+// 資料來源與 OBD 裝置名稱擠在同一列，不再往下長。
+#define SRC_Y 406
 
 #define LIST_X 16
 #define LIST_W 440
 #define FORM_X (LIST_X + LIST_W + 24)
 #define FORM_W (PANEL_W - FORM_X - 16)
 
-#define KB_Y 432
+#define KB_Y 496
 #define KB_H (LCD_V_RES - KB_Y - 6)
 
 static lv_obj_t *s_panel;
@@ -43,18 +48,25 @@ static lv_obj_t *s_status;
 static lv_obj_t *s_kb;
 static lv_obj_t *s_vol_slider;
 static lv_obj_t *s_vol_value;
+static lv_obj_t *s_btn_direct;
+static lv_obj_t *s_btn_ws;
+static lv_obj_t *s_obd_ta;
 
 static nx4_settings_apply_cb_t s_apply_cb;
 static nx4_settings_scan_cb_t s_scan_cb;
 static nx4_settings_volume_cb_t s_volume_cb;
+static nx4_settings_source_cb_t s_source_cb;
+static bool s_src_direct = false;
 static bool s_open;
 
 void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
                                nx4_settings_scan_cb_t scan,
-                               nx4_settings_volume_cb_t volume) {
+                               nx4_settings_volume_cb_t volume,
+                               nx4_settings_source_cb_t source) {
   s_apply_cb = apply;
   s_scan_cb = scan;
   s_volume_cb = volume;
+  s_source_cb = source;
 }
 
 // ── 事件 ────────────────────────────────────────────────────────────────
@@ -105,6 +117,37 @@ static void vol_changed_cb(lv_event_t *e) {
 static void vol_released_cb(lv_event_t *e) {
   int v = (int)lv_slider_get_value(lv_event_get_target(e));
   if (s_volume_cb) s_volume_cb(v);
+}
+
+/// 兩顆資料來源按鈕互斥。選中的用藍底，未選中的用欄位底色。
+static void refresh_source_buttons(void) {
+  lv_obj_set_style_bg_color(s_btn_direct,
+                            lv_color_hex(s_src_direct ? C_BLUE : C_FIELD), 0);
+  lv_obj_set_style_bg_color(s_btn_ws,
+                            lv_color_hex(s_src_direct ? C_FIELD : C_BLUE), 0);
+}
+
+static void notify_source(void) {
+  refresh_source_buttons();
+  if (s_source_cb) s_source_cb(s_src_direct, lv_textarea_get_text(s_obd_ta));
+}
+
+static void src_direct_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  s_src_direct = true;
+  notify_source();
+}
+
+static void src_ws_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  s_src_direct = false;
+  notify_source();
+}
+
+/// OBD 裝置名稱改完（鍵盤失焦或按下 Enter）才送出，不要每敲一個字就重連。
+static void obd_name_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  notify_source();
 }
 
 static void close_btn_cb(lv_event_t *e) {
@@ -236,6 +279,51 @@ void ui_settings_create(void) {
   lv_obj_set_style_text_color(s_vol_value, lv_color_hex(C_TEXT), 0);
   lv_obj_set_pos(s_vol_value, PANEL_W - 96, VOL_Y + 8);
 
+  // 底：車輛資料來源 + OBD 裝置名稱，擠在同一列。
+  //
+  // GPS 相關（速限、替代速限、測速照相、時間日期、背光）一律走 WebSocket，
+  // 不受這個開關影響——板子上沒有 GPS 元件。選「直連 OBD」時 WebSocket
+  // 仍然保持連線，只是車輛數值改由 OBD 供應。
+  lv_obj_t *sep2 = lv_obj_create(card);
+  lv_obj_set_pos(sep2, LIST_X, SRC_Y - 18);
+  lv_obj_set_size(sep2, PANEL_W - 2 * LIST_X, 1);
+  lv_obj_set_style_bg_color(sep2, lv_color_hex(C_FIELD), 0);
+  lv_obj_set_style_border_width(sep2, 0, 0);
+  lv_obj_set_style_radius(sep2, 0, 0);
+
+  lv_obj_t *src_label = lv_label_create(card);
+  lv_label_set_text(src_label, "車輛資料");
+  lv_obj_set_style_text_font(src_label, F_LABEL, 0);
+  lv_obj_set_style_text_color(src_label, lv_color_hex(C_LABEL), 0);
+  lv_obj_set_pos(src_label, LIST_X, SRC_Y + 10);
+
+  s_btn_direct = make_button(card, "直連 OBD", LIST_X + 130, SRC_Y, 170,
+                             C_FIELD, src_direct_cb);
+  s_btn_ws = make_button(card, "WebSocket", LIST_X + 314, SRC_Y, 170,
+                         C_FIELD, src_ws_cb);
+
+  lv_obj_t *obd_label = lv_label_create(card);
+  lv_label_set_text(obd_label, "OBD 裝置");
+  lv_obj_set_style_text_font(obd_label, F_LABEL, 0);
+  lv_obj_set_style_text_color(obd_label, lv_color_hex(C_LABEL), 0);
+  lv_obj_set_pos(obd_label, LIST_X + 520, SRC_Y + 10);
+
+  // 藍牙廣播名稱。板子只能用 BLE（ESP32-C6 沒有 Bluetooth Classic），
+  // 所以這裡填的是 dongle 的 BLE 名稱，預設 IOS-VLINK。
+  s_obd_ta = lv_textarea_create(card);
+  lv_obj_set_pos(s_obd_ta, LIST_X + 650, SRC_Y - 2);
+  lv_obj_set_size(s_obd_ta, PANEL_W - LIST_X - 650 - 16, 50);
+  lv_textarea_set_one_line(s_obd_ta, true);
+  lv_obj_set_style_bg_color(s_obd_ta, lv_color_hex(C_FIELD), 0);
+  lv_obj_set_style_border_color(s_obd_ta, lv_color_hex(C_UNIT), 0);
+  lv_obj_set_style_border_width(s_obd_ta, 1, 0);
+  lv_obj_set_style_text_color(s_obd_ta, lv_color_hex(C_TEXT), 0);
+  lv_obj_add_event_cb(s_obd_ta, ta_event_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(s_obd_ta, obd_name_cb, LV_EVENT_DEFOCUSED, NULL);
+  lv_obj_add_event_cb(s_obd_ta, obd_name_cb, LV_EVENT_READY, NULL);
+
+  refresh_source_buttons();
+
   // 下：維持預設的 ASCII 鍵盤。
   //
   // 注意：lv_keyboard_constructor() 內建就呼叫了
@@ -257,6 +345,12 @@ void ui_settings_debug_geometry(char *buf, size_t n) {
               (int)lv_obj_get_x(s_ssid_ta), (int)lv_obj_get_y(s_ssid_ta),
               (int)lv_obj_get_width(s_ssid_ta),
               (int)lv_obj_get_height(s_ssid_ta));
+}
+
+void ui_settings_set_source(bool direct, const char *obd_name) {
+  s_src_direct = direct;
+  if (obd_name) lv_textarea_set_text(s_obd_ta, obd_name);
+  refresh_source_buttons();     // 直接設值，不會觸發 callback
 }
 
 void ui_settings_set_volume(int volume) {

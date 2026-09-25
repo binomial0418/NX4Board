@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -59,10 +60,19 @@ bool nx4_wifi_scan_busy(void);
 /// 回傳 >= 0 之後狀態即清除，不會重複回報。
 int nx4_wifi_scan_take(nx4_ap_t *out, int max);
 
-// ── 音量（與 WiFi 憑證共用同一個 NVS namespace）────────────────────────
+// ── 其他設定（與 WiFi 憑證共用同一個 NVS namespace）────────────────────
 /// 沒存過時回傳 -1。
 int  nx4_nvs_load_volume(void);
 void nx4_nvs_save_volume(int volume);
+
+/// 車輛資料來源。true = 直連 OBD，false = WebSocket。沒存過時回傳 false。
+bool nx4_nvs_load_obd_direct(void);
+/// OBD dongle 的 BLE 廣播名稱，沒存過時填入 NX4_OBD_NAME_DEFAULT。
+void nx4_nvs_load_obd_name(char *out, size_t n);
+void nx4_nvs_save_source(bool direct, const char *obd_name);
+
+#define NX4_OBD_NAME_DEFAULT "IOS-VLINK"
+#define NX4_OBD_NAME_LEN 32
 
 #ifdef __cplusplus
 }
