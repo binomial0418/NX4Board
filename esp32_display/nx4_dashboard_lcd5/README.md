@@ -652,6 +652,29 @@ npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
 > python3 -m fontTools.varLib.instancer NotoSansTC[wght].ttf wght=400 -o NotoSansTC-Regular.ttf
 > ```
 
+> **中文字型是「只收用到的字」**，新增任何中文字串都要把新字補進
+> `--symbols` 重新產生，否則畫面上會是方塊。這個坑踩過一次：加了「語音音量」
+> 卻沒補字型，功能正常但標籤整排是豆腐塊，直到加了「車輛資料」那列才發現。
+>
+> 目前的完整集合（`nx4_font_tc_26` 與 `nx4_font_tc_32` 共用）：
+>
+> ```
+> 一三下不並中二五儲入六到取名四壓失存定密已找按掃描擇敗料日月水池油消測溫照燈直相碼程稱箱網線置胎裝設語請資路車輛輸近速連週道遠選里量限電音點
+> ```
+>
+> 要重算實際用到哪些字：
+>
+> ```bash
+> python3 - <<'EOF'
+> import io, re
+> chars = set()
+> for f in ['ui_dashboard.c', 'ui_settings.c']:
+>     for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', io.open(f, encoding='utf-8').read()):
+>         chars |= {c for c in m.group(1) if '\u4e00' <= c <= '\u9fff'}
+> print("".join(sorted(chars)))
+> EOF
+> ```
+
 > 每個數字字型都必須收錄 `-`：畫面在尚未取得資料時以 `--` 當佔位符，
 > 字型少了它會顯示成空白方框。新增任何佔位符或單位字元時，
 > 記得檢查對應字型有沒有收錄該字元。
