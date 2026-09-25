@@ -395,6 +395,8 @@ static void onSettingsSource(bool direct, const char *obd_name) {
     printf("[來源] %s，OBD 裝置「%s」\n", direct ? "直連 OBD" : "WebSocket",
            g_obd_name);
     if (name_changed) nx4_obd_set_name(g_obd_name);
+    // WebSocket 模式下完全不連藍牙，把 dongle 讓給手機端
+    nx4_obd_set_enabled(direct);
 }
 
 /// 語音播報：只在狀態翻轉的那一刻念一次。
@@ -623,9 +625,9 @@ void app_main(void) {
     printf("[來源] %s，OBD 裝置「%s」\n",
            g_obd_direct ? "直連 OBD" : "WebSocket", g_obd_name);
 
-    // BLE 一律啟動：即使目前是 WebSocket 模式，先連好 dongle，
-    // 使用者在設定頁切過去時才不用再等一次掃描與 ELM 初始化。
-    nx4_obd_start(g_obd_name);
+    // 只有選「直連 OBD」才去連藍牙。WebSocket 模式下連 NimBLE 都不初始化，
+    // dongle 完全不被佔用——手機端要用同一顆，不能兩邊搶。
+    nx4_obd_start(g_obd_name, g_obd_direct);
 
     nx4_wifi_start();
     ui_dashboard_set_ssid(nx4_wifi_ssid());

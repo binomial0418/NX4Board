@@ -41,8 +41,13 @@ typedef struct {
     float voltage;      bool has_voltage;
 } nx4_obd_data_t;
 
-/// 啟動 BLE 連線與輪詢任務。name 是 dongle 的 BLE 廣播名稱。
-void nx4_obd_start(const char *ble_name);
+/// 啟動輪詢任務。name 是 dongle 的 BLE 廣播名稱。
+/// 只有在資料來源選「直連 OBD」時才會真的去連藍牙——WebSocket 模式下
+/// 必須把 dongle 讓給手機端，見 nx4_obd_set_enabled()。
+void nx4_obd_start(const char *ble_name, bool enabled);
+
+/// 開關直連 OBD。關閉時會斷開 BLE 並停止掃描，不佔用 dongle。
+void nx4_obd_set_enabled(bool on);
 
 /// 改連另一個 dongle 名稱（設定頁改了之後呼叫）。
 void nx4_obd_set_name(const char *ble_name);

@@ -38,6 +38,13 @@ void nx4_ble_start(const char *name, nx4_ble_rx_cb_t on_rx);
 /// 改連另一個名稱（設定頁改了裝置名稱時用）。會先斷線再重新掃描。
 void nx4_ble_set_name(const char *name);
 
+/// 開關 BLE。關閉時會取消掃描並主動斷線，且不會自動重掃——
+/// 資料來源選 WebSocket 時必須關掉，否則會一直佔著 dongle 的連線，
+/// 手機端就連不上了。
+///
+/// NimBLE 本身只初始化一次，關閉只是停止掃描與斷線；重新開啟不必再初始化。
+void nx4_ble_set_enabled(bool on);
+
 /// 是否已連線且 characteristic 都就緒。
 bool nx4_ble_ready(void);
 

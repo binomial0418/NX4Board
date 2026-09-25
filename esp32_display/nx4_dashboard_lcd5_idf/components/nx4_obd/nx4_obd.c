@@ -31,6 +31,8 @@ static volatile size_t   s_rx_len = 0;
 static SemaphoreHandle_t s_rx_done;      // 看到 '>' 時 give
 
 static bool s_ready = false;
+static bool s_enabled = false;
+static char s_ble_name[40] = "";
 static char s_active_header[8] = "7DF";  // 22BC04 在不同 Header 下意義不同
 
 static void on_ble_rx(const uint8_t *data, size_t len) {
@@ -347,6 +349,12 @@ static void obd_task(void *arg) {
     int64_t last_slow = 0, last_min = 0, last_igmp = 0;
 
     for (;;) {
+        if (!s_enabled) {
+            s_ready = false;
+            s_igmp_locked = NULL;
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
         if (!nx4_ble_ready()) {
             s_ready = false;
             s_igmp_locked = NULL;
@@ -422,16 +430,39 @@ static void obd_task(void *arg) {
 }
 
 // ── 對外 ─────────────────────────────────────────────────────────────────
-void nx4_obd_start(const char *ble_name) {
+void nx4_obd_start(const char *ble_name, bool enabled) {
     s_data_lock = xSemaphoreCreateMutex();
     s_rx_done = xSemaphoreCreateBinary();
     memset(&s_data, 0, sizeof(s_data));
+    s_enabled = enabled;
+    if (ble_name) strlcpy(s_ble_name, ble_name, sizeof(s_ble_name));
 
-    nx4_ble_start(ble_name, on_ble_rx);
+    // 只有真的要用才去碰藍牙。WebSocket 模式下連 NimBLE 都不初始化，
+    // dongle 完全不會被佔用。
+    if (enabled) nx4_ble_start(s_ble_name, on_ble_rx);
     xTaskCreatePinnedToCore(obd_task, "nx4_obd", 5120, NULL, 4, NULL, 0);
 }
 
-void nx4_obd_set_name(const char *ble_name) { nx4_ble_set_name(ble_name); }
+void nx4_obd_set_enabled(bool on) {
+    if (s_enabled == on) return;
+    s_enabled = on;
+    if (!on) {
+        s_ready = false;
+        s_igmp_locked = NULL;
+    }
+    if (on) {
+        // nx4_ble_start() 同時處理兩種情況：NimBLE 還沒初始化就初始化，
+        // 已經初始化過（之前停用）就只是重新開始掃描。
+        nx4_ble_start(s_ble_name, on_ble_rx);
+    } else {
+        nx4_ble_set_enabled(false);
+    }
+}
+
+void nx4_obd_set_name(const char *ble_name) {
+    if (ble_name) strlcpy(s_ble_name, ble_name, sizeof(s_ble_name));
+    if (s_enabled) nx4_ble_set_name(s_ble_name);   // 停用中就等下次啟用再套用
+}
 bool nx4_obd_ready(void) { return s_ready; }
 
 void nx4_obd_snapshot(nx4_obd_data_t *out) {

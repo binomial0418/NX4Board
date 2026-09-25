@@ -30,6 +30,8 @@ static uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_write_handle = 0;
 static uint16_t s_notify_handle = 0;
 static bool     s_ready = false;
+static bool     s_enabled = true;
+static bool     s_inited = false;
 
 static void start_scan(void);
 
@@ -65,6 +67,7 @@ static void log_name_once(const struct ble_hs_adv_fields *f, int rssi) {
 }
 
 static void start_scan(void) {
+    if (!s_enabled) return;
     uint8_t own_addr_type;
     if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) {
         ESP_LOGE(TAG, "取不到本機位址型別");
@@ -170,11 +173,15 @@ static int on_gap(struct ble_gap_event *ev, void *arg) {
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGW(TAG, "斷線 reason=%d，重新掃描", ev->disconnect.reason);
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_ready = false;
         s_write_handle = s_notify_handle = 0;
-        start_scan();
+        if (s_enabled) {
+            ESP_LOGW(TAG, "斷線 reason=%d，重新掃描", ev->disconnect.reason);
+            start_scan();
+        } else {
+            ESP_LOGI(TAG, "已停用，保持斷線");
+        }
         return 0;
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
@@ -219,6 +226,13 @@ static void host_task(void *param) {
 void nx4_ble_start(const char *name, nx4_ble_rx_cb_t on_rx) {
     s_on_rx = on_rx;
     if (name) strlcpy(s_name, name, sizeof(s_name));
+    s_enabled = true;
+
+    if (s_inited) {          // 之前停用過，現在只要重新開始掃描
+        start_scan();
+        return;
+    }
+    s_inited = true;
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
@@ -245,6 +259,23 @@ void nx4_ble_set_name(const char *name) {
     } else {
         ble_gap_disc_cancel();
         start_scan();
+    }
+}
+
+void nx4_ble_set_enabled(bool on) {
+    if (s_enabled == on) return;
+    s_enabled = on;
+    if (on) {
+        ESP_LOGI(TAG, "啟用，開始掃描「%s」", s_name);
+        if (s_inited) start_scan();
+        return;
+    }
+    // 停用：取消掃描並主動斷線，把 dongle 讓給手機端
+    ESP_LOGI(TAG, "停用，斷開並停止掃描");
+    s_ready = false;
+    ble_gap_disc_cancel();
+    if (s_conn != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(s_conn, BLE_ERR_REM_USER_CONN_TERM);
     }
 }
 
