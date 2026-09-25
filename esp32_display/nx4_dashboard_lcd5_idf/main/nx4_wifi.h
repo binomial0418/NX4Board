@@ -74,6 +74,23 @@ void nx4_nvs_save_source(bool direct, const char *obd_name);
 #define NX4_OBD_NAME_DEFAULT "IOS-VLINK"
 #define NX4_OBD_NAME_LEN 32
 
+// ── 固定 IP ──────────────────────────────────────────────────────────────
+// 把目前 DHCP 拿到的位址鎖起來，下次開機直接用，不必等 DHCP，也讓手機端
+// 的設定不用每次改 IP。
+//
+// **固定 IP 會綁定當初的 SSID。** 換到別的網路時自動失效、退回 DHCP——
+// 否則換網段之後板子會完全連不上，只能靠觸控螢幕救回來。
+
+/// 目前是否已對「現在這個 SSID」固定 IP。
+bool nx4_wifi_ip_pinned(void);
+
+/// 把目前拿到的位址（IP / 閘道 / 遮罩）連同 SSID 存起來。
+/// 尚未取得 IP 時回傳 false。
+bool nx4_wifi_pin_current_ip(void);
+
+/// 清掉固定 IP，退回 DHCP。下次連線生效。
+void nx4_wifi_unpin_ip(void);
+
 #ifdef __cplusplus
 }
 #endif

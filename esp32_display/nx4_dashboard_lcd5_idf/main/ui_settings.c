@@ -51,22 +51,28 @@ static lv_obj_t *s_vol_value;
 static lv_obj_t *s_btn_direct;
 static lv_obj_t *s_btn_ws;
 static lv_obj_t *s_obd_ta;
+static lv_obj_t *s_ip_btn;
+static lv_obj_t *s_ip_btn_label;
+static lv_obj_t *s_ip_detail;
 
 static nx4_settings_apply_cb_t s_apply_cb;
 static nx4_settings_scan_cb_t s_scan_cb;
 static nx4_settings_volume_cb_t s_volume_cb;
 static nx4_settings_source_cb_t s_source_cb;
+static nx4_settings_ip_cb_t s_ip_cb;
 static bool s_src_direct = false;
 static bool s_open;
 
 void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
                                nx4_settings_scan_cb_t scan,
                                nx4_settings_volume_cb_t volume,
-                               nx4_settings_source_cb_t source) {
+                               nx4_settings_source_cb_t source,
+                               nx4_settings_ip_cb_t ip_toggle) {
   s_apply_cb = apply;
   s_scan_cb = scan;
   s_volume_cb = volume;
   s_source_cb = source;
+  s_ip_cb = ip_toggle;
 }
 
 // ── 事件 ────────────────────────────────────────────────────────────────
@@ -148,6 +154,11 @@ static void src_ws_cb(lv_event_t *e) {
 static void obd_name_cb(lv_event_t *e) {
   LV_UNUSED(e);
   notify_source();
+}
+
+static void ip_btn_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  if (s_ip_cb) s_ip_cb();
 }
 
 static void close_btn_cb(lv_event_t *e) {
@@ -279,6 +290,20 @@ void ui_settings_create(void) {
   lv_obj_set_style_text_color(s_vol_value, lv_color_hex(C_TEXT), 0);
   lv_obj_set_pos(s_vol_value, PANEL_W - 96, VOL_Y + 8);
 
+  // 固定 IP：放在「儲存並連線 / 取消」同一列的右側空白處（那兩顆佔到 x=796，
+  // 卡片寬 1256，右邊 400 多 px 一直空著），語意上也同屬網路設定。
+  //
+  // 做成「按一下把目前 DHCP 拿到的位址鎖起來」而不是讓使用者打 IP——
+  // 觸控鍵盤打點分十進位太痛苦，而且容易打錯。
+  s_ip_btn = make_button(card, "", 830, 276, 220, C_FIELD, ip_btn_cb);
+  s_ip_btn_label = lv_obj_get_child(s_ip_btn, 0);
+
+  s_ip_detail = lv_label_create(card);
+  lv_label_set_text(s_ip_detail, "");
+  lv_obj_set_style_text_font(s_ip_detail, F_LABEL, 0);
+  lv_obj_set_style_text_color(s_ip_detail, lv_color_hex(C_UNIT), 0);
+  lv_obj_set_pos(s_ip_detail, 1066, 288);
+
   // 底：車輛資料來源 + OBD 裝置名稱，擠在同一列。
   //
   // GPS 相關（速限、替代速限、測速照相、時間日期、背光）一律走 WebSocket，
@@ -345,6 +370,12 @@ void ui_settings_debug_geometry(char *buf, size_t n) {
               (int)lv_obj_get_x(s_ssid_ta), (int)lv_obj_get_y(s_ssid_ta),
               (int)lv_obj_get_width(s_ssid_ta),
               (int)lv_obj_get_height(s_ssid_ta));
+}
+
+void ui_settings_set_ip_state(bool pinned, const char *detail) {
+  lv_label_set_text(s_ip_btn_label, pinned ? "改用 DHCP" : "固定目前 IP");
+  lv_obj_set_style_bg_color(s_ip_btn, lv_color_hex(pinned ? C_GREEN : C_FIELD), 0);
+  lv_label_set_text(s_ip_detail, detail ? detail : "");
 }
 
 void ui_settings_set_source(bool direct, const char *obd_name) {

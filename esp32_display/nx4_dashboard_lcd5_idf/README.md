@@ -92,6 +92,46 @@ spawn 時會繼承 x86_64，但那個環境裝的輪子是 arm64，於是 `pydan
 > 這塊板子唯一能用的版本（4.10.0 連晶片都認不到，報 `Invalid head of packet`）。
 > `build.sh` 仍留了 `NX4_ESPTOOL` 可以指定外部 esptool，備而不用。
 
+## 中文字型
+
+`nx4_font_tc_26` / `tc_32` 是**只收用到的字**的子集字型。新增任何會上畫面的
+中文字串卻忘了補字，畫面上就會是方塊——而且功能完全正常，很容易很晚才發現
+（這個坑踩過兩次：「語音音量」與「固定目前 IP」）。
+
+`tools/tc_symbols.py` 就是為了不靠人工記憶：
+
+```bash
+python3 tools/tc_symbols.py --check   # 有缺字就列出來並以非零結束
+python3 tools/tc_symbols.py           # 印出完整的 --symbols 字串
+```
+
+它只收真正進得了 LVGL 的字串（`ui_*.c` 的字面值，加上其他檔案裡傳給 `ui_*`
+函式的字面值），送序列埠的 `printf` 不算。另外有一組寫死的 `RUNTIME`：
+日期是手機端算好送過來的（`"01/01 週一"`），星期幾沒有任何 C 字串字面值
+可以掃，漏掉的話日期會變方塊。
+
+重新產生：
+
+```bash
+SYM=$(python3 tools/tc_symbols.py)
+for sz in 26 32; do
+  npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
+    --lv-include lvgl.h --font NotoSansTC-Regular.ttf --size $sz \
+    --range 0x20-0x7E --symbols "$SYM" -o main/nx4_font_tc_$sz.c
+done
+```
+
+## 固定 IP
+
+設定頁「儲存並連線」那一列右邊有一顆按鈕，按下去會把**目前 DHCP 拿到的
+位址**連同閘道、遮罩存進 NVS，下次開機直接套用。再按一次退回 DHCP。
+
+做成「鎖定當下的位址」而不是讓使用者打 IP，是因為觸控鍵盤打點分十進位太
+容易出錯。
+
+**固定 IP 會綁定當初的 SSID。** 換到別的網路時自動失效、退回 DHCP——否則
+換網段之後板子會完全連不上，只能靠觸控螢幕救回來。
+
 ## 專案結構
 
 ```

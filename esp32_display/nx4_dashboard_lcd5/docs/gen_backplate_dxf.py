@@ -7,6 +7,8 @@
   NX4_壓克力背板_118.5x64.5.dxf   與模組 PCB 同尺寸（規格書主方案）
   NX4_壓克力背板_126.9x70.7.dxf   與前面板玻璃齊平（選配方案）
 
+每片含：圓角外框、4 個鎖孔、1 個喇叭線出線長圓孔。
+
 尺寸來源：Waveshare 官方機構圖 ESP32-P4-WIFI6-Touch-LCD-5-dimensions-20260408
 """
 import math
@@ -16,6 +18,17 @@ HOLE_D = 2.8          # M2.5 螺絲的通孔
 CORNER_R = 3.0        # 四角圓角，與前面板玻璃一致
 PITCH_X = 112.0       # 孔中心對孔中心
 PITCH_Y = 57.0
+
+# 喇叭線出線孔：直立長圓孔，長軸沿板寬方向（往板中央延伸）。
+# 喇叭插座是板背面的 J5（1.25mm 2P），原廠 3D 模型量得中心在
+# 距最近短邊 29.19、距長邊 4.14。插頭的線是朝板中央方向出來的，
+# 孔若只開在插座正上方，線得在背板下方急轉 90° 才出得去；所以孔往
+# 板中央拉長，讓線斜斜地出來。孔的上緣到板邊留 3.0 的料（= 板厚），
+# 雷射切完不易斷。以左上鎖孔為基準定位，兩個方案共用同一組相對座標。
+SLOT_W = 7.0          # 寬（沿板長）；1.25 2P 母端插頭約 4.3 x 3.2，可整顆穿過
+SLOT_L = 14.0         # 長（沿板寬，往板中央）
+SLOT_DX = 25.95       # 孔心相對左上鎖孔：往右
+SLOT_DY = -6.25       # 孔心相對左上鎖孔：往下
 
 # 兩個方案：(檔名後綴, 板寬, 板高, 左下角第一孔的 x, y)
 VARIANTS = [
@@ -65,11 +78,28 @@ def rounded_rect(w, h, r):
     return ents
 
 
+def slot(cx, cy, width, length):
+    """直立長圓孔（長軸沿 Y），回傳 2 直線 + 2 半圓弧。"""
+    r = width / 2
+    a = length / 2 - r                   # 圓心到孔心的距離
+    return [
+        line(cx + r, cy - a, cx + r, cy + a),   # 右
+        line(cx - r, cy + a, cx - r, cy - a),   # 左
+        arc(cx, cy + a, r, 0, 180),             # 上半圓
+        arc(cx, cy - a, r, 180, 360),           # 下半圓
+    ]
+
+
+def slot_center(hx, hy):
+    return hx + SLOT_DX, hy + PITCH_Y + SLOT_DY
+
+
 def build(w, h, hx, hy):
     ents = rounded_rect(w, h, CORNER_R)
     for x in (hx, hx + PITCH_X):
         for y in (hy, hy + PITCH_Y):
             ents.append(circle(x, y, HOLE_D / 2))
+    ents += slot(*slot_center(hx, hy), SLOT_W, SLOT_L)
     header = ("0\nSECTION\n" + _pair(2, "HEADER")
               + _pair(9, "$INSUNITS") + _pair(70, 4)          # 4 = 公釐
               + _pair(9, "$MEASUREMENT") + _pair(70, 1)       # 1 = 公制
@@ -95,6 +125,9 @@ def main():
         print(f"   外形 {w} x {h}、圓角 R{CORNER_R:g}、4 x Ø{HOLE_D:g} 通孔")
         print(f"   孔位 " + "  ".join(f"({x:g}, {y:g})" for x, y in holes))
         print(f"   邊距 左右 {hx:g} / {w - hx - PITCH_X:g}、上下 {hy:g} / {h - hy - PITCH_Y:g}")
+        sx, sy = slot_center(hx, hy)
+        print(f"   喇叭線孔 {SLOT_W:g} x {SLOT_L:g} 直立長圓孔，孔心 ({sx:g}, {sy:g})、"
+              f"孔緣距上邊 {h - sy - SLOT_L / 2:g}、下緣 Y {sy - SLOT_L / 2:g}")
 
 
 if __name__ == "__main__":

@@ -106,6 +106,75 @@ void nx4_nvs_save_volume(int volume) {
     nvs_close(h);
 }
 
+// ── 固定 IP ──────────────────────────────────────────────────────────────
+static bool load_pinned(esp_netif_ip_info_t *ip) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+
+    char ssid[NX4_SSID_LEN] = "";
+    size_t n = sizeof(ssid);
+    bool ok = nvs_get_str(h, "ip_ssid", ssid, &n) == ESP_OK;
+    uint32_t a = 0, g = 0, m = 0;
+    ok = ok && nvs_get_u32(h, "ip_addr", &a) == ESP_OK;
+    ok = ok && nvs_get_u32(h, "ip_gw", &g) == ESP_OK;
+    ok = ok && nvs_get_u32(h, "ip_mask", &m) == ESP_OK;
+    nvs_close(h);
+
+    // 綁定 SSID：換了網路就不套用，避免網段不符而完全連不上
+    if (!ok || strcmp(ssid, s_ssid) != 0) return false;
+    ip->ip.addr = a;
+    ip->gw.addr = g;
+    ip->netmask.addr = m;
+    return true;
+}
+
+static void apply_pinned_ip(void) {
+    esp_netif_ip_info_t ip = {0};
+    if (!load_pinned(&ip)) return;      // 沒設定或 SSID 不符，維持 DHCP
+
+    esp_netif_dhcpc_stop(s_netif);
+    if (esp_netif_set_ip_info(s_netif, &ip) != ESP_OK) {
+        printf("[WiFi] 固定 IP 設定失敗，改用 DHCP\n");
+        esp_netif_dhcpc_start(s_netif);
+        return;
+    }
+    printf("[WiFi] 使用固定 IP " IPSTR "（綁定 %s）\n", IP2STR(&ip.ip), s_ssid);
+}
+
+bool nx4_wifi_ip_pinned(void) {
+    esp_netif_ip_info_t ip;
+    return load_pinned(&ip);
+}
+
+bool nx4_wifi_pin_current_ip(void) {
+    if (!s_connected || !s_netif) return false;
+    esp_netif_ip_info_t ip;
+    if (esp_netif_get_ip_info(s_netif, &ip) != ESP_OK || ip.ip.addr == 0) return false;
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    nvs_set_str(h, "ip_ssid", s_ssid);
+    nvs_set_u32(h, "ip_addr", ip.ip.addr);
+    nvs_set_u32(h, "ip_gw", ip.gw.addr);
+    nvs_set_u32(h, "ip_mask", ip.netmask.addr);
+    nvs_commit(h);
+    nvs_close(h);
+    printf("[WiFi] 已固定 IP " IPSTR "（綁定 %s）\n", IP2STR(&ip.ip), s_ssid);
+    return true;
+}
+
+void nx4_wifi_unpin_ip(void) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_erase_key(h, "ip_ssid");
+    nvs_erase_key(h, "ip_addr");
+    nvs_erase_key(h, "ip_gw");
+    nvs_erase_key(h, "ip_mask");
+    nvs_commit(h);
+    nvs_close(h);
+    printf("[WiFi] 已取消固定 IP，下次連線改用 DHCP\n");
+}
+
 // ── 連線 ─────────────────────────────────────────────────────────────────
 static void do_connect(void) {
     wifi_config_t cfg = {0};
@@ -177,20 +246,7 @@ void nx4_wifi_start(void) {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     s_netif = esp_netif_create_default_wifi_sta();
 
-#if USE_STATIC_IP
-    {
-        esp_netif_dhcpc_stop(s_netif);
-        esp_netif_ip_info_t ip = {0};
-        uint8_t a[4] = {STATIC_IP}, g[4] = {STATIC_GATEWAY}, m[4] = {STATIC_SUBNET};
-        IP4_ADDR(&ip.ip, a[0], a[1], a[2], a[3]);
-        IP4_ADDR(&ip.gw, g[0], g[1], g[2], g[3]);
-        IP4_ADDR(&ip.netmask, m[0], m[1], m[2], m[3]);
-        if (esp_netif_set_ip_info(s_netif, &ip) != ESP_OK) {
-            printf("[WiFi] 靜態 IP 設定失敗，改用 DHCP\n");
-            esp_netif_dhcpc_start(s_netif);
-        }
-    }
-#endif
+    apply_pinned_ip();
 
     wifi_init_config_t ic = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&ic));

@@ -26,11 +26,15 @@ typedef void (*nx4_settings_volume_cb_t)(int volume);
 /// direct 為 true 代表「直連 OBD」，false 代表「WebSocket」。
 /// GPS 相關資料（速限、測速照相、時間）一律走 WebSocket，不受這個開關影響。
 typedef void (*nx4_settings_source_cb_t)(bool direct, const char *obd_name);
+/// 使用者按下「固定目前 IP」/「改用 DHCP」。實作端切換狀態後，
+/// 要回頭呼叫 ui_settings_set_ip_state() 更新按鈕與說明文字。
+typedef void (*nx4_settings_ip_cb_t)(void);
 
 void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
                                nx4_settings_scan_cb_t scan,
                                nx4_settings_volume_cb_t volume,
-                               nx4_settings_source_cb_t source);
+                               nx4_settings_source_cb_t source,
+                               nx4_settings_ip_cb_t ip_toggle);
 
 /// 建立面板（開機時呼叫一次，預設隱藏）
 void ui_settings_create(void);
@@ -49,6 +53,10 @@ void ui_settings_set_volume(int volume);
 
 /// 預填資料來源與 OBD 裝置名稱（開機讀完 NVS 後呼叫一次）。不會觸發 callback。
 void ui_settings_set_source(bool direct, const char *obd_name);
+
+/// 更新固定 IP 的按鈕與說明。pinned 決定按鈕顯示「固定目前 IP」或
+/// 「改用 DHCP」，detail 是旁邊的小字（例如目前位址）。
+void ui_settings_set_ip_state(bool pinned, const char *detail);
 
 /// 面板下方的狀態列文字（掃描中、連線中、連線失敗…）
 void ui_settings_set_status(const char *text);

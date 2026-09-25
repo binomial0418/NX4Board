@@ -459,6 +459,28 @@ static void onSettingsVolume(int volume) {
     nx4_tts_say("boot");   // 「系統啟動」，長度適中，拿來當試聽音
 }
 
+/// 更新設定頁上固定 IP 的按鈕與說明。
+static void refreshIpState(void) {
+    bool pinned = nx4_wifi_ip_pinned();
+    const char *ip = nx4_wifi_ip();
+    char detail[48];
+    if (pinned) snprintf(detail, sizeof(detail), "%s", ip ? ip : "");
+    else if (ip) snprintf(detail, sizeof(detail), "DHCP %s", ip);
+    else snprintf(detail, sizeof(detail), "尚未連線");
+    ui_settings_set_ip_state(pinned, detail);
+}
+
+/// 按下「固定目前 IP」/「改用 DHCP」。
+static void onSettingsIpToggle(void) {
+    if (nx4_wifi_ip_pinned()) {
+        nx4_wifi_unpin_ip();
+    } else if (!nx4_wifi_pin_current_ip()) {
+        ui_settings_set_status("尚未取得 IP，無法固定");
+        return;
+    }
+    refreshIpState();
+}
+
 static void serviceScan(void) {
     if (!nx4_wifi_scan_busy()) return;
     static nx4_ap_t aps[20];
@@ -486,9 +508,12 @@ static void serviceWifi(void) {
     last_check = now;
 
     bool connected = nx4_wifi_service();
-    if (connected && !was_connected) {
-        printf("[WiFi] 已連線，IP: %s\n", nx4_wifi_ip());
-        printf("[WS] Server 啟動於 port %d\n", WS_PORT);
+    if (connected != was_connected) {
+        if (connected) {
+            printf("[WiFi] 已連線，IP: %s\n", nx4_wifi_ip());
+            printf("[WS] Server 啟動於 port %d\n", WS_PORT);
+        }
+        refreshIpState();       // 連上/斷線都更新設定頁的 IP 顯示
     }
     was_connected = connected;
 
@@ -616,7 +641,7 @@ void app_main(void) {
     // 讓畫面在還沒收到任何資料時就顯示 0 km/h、EV 等看似真實的狀態。
     // 保留各 label 建立時的 "--"，第一筆資料抵達時自然會 force 全面更新。
     ui_settings_set_callbacks(onSettingsApply, onSettingsScan, onSettingsVolume,
-                              onSettingsSource);
+                              onSettingsSource, onSettingsIpToggle);
     ui_settings_set_volume(g_volume);
 
     g_obd_direct = nx4_nvs_load_obd_direct();
@@ -634,6 +659,7 @@ void app_main(void) {
 
     char geo[160];
     ui_settings_debug_geometry(geo, sizeof(geo));
+    refreshIpState();
     printf("[UI] 設定面板 %s\n", geo);
     ui_dashboard_set_brightness(g_brightness);
     ui_dashboard_set_stale(true);
