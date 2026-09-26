@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -22,7 +21,7 @@ class OsmTileService {
 
   static const String _assetPath = 'assets/speed_tiles.bin';
   static const String _fileName = 'speed_tiles.bin';
-  static const int _magic = 0x31544C53; // "SLT1" 小端序
+  static const int _magic = 0x32544C53; // "SLT2" 小端序
   static const int _headerBytes = 12;
   static const int _indexEntryBytes = 16;
 
@@ -230,10 +229,7 @@ class OsmTileService {
 
     final future = _enqueueRead(_dataStart + _idxOffset![i], _idxLength![i])
         .then<List<OsmRoad>?>((blob) {
-      final decoded = json.decode(utf8.decode(gzip.decode(blob))) as List<dynamic>;
-      final roads = decoded
-          .map((e) => OsmRoad.fromJson(e as Map<String, dynamic>))
-          .toList(growable: false);
+      final roads = OsmRoad.decodeTile(zlib.decode(blob));
       _remember(key, roads);
       return roads;
     }).catchError((Object e) {

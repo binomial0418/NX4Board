@@ -144,6 +144,14 @@ class AppProvider extends ChangeNotifier {
   // 大燈狀態（供 ESP32 儀表依日/夜切換螢幕亮度）
   bool get isLowBeamOn =>
       _isDemoEnabled ? _demoIsLowBeamOn : _obdService.isLowBeamOn;
+
+  /// 小燈（示寬燈，22BC10 byte E bit4~7）。自動頭燈在天色轉暗時是先亮
+  /// 小燈才亮近燈，所以它比近燈更早、更貼近實際光線。
+  bool get isPositionLampOn =>
+      _isDemoEnabled ? false : _obdService.isPositionLampOn;
+
+  /// 後霧燈（22BC07 byte F bit1）
+  bool get isRearFogOn => _isDemoEnabled ? false : _obdService.isRearFogOn;
   bool get isHighBeamOn =>
       _isDemoEnabled ? _demoIsHighBeamOn : _obdService.isHighBeamOn;
 

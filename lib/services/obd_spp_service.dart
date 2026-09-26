@@ -504,6 +504,30 @@ class ObdSppService with ChangeNotifier {
   /// 遠燈：H 的 bit1 + bit0（實車驗證，兩個位元同進同出）
   static const int _kBeamMaskHigh = 0x03;
 
+  // ── 小燈與後霧燈（實車依序切換開關驗證）──────────────────────────────
+  //
+  // 曾經懷疑 22BC09 byte G 的 0xC0 混了小燈與近燈，只開小燈時會誤報大燈。
+  // 實車證實不會：只開小燈那 18 秒裡 byte G 全程是 00，小燈根本不在
+  // 那個位元組。上面 _kBeamMaskOn 的判斷是對的，不用改。
+  //
+  // 開關依序走 全暗→小燈→近燈→遠燈→回近燈→加後霧燈→全關，各段對應：
+  //   小燈    22BC10 byte E = 0xF0（bit 4~7 同動，應是前後位置燈那一組）
+  //   近燈    22BC09 byte G = 0xC0
+  //   遠燈    22BC09 byte H = 0x03
+  //   後霧燈  22BC07 byte F = 0x02
+  //   另有 22BC05 byte G bit2 與近燈完全同動，用途待定，暫不採用
+
+  /// 小燈（示寬燈）：22BC10 的 byte E
+  static const int _kPositionLampMask = 0xF0;
+
+  /// 後霧燈：22BC07 的 byte F
+  static const int _kRearFogMask = 0x02;
+
+  bool isPositionLampOn = false;
+  bool isRearFogOn = false;
+  bool hasPositionLamp = false;
+  bool hasRearFog = false;
+
   /// D 檔：22E000（header 7E0）的 byte N，bit3。
   ///
   /// 實車以 P / D 來回兩趟的快照比對加即時監看確認。切檔前先按標記鈕，
@@ -2125,6 +2149,10 @@ class ObdSppService with ChangeNotifier {
     isDriveGear = false;
     hasDriveGear = false;
     throttlePercent = null;
+    isPositionLampOn = false;
+    isRearFogOn = false;
+    hasPositionLamp = false;
+    hasRearFog = false;
     isLowBeamOn = false;
     isHighBeamOn = false;
     hasHeadlights = false;
@@ -2453,6 +2481,30 @@ class ObdSppService with ChangeNotifier {
                     '(N=0b${n.toRadixString(2).padLeft(8, '0')})');
               }
             }
+          } else if (pid == 'BC07') {
+            // 後霧燈：byte F（data[5]）的 bit1
+            if (data.length >= 12) {
+              final int f = int.parse(data.substring(10, 12), radix: 16);
+              final bool now = (f & _kRearFogMask) != 0;
+              hasRearFog = true;
+              if (now != isRearFogOn) {
+                isRearFogOn = now;
+                _log('[Parser Result] RearFog=$isRearFogOn '
+                    '(F=0b${f.toRadixString(2).padLeft(8, '0')})');
+              }
+            }
+          } else if (pid == 'BC10') {
+            // 小燈：byte E（data[4]）的 bit4~7
+            if (data.length >= 10) {
+              final int e = int.parse(data.substring(8, 10), radix: 16);
+              final bool now = (e & _kPositionLampMask) != 0;
+              hasPositionLamp = true;
+              if (now != isPositionLampOn) {
+                isPositionLampOn = now;
+                _log('[Parser Result] PositionLamp=$isPositionLampOn '
+                    '(E=0b${e.toRadixString(2).padLeft(8, '0')})');
+              }
+            }
           } else if (pid == 'BC08') {
             // 倒車：byte F（data[5]）的 bit3。四張快照比對出來的唯一乾淨訊號。
             if (data.length >= 12) {
@@ -2704,6 +2756,8 @@ class ObdSppService with ChangeNotifier {
         sendCommand('22BC03'); // 四門 + 尾門開啟
         sendCommand('22BC04'); // 門鎖（此 Header 底下 byte E 是門鎖不是倒車）
         sendCommand('22BC08'); // 倒車（byte F bit3，四檔快照比對確認）
+        sendCommand('22BC07'); // 後霧燈（byte F bit1）
+        sendCommand('22BC10'); // 小燈（byte E bit4~7）
         sendCommand('ATSH7DF');
         final String resp = await respFuture;
 

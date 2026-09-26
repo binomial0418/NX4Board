@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 /// OSM 圖資中的一條道路（已裁切到單一 tile 範圍內）。
@@ -29,29 +30,66 @@ class OsmRoad {
     required this.lines,
   });
 
-  factory OsmRoad.fromJson(Map<String, dynamic> json) {
-    final rawLines = json['g'] as List<dynamic>;
-    final lines = <Float64List>[];
-    for (final line in rawLines) {
-      final coords = line as List<dynamic>;
-      final buf = Float64List(coords.length);
-      for (int i = 0; i < coords.length; i++) {
-        buf[i] = (coords[i] as num).toDouble();
+  /// 解碼 SLT2 圖資中一個已解壓的 tile，格式見 `tools/pack_tiles.py`：
+  /// 字串表、道路屬性、折線數、點數，最後是經度與緯度各一串 zigzag 差值。
+  static List<OsmRoad> decodeTile(List<int> bytes) {
+    int pos = 0;
+    int readVarint() {
+      int result = 0;
+      int shift = 0;
+      while (true) {
+        final b = bytes[pos++];
+        result |= (b & 0x7f) << shift;
+        if (b < 0x80) return result;
+        shift += 7;
       }
-      lines.add(buf);
     }
 
-    return OsmRoad(
-      name: json['n'] as String?,
-      ref: json['r'] as String?,
-      highway: json['h'] as String? ?? '',
-      maxspeed: json['s'] as String?,
-      oneway: json['o'] as String?,
-      bridge: json['b'] as String?,
-      tunnel: json['u'] as String?,
-      layer: json['l'] as String?,
-      lines: lines,
-    );
+    // 參照 0 代表 null
+    final strings = List<String?>.filled(readVarint() + 1, null);
+    for (int i = 1; i < strings.length; i++) {
+      final len = readVarint();
+      strings[i] = utf8.decode(bytes.sublist(pos, pos + len));
+      pos += len;
+    }
+
+    final roadCount = readVarint();
+    final attrs = List<int>.generate(roadCount * 8, (_) => readVarint());
+    final lineCounts = List<int>.generate(roadCount, (_) => readVarint());
+    final totalLines = lineCounts.fold<int>(0, (a, b) => a + b);
+    final pointCounts = List<int>.generate(totalLines, (_) => readVarint());
+
+    // 先讀完整串經度填入偶數位，再讀緯度填入奇數位；差值跨折線連續累加
+    final allLines = [for (final n in pointCounts) Float64List(n * 2)];
+    for (int axis = 0; axis < 2; axis++) {
+      int acc = 0;
+      for (final line in allLines) {
+        for (int i = axis; i < line.length; i += 2) {
+          final z = readVarint();
+          acc += (z >> 1) ^ -(z & 1);
+          line[i] = acc / 100000;
+        }
+      }
+    }
+
+    final roads = <OsmRoad>[];
+    int lineIdx = 0;
+    for (int r = 0; r < roadCount; r++) {
+      final a = r * 8;
+      roads.add(OsmRoad(
+        name: strings[attrs[a]],
+        ref: strings[attrs[a + 1]],
+        highway: strings[attrs[a + 2]] ?? '',
+        maxspeed: strings[attrs[a + 3]],
+        oneway: strings[attrs[a + 4]],
+        bridge: strings[attrs[a + 5]],
+        tunnel: strings[attrs[a + 6]],
+        layer: strings[attrs[a + 7]],
+        lines: allLines.sublist(lineIdx, lineIdx + lineCounts[r]),
+      ));
+      lineIdx += lineCounts[r];
+    }
+    return roads;
   }
 
   /// 是否為高架或隧道等與平面分層的路段。
