@@ -20,7 +20,7 @@
 //   "odo": 33676, "turbo": 0.15, "throttle": 12, "reversing": false,
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
-//   "camera": {"active": true, "limit": 90},
+//   "camera": {"active": true, "limit": 90, "kind": "speed"},
 //   "lights": {"low": true, "high": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "brightness": 40
@@ -36,6 +36,7 @@
 
 #include "cJSON.h"
 #include "driver/i2c_master.h"
+#include "driver/uart.h"
 #include "driver/ppa.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -308,6 +309,8 @@ static void handleDashPayload(const char *payload, size_t length) {
     if (cJSON_IsObject(camera)) {
         g_dash.camera_active = j_bool(camera, "active", false);
         g_dash.camera_limit = j_int(camera, "limit", 0);
+        const char *kind = j_str(camera, "kind");
+        g_dash.camera_red_light = kind && strcmp(kind, "redLight") == 0;
     }
 
     // ── 車輛數值：只有 WebSocket 模式才採用 ──────────────────────────
@@ -386,6 +389,13 @@ static void onSettingsApply(const char *ssid, const char *pass) {
 
 static void onSettingsScan(void) { nx4_wifi_scan_start(); }
 
+static void refreshIpState(void);
+
+static void onSettingsForget(const char *ssid) {
+    nx4_wifi_forget(ssid);
+    refreshIpState();   // 忘記的若是目前這台，固定 IP 也跟著清掉了
+}
+
 /// 資料來源切換 / OBD 裝置名稱改變。
 static void onSettingsSource(bool direct, const char *obd_name) {
     bool name_changed = obd_name && strcmp(obd_name, g_obd_name) != 0;
@@ -406,14 +416,19 @@ static void onSettingsSource(bool direct, const char *obd_name) {
 static void serviceVoice(void) {
     static bool said_high_beam = false;
     static bool said_camera = false;
+    static bool said_red_light = false;
     if (g_dash.high_beam != said_high_beam) {
         said_high_beam = g_dash.high_beam;
         nx4_tts_high_beam(said_high_beam);
     }
-    if (g_dash.camera_active && !said_camera) {
-        nx4_tts_camera_alert(g_dash.camera_limit);
+    // 警示期間換成另一種相機（例如紅燈照相後緊接測速）也要再念一次
+    if (g_dash.camera_active &&
+        (!said_camera || g_dash.camera_red_light != said_red_light)) {
+        if (g_dash.camera_red_light) nx4_tts_say("red_light");
+        else nx4_tts_camera_alert(g_dash.camera_limit);
     }
     said_camera = g_dash.camera_active;
+    said_red_light = g_dash.camera_red_light;
 }
 
 /// 把 OBD 解析結果搬進畫面資料。只搬「讀到過」的欄位，沒讀到的保留 "--"。
@@ -510,6 +525,8 @@ static void serviceWifi(void) {
     bool connected = nx4_wifi_service();
     if (connected != was_connected) {
         if (connected) {
+            // 自動切換到其他已知網路時，右下角的 SSID 要跟著換
+            ui_dashboard_set_ssid(nx4_wifi_ssid());
             printf("[WiFi] 已連線，IP: %s\n", nx4_wifi_ip());
             printf("[WS] Server 啟動於 port %d\n", WS_PORT);
         }
@@ -562,6 +579,29 @@ static void serviceWifi(void) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+/// 序列埠注入：UART0（console）收到以 '{' 開頭的一整行，就當成 WebSocket
+/// 封包處理。沒有 WiFi 時可以在桌上直接送 esp32_dash 測試畫面與語音。
+/// 只裝 RX 緩衝，printf 照舊直接寫 FIFO，不受影響。
+static void serial_inject_task(void *arg) {
+    (void)arg;
+    static char line[NX4_WS_BUF_SIZE];
+    size_t len = 0;
+    bool overflow = false;
+    uint8_t ch;
+    for (;;) {
+        if (uart_read_bytes(UART_NUM_0, &ch, 1, portMAX_DELAY) != 1) continue;
+        if (ch == '\n' || ch == '\r') {
+            if (!overflow && len > 0 && line[0] == '{') nx4_ws_inject(line, len);
+            len = 0;
+            overflow = false;
+        } else if (len < sizeof(line) - 1) {
+            line[len++] = (char)ch;
+        } else {
+            overflow = true;
+        }
+    }
+}
+
 void app_main(void) {
     printf("\nNX4Board ESP32-P4 Dashboard (ESP-IDF)\n");
 
@@ -642,6 +682,8 @@ void app_main(void) {
     // 保留各 label 建立時的 "--"，第一筆資料抵達時自然會 force 全面更新。
     ui_settings_set_callbacks(onSettingsApply, onSettingsScan, onSettingsVolume,
                               onSettingsSource, onSettingsIpToggle);
+    ui_settings_set_known_callbacks(nx4_wifi_known_pass, nx4_wifi_known_ssid,
+                                    onSettingsForget);
     ui_settings_set_volume(g_volume);
 
     g_obd_direct = nx4_nvs_load_obd_direct();
@@ -665,6 +707,10 @@ void app_main(void) {
     ui_dashboard_set_stale(true);
 
     ESP_ERROR_CHECK(nx4_ws_start(WS_PORT));
+
+    if (uart_driver_install(UART_NUM_0, 4096, 0, 0, NULL, 0) == ESP_OK) {
+        xTaskCreate(serial_inject_task, "serial_inject", 4096, NULL, 3, NULL);
+    }
 
     // 開機提示音。放在最後，這時畫面與網路都已就緒，
     // 使用者聽到「系統啟動」時看到的也是可用的儀表。

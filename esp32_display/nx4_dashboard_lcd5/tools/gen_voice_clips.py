@@ -22,15 +22,16 @@ VOICE = "Meijia"
 RATE = 16000
 
 # 速限整句全部預錄。台灣的速限標誌基本上都是整十，非整十的值會退回
-# 只念「前有測速」（見韌體端 nx4_voice_camera_alert）。
+# 只念「前有測速照相」（見韌體端 nx4_voice_camera_alert）。
 SPEED_LIMITS = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
 CLIPS = [
     ("boot", "系統啟動"),
     ("high_beam_on", "遠燈開啟"),
     ("high_beam_off", "遠燈關閉"),
-    ("camera", "前有測速"),
-] + [(f"camera_{n}", f"前有測速，速限{n}") for n in SPEED_LIMITS]
+    ("camera", "前有測速照相"),
+    ("red_light", "前有闖紅燈照相"),
+] + [(f"camera_{n}", f"前有測速照相，速限{n}") for n in SPEED_LIMITS]
 
 # ── IMA ADPCM ────────────────────────────────────────────────────────────
 # 韌體端 nx4_voice_decode() 必須與這裡逐位元一致，改一邊就要改另一邊。

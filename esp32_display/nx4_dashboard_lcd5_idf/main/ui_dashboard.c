@@ -6,11 +6,10 @@
 
 // ─────────────────────────────────────────────────────────────────────────
 // 專用字型（皆以 lv_font_conv --no-compress 產生，見各檔案標頭）
-//   nx4_font_num_184s — 時速大字，Montserrat SemiBold（line_height 132）
-//   nx4_font_num_92s  — 轉速，Montserrat SemiBold，含 'E' 'V'（line_height 68）
-//   nx4_font_num_96   — 卡片大數值，Regular（line_height 69）
-//   nx4_font_num_86   — 時鐘 HH:MM，Regular（line_height 63）
-//   nx4_font_num_52   — 胎壓與油箱，Regular（line_height 37）
+//   nx4_font_num_*    — 所有數字，Saira Semi Condensed（時速、轉速用 SemiBold，
+//                       其餘 Regular）。line_height / base_line 手動改成原本
+//                       Montserrat 版的值：兩者數字高度同為 0.70em，基線不動
+//                       就不必重算下面的版面座標。重新產生時要記得再改一次。
 //   nx4_font_tc_26    — 中文標籤 + 基本 ASCII（line_height 32）
 //
 // 尺寸相對 nx4_dashboard（1024x600 / 7 吋）的放大倍率，是各元件「容器」
@@ -29,6 +28,7 @@ LV_FONT_DECLARE(nx4_font_num_96);
 LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
 LV_FONT_DECLARE(nx4_font_num_46);
+LV_FONT_DECLARE(nx4_font_num_48);
 LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
@@ -53,7 +53,7 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define F_FUEL &nx4_font_num_100
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
-#define F_THROTTLE &lv_font_montserrat_48
+#define F_THROTTLE &nx4_font_num_48  // 只有數字、'-'、'%'
 #define F_ODO &nx4_font_num_46
 #define F_LIMIT &nx4_font_num_145
 // 卡片抬頭用 32px，比內文標籤大一級。里程與油箱是「行內標籤」不是抬頭，
@@ -653,11 +653,12 @@ static void cam_blink_cb(lv_timer_t *timer) {
 }
 
 /// 切換「道路速限」卡片在一般模式與測速照相警示模式之間
-static void set_camera_mode(bool active, int camera_limit, int speed_limit) {
+static void set_camera_mode(bool active, bool red_light, int camera_limit,
+                            int speed_limit) {
   s_cam_active = active;
 
   if (active) {
-    lv_label_set_text(s_limit_title, "測速照相");
+    lv_label_set_text(s_limit_title, red_light ? "闖紅燈照相" : "測速照相");
     lv_obj_set_style_text_color(s_limit_title, lv_color_hex(0xFFFFFF), 0);
     if (camera_limit > 0) {
       lv_label_set_text_fmt(s_limit_value, "%d", camera_limit);
@@ -997,8 +998,9 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   // 道路速限卡片：有測速照相時取代為警示，消失後恢復速限
   if (force || data->speed_limit != p->speed_limit ||
       data->camera_active != p->camera_active ||
-      data->camera_limit != p->camera_limit) {
-    set_camera_mode(data->camera_active, data->camera_limit,
+      data->camera_limit != p->camera_limit ||
+      data->camera_red_light != p->camera_red_light) {
+    set_camera_mode(data->camera_active, data->camera_red_light, data->camera_limit,
                     data->speed_limit);
   }
   if (force || data->limit_alt != p->limit_alt ||
@@ -1065,7 +1067,7 @@ void ui_dashboard_set_stale(bool stale) {
 
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限
-    set_camera_mode(false, 0, s_last.speed_limit);
+    set_camera_mode(false, false, 0, s_last.speed_limit);
     set_limit_extras(s_last.limit_alt, s_last.limit_alt_above, false);
   }
 }

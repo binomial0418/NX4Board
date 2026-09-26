@@ -39,8 +39,12 @@ class SpeedLimitService {
 
   /// OSM 未標註 maxspeed 時，依道路分級推定的速限。
   ///
-  /// motorway 與 trunk 取自全台已標註路段依長度的中位數：
-  /// motorway 110 km/h 佔 56%、100 佔 33%；trunk 90 佔 35%、80 佔 30%、100 佔 18%。
+  /// 各值取自全台已標註路段依長度的中位數（見 tools/ 的量測腳本）：
+  ///   motorway      110 佔 56%、100 佔 33%
+  ///   trunk          90 佔 35%、80 佔 30%、100 佔 18%
+  ///   motorway_link  50 佔 33%、40 佔 28%、60 佔 20%
+  ///   trunk_link     40 佔 71%、60 佔 12%、50 佔 7%   ← 快速道路閘道
+  ///   primary/secondary/tertiary_link  40 佔 57~65%
   static const Map<String, int> _defaultLimits = {
     'motorway': 110,
     'trunk': 90,
@@ -51,8 +55,8 @@ class SpeedLimitService {
     'residential': 40,
     'living_street': 30,
     'service': 30,
-    'motorway_link': 60,
-    'trunk_link': 50,
+    'motorway_link': 50,
+    'trunk_link': 40,
     'primary_link': 40,
     'secondary_link': 40,
     'tertiary_link': 40,

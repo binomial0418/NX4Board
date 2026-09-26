@@ -71,6 +71,15 @@ static esp_err_t ws_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+void nx4_ws_inject(const char *data, size_t len) {
+    if (!s_lock || len == 0 || len >= NX4_WS_BUF_SIZE) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memcpy(s_buf, data, len);
+    s_buf[len] = '\0';
+    s_len = len;
+    xSemaphoreGive(s_lock);
+}
+
 esp_err_t nx4_ws_start(uint16_t port) {
     s_lock = xSemaphoreCreateMutex();
     if (!s_lock) return ESP_ERR_NO_MEM;

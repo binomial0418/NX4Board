@@ -97,7 +97,11 @@ class TtsService {
       msg = "進入區間測速路段";
       if (limit != null) msg += "，速限 $limit";
     } else {
-      msg = "前有測速照相";
+      msg = switch (camInfo['kind']) {
+        'redLight' => "前有闖紅燈照相",
+        'zoneEnd' => "區間測速終點",
+        _ => "前有測速照相",
+      };
       if (limit != null) msg += "，速限 $limit";
       final String direct = camInfo['direct'] ?? '';
       if (direct.isNotEmpty) msg += "，$direct";

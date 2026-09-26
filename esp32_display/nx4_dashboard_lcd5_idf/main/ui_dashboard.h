@@ -41,6 +41,7 @@ typedef struct {
   int tire_rr;
   bool camera_active;  // 前方有測速照相
   int camera_limit;    // 該測速照相的速限 km/h
+  bool camera_red_light;  // 是闖紅燈照相（沒有速限，改念「前有闖紅燈照相」）
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
   bool reversing;      // 倒車檔（時速位置改顯示 R）

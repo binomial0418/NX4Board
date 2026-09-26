@@ -35,8 +35,8 @@ void nx4_tts_say(const char *clip_name);
 /// 遠燈開啟 / 關閉
 void nx4_tts_high_beam(bool on);
 
-/// 前有測速，速限 <limit>。
-/// 只有整十的速限有預錄整句，其餘（含 limit <= 0）退回只念「前有測速」。
+/// 前有測速照相，速限 <limit>。
+/// 只有整十的速限有預錄整句，其餘（含 limit <= 0）退回只念「前有測速照相」。
 void nx4_tts_camera_alert(int limit);
 
 /// 音量 0~100（預設 75）。可在 nx4_tts_init() 之前呼叫，

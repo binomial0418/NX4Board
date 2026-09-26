@@ -257,7 +257,7 @@ void nx4_tts_high_beam(bool on) {
 }
 
 void nx4_tts_camera_alert(int limit) {
-    // 只有整十的速限有預錄整句；其餘退回只念「前有測速」，
+    // 只有整十的速限有預錄整句；其餘退回只念「前有測速照相」，
     // 總比把數字硬拼出來好聽。
     if (limit > 0 && limit % 10 == 0) {
         char name[NAME_LEN];

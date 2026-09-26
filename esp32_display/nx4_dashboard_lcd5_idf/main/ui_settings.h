@@ -36,10 +36,23 @@ void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
                                nx4_settings_source_cb_t source,
                                nx4_settings_ip_cb_t ip_toggle);
 
+/// 已知網路（連線成功過、存有密碼的 AP）
+/// 查密碼：找得到就填進 out 並回傳 true
+typedef bool (*nx4_settings_known_pass_cb_t)(const char *ssid, char *out, size_t n);
+/// 依最近使用排序的第 index 筆 SSID，超出範圍回傳 NULL
+typedef const char *(*nx4_settings_known_at_cb_t)(int index);
+/// 使用者按下「忘記」
+typedef void (*nx4_settings_forget_cb_t)(const char *ssid);
+
+void ui_settings_set_known_callbacks(nx4_settings_known_pass_cb_t pass,
+                                     nx4_settings_known_at_cb_t at,
+                                     nx4_settings_forget_cb_t forget);
+
 /// 建立面板（開機時呼叫一次，預設隱藏）
 void ui_settings_create(void);
 
-/// 開啟面板，並以目前的 SSID 預填欄位
+/// 開啟面板，並以目前的 SSID 預填欄位（已知網路會連密碼一起帶出）。
+/// 清單是空的就先列出已知網路，不必先掃描也能直接點選切換。
 void ui_settings_open(const char *current_ssid);
 void ui_settings_close(void);
 bool ui_settings_is_open(void);

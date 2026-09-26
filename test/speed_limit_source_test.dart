@@ -132,6 +132,9 @@ void main() {
       expect(svc.resolveLimitForTest(_road(highway: 'trunk'), _lat, _lon), 90);
       expect(svc.resolveLimitForTest(_road(highway: 'secondary'), _lat, _lon), 50);
       expect(svc.resolveLimitForTest(_road(highway: 'service'), _lat, _lon), 30);
+      // 閘道：快速道路 40（已標註路段的 71%）、國道 50
+      expect(svc.resolveLimitForTest(_road(highway: 'trunk_link'), _lat, _lon), 40);
+      expect(svc.resolveLimitForTest(_road(highway: 'motorway_link'), _lat, _lon), 50);
     });
   });
 }

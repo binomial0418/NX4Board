@@ -25,3 +25,8 @@ esp32_display/dwin_dashboard/dwin_set*/00.bmp
 
 esp32_display/nx4_dashboard_lcd5/config.h
 esp32_display/nx4_dashboard_lcd5_idf/components/nx4_config/include/config.h
+
+# 測速器廠商圖資（tools/edog_convert.py 產生），商業資料不可提交
+assets/private/*
+!assets/private/.gitkeep
+tools/edog_convert.py

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""產生語音提示音檔，輸出成 src/audio/nx4_voice_clips.{h,c}。
+"""產生語音提示音檔，輸出成 components/nx4_audio/nx4_voice_clips.c 與 include/nx4_voice_clips.h。
 
 只能在 macOS 上跑（用系統的 `say` 與 `afconvert`）。音色是 Meijia，
 台灣中文。板子上原本用的是 esp-sr 的 esp-tts 即時合成，但那是音節拼接，
@@ -22,15 +22,16 @@ VOICE = "Meijia"
 RATE = 16000
 
 # 速限整句全部預錄。台灣的速限標誌基本上都是整十，非整十的值會退回
-# 只念「前有測速」（見韌體端 nx4_voice_camera_alert）。
+# 只念「前有測速照相」（見韌體端 nx4_voice_camera_alert）。
 SPEED_LIMITS = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
 CLIPS = [
     ("boot", "系統啟動"),
     ("high_beam_on", "遠燈開啟"),
     ("high_beam_off", "遠燈關閉"),
-    ("camera", "前有測速"),
-] + [(f"camera_{n}", f"前有測速，速限{n}") for n in SPEED_LIMITS]
+    ("camera", "前有測速照相"),
+    ("red_light", "前有闖紅燈照相"),
+] + [(f"camera_{n}", f"前有測速照相，速限{n}") for n in SPEED_LIMITS]
 
 # ── IMA ADPCM ────────────────────────────────────────────────────────────
 # 韌體端 nx4_voice_decode() 必須與這裡逐位元一致，改一邊就要改另一邊。
@@ -127,7 +128,8 @@ def main():
         sys.exit("這個產生器需要 macOS 的 say / afconvert")
 
     here = os.path.dirname(os.path.abspath(__file__))
-    out_dir = os.path.join(here, "..", "src", "audio")
+    out_dir = os.path.join(here, "..", "components", "nx4_audio")
+    h_dir = os.path.join(out_dir, "include")
     clips = []
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -142,7 +144,7 @@ def main():
     total = sum(len(d) for _, _, _, d in clips)
     print(f"\n合計 {total/1024:.0f} KB")
 
-    with open(os.path.join(out_dir, "nx4_voice_clips.h"), "w", encoding="utf-8") as f:
+    with open(os.path.join(h_dir, "nx4_voice_clips.h"), "w", encoding="utf-8") as f:
         f.write(f"""// 由 tools/gen_voice_clips.py 產生，請勿手動編輯。
 // 音色 {VOICE}（台灣中文），{RATE} Hz 單聲道，IMA ADPCM 4-bit。
 #pragma once
@@ -182,7 +184,7 @@ extern const int              nx4_voice_clip_count;
         f.write("const int nx4_voice_clip_count = "
                 "(int)(sizeof(nx4_voice_clips) / sizeof(nx4_voice_clips[0]));\n")
 
-    print(f"已寫入 {os.path.normpath(out_dir)}/nx4_voice_clips.[ch]")
+    print(f"已寫入 {os.path.normpath(out_dir)}/nx4_voice_clips.c 與 include/nx4_voice_clips.h")
 
 
 if __name__ == "__main__":

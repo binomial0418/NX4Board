@@ -31,6 +31,10 @@ int nx4_ws_clients(void);
 /// 沒有新資料回傳 0。由 LVGL 任務呼叫。
 size_t nx4_ws_take(char *out, size_t max);
 
+/// 從別的來源（序列埠）塞一筆封包進同一個單槽，之後的處理與 WebSocket
+/// 收到的完全相同。沒有 WiFi 時用來在桌上測試。
+void nx4_ws_inject(const char *data, size_t len);
+
 /// 是否剛有新的 client 連上（取走後清除）。用來重置欄位診斷。
 bool nx4_ws_take_connected_flag(void);
 

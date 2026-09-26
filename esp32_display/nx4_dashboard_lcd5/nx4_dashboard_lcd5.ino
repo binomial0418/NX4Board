@@ -16,7 +16,7 @@
 //   "odo": 33676, "turbo": 0.15, "throttle": 12,
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
-//   "camera": {"active": true, "limit": 90},
+//   "camera": {"active": true, "limit": 90, "kind": "speed"},
 //   "lights": {"low": true, "high": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "brightness": 40
@@ -291,6 +291,7 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   if (!camera.isNull()) {
     g_dash.camera_active = camera["active"] | false;
     g_dash.camera_limit = camera["limit"] | 0;
+    g_dash.camera_red_light = strcmp(camera["kind"] | "", "redLight") == 0;
   }
 
   // 倒車：缺欄位時視為非倒車。舊版 App 不送這個欄位，沿用上次值會卡在 R。
@@ -313,14 +314,19 @@ static void handleDashPayload(uint8_t *payload, size_t length) {
   // 若照 g_dash 現值判斷會變成每包都念。
   static bool s_said_high_beam = false;
   static bool s_said_camera = false;
+  static bool s_said_red_light = false;
   if (g_dash.high_beam != s_said_high_beam) {
     s_said_high_beam = g_dash.high_beam;
     nx4_tts_high_beam(s_said_high_beam);
   }
-  if (g_dash.camera_active && !s_said_camera) {
-    nx4_tts_camera_alert(g_dash.camera_limit);
+  // 警示期間換成另一種相機（例如紅燈照相後緊接測速）也要再念一次
+  if (g_dash.camera_active &&
+      (!s_said_camera || g_dash.camera_red_light != s_said_red_light)) {
+    if (g_dash.camera_red_light) nx4_tts_say("red_light");
+    else nx4_tts_camera_alert(g_dash.camera_limit);
   }
   s_said_camera = g_dash.camera_active;
+  s_said_red_light = g_dash.camera_red_light;
 
   // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
   // 整個 doors 物件缺席時沿用上一次的值（協定上合法，見 [FIELD] 診斷）；

@@ -756,6 +756,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       "camera": {
         "active": camInfo != null,
         "limit": camInfo?['limit'] ?? 0,
+        // speed / redLight / zoneStart / zoneEnd，板子據此選語音
+        "kind": camInfo?['kind'] ?? 'speed',
       },
       "lights": {
         "low": provider.isLowBeamOn,

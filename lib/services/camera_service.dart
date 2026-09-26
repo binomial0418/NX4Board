@@ -5,6 +5,8 @@ import 'package:csv/csv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'road_type_service.dart' show RoadType;
 
+enum CameraKind { speed, redLight, zoneStart, zoneEnd }
+
 class SpeedCamera {
   final String address;
   final double longitude;
@@ -12,6 +14,10 @@ class SpeedCamera {
   final String direct;
   final int? limit;
   final RoadType roadType;
+  final CameraKind kind;
+
+  /// 受測車行方位角（0-359）。有值時以它比對行進方向，不看 [direct] 文字。
+  final double? heading;
 
   SpeedCamera({
     required this.address,
@@ -20,7 +26,38 @@ class SpeedCamera {
     required this.direct,
     this.limit,
     this.roadType = RoadType.none,
+    this.kind = CameraKind.speed,
+    this.heading,
   });
+
+  /// tools/edog_convert.py 輸出的格式：
+  /// Latitude(0), Longitude(1), Heading(2), Limit(3), Kind(4), RoadType(5), ZoneLengthM(6)
+  factory SpeedCamera.fromEdogCsv(List<dynamic> row) {
+    final kind = switch (row[4].toString()) {
+      'redlight' => CameraKind.redLight,
+      'zone_start' => CameraKind.zoneStart,
+      'zone_end' => CameraKind.zoneEnd,
+      _ => CameraKind.speed,
+    };
+    final roadType = switch (row[5].toString()) {
+      'highway' => RoadType.highway,
+      'expressway' => RoadType.expressway,
+      _ => RoadType.none,
+    };
+    return SpeedCamera(
+      address: '',
+      latitude: double.tryParse(row[0].toString()) ?? 0.0,
+      longitude: double.tryParse(row[1].toString()) ?? 0.0,
+      heading: double.tryParse(row[2].toString()),
+      limit: int.tryParse(row[3].toString()),
+      // 方向已由 heading 精確過濾，語音不需再唸方向
+      direct: '',
+      kind: kind,
+      roadType: roadType,
+    );
+  }
+
+  bool get isZone => kind == CameraKind.zoneStart || direct.contains('區間');
 
   factory SpeedCamera.fromCsv(List<dynamic> row) {
     // CSV Format: CityName(0), RegionName(1), Address(2), DeptNm(3), BranchNm(4), Longitude(5), Latitude(6), direct(7), limit(8)
@@ -78,25 +115,45 @@ class CameraService {
   //   快速道路/國道：2.0km（100 km/h → 72 秒預警）
   static const double _radiusNormal = 1.0;
   static const double _radiusHighSpeed = 2.0;
+  // 闖紅燈照相與車速無關，只在接近路口時提示；半徑太大會蓋掉後方的測速照相
+  static const double _radiusRedLight = 0.3;
+
+  /// 測速器廠商圖資（tools/edog_convert.py 產生，不進 git）。沒有時退回政府資料。
+  static const String _edogAsset = 'assets/private/edog_cameras.csv';
 
   bool _isInitialized = false;
 
   Future<void> init() async {
     if (_isInitialized) return;
     try {
-      final String csvData = await rootBundle.loadString('assets/camera_data.csv');
-      final List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
+      String source = 'edog';
+      try {
+        final String csvData = await rootBundle.loadString(_edogAsset);
+        final rows = const CsvToListConverter(eol: '\n', shouldParseNumbers: false).convert(csvData);
+        for (int i = 1; i < rows.length; i++) {
+          if (rows[i].length < 7) continue;
+          _cameras.add(SpeedCamera.fromEdogCsv(rows[i]));
+        }
+      } catch (_) {
+        _cameras.clear();
+      }
 
-      // Skip header and sub-header (row 0 and 1)
-      for (int i = 2; i < rows.length; i++) {
-        if (rows[i].length < 9) continue;
-        _cameras.add(SpeedCamera.fromCsv(rows[i]));
+      if (_cameras.isEmpty) {
+        source = '政府';
+        final String csvData = await rootBundle.loadString('assets/camera_data.csv');
+        final List<List<dynamic>> rows = const CsvToListConverter().convert(csvData);
+
+        // Skip header and sub-header (row 0 and 1)
+        for (int i = 2; i < rows.length; i++) {
+          if (rows[i].length < 9) continue;
+          _cameras.add(SpeedCamera.fromCsv(rows[i]));
+        }
       }
       _isInitialized = true;
 
       final hwCount = _cameras.where((c) => c.roadType == RoadType.highway).length;
       final ewCount = _cameras.where((c) => c.roadType == RoadType.expressway).length;
-      debugPrint('✅ CameraService: ${_cameras.length} cameras (國道 $hwCount, 快速 $ewCount, 其他 ${_cameras.length - hwCount - ewCount})');
+      debugPrint('✅ CameraService: $source ${_cameras.length} cameras (國道 $hwCount, 快速 $ewCount, 其他 ${_cameras.length - hwCount - ewCount})');
     } catch (e) {
       debugPrint('CameraService init error: $e');
     }
@@ -179,6 +236,7 @@ class CameraService {
       }
 
       if (minTrajectoryDist > minOverallDist) continue;
+      if (cam.kind == CameraKind.redLight && minTrajectoryDist > _radiusRedLight) continue;
 
       // 2. Angle and Direction checks if we have movement
       bool passCheck = true;
@@ -205,7 +263,9 @@ class CameraService {
 
         // 語意過濾：照相機 direct 欄位與行進方向不符則排除
         if (passCheck) {
-          final dirMatch = CameraAlgorithm.matchDirection(cam.direct, userHeading);
+          final dirMatch = cam.heading != null
+              ? CameraAlgorithm.matchHeading(cam.heading!, userHeading)
+              : CameraAlgorithm.matchDirection(cam.direct, userHeading);
           if (dirMatch == false) passCheck = false;
         }
       }
@@ -220,9 +280,17 @@ class CameraService {
     }
 
     if (nearestCam != null) {
-      final String msg = nearestCam.limit == null 
-          ? "前有測速照相，${nearestCam.direct}"
-          : "前有測速照相，速限 ${nearestCam.limit}，${nearestCam.direct}";
+      final String label = switch (nearestCam.kind) {
+        CameraKind.redLight => '前有闖紅燈照相',
+        CameraKind.zoneStart => '進入區間測速路段',
+        CameraKind.zoneEnd => '區間測速終點',
+        CameraKind.speed => '前有測速照相',
+      };
+      final String msg = [
+        label,
+        if (nearestCam.limit != null) '速限 ${nearestCam.limit}',
+        if (nearestCam.direct.isNotEmpty) nearestCam.direct,
+      ].join('，');
 
       return {
         "name": nearestCam.address,
@@ -232,7 +300,8 @@ class CameraService {
         "lat": nearestCam.latitude,
         "lon": nearestCam.longitude,
         "direct": nearestCam.direct,
-        "is_zone": nearestCam.direct.contains('區間'),
+        "is_zone": nearestCam.isZone,
+        "kind": nearestCam.kind.name,
         "message": msg,
         "debug_heading": userHeading,
         "debug_angle": finalAngleDiff,
@@ -279,6 +348,13 @@ class CameraAlgorithm {
     if (bearing >= 202.5 && bearing < 247.5) return 'SW';
     if (bearing >= 247.5 && bearing < 292.5) return 'W';
     return 'NW';
+  }
+
+  /// 相機受測方位角與行進方向相差 45° 內才算同向
+  static bool matchHeading(double camHeading, double userHeading) {
+    double diff = (userHeading - camHeading).abs();
+    if (diff > 180) diff = 360 - diff;
+    return diff < 45;
   }
 
   /// 方向比對結果：

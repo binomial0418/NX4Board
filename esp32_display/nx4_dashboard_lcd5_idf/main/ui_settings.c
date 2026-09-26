@@ -60,6 +60,10 @@ static nx4_settings_scan_cb_t s_scan_cb;
 static nx4_settings_volume_cb_t s_volume_cb;
 static nx4_settings_source_cb_t s_source_cb;
 static nx4_settings_ip_cb_t s_ip_cb;
+static nx4_settings_known_pass_cb_t s_known_pass_cb;
+static nx4_settings_known_at_cb_t s_known_at_cb;
+static nx4_settings_forget_cb_t s_forget_cb;
+static bool s_list_known_mode = false; // 清單目前顯示的是已知網路而非掃描結果
 static bool s_src_direct = false;
 static bool s_open;
 
@@ -75,6 +79,48 @@ void ui_settings_set_callbacks(nx4_settings_apply_cb_t apply,
   s_ip_cb = ip_toggle;
 }
 
+void ui_settings_set_known_callbacks(nx4_settings_known_pass_cb_t pass,
+                                     nx4_settings_known_at_cb_t at,
+                                     nx4_settings_forget_cb_t forget) {
+  s_known_pass_cb = pass;
+  s_known_at_cb = at;
+  s_forget_cb = forget;
+}
+
+static bool known_pass(const char *ssid, char *out, size_t n) {
+  return s_known_pass_cb && ssid && s_known_pass_cb(ssid, out, n);
+}
+
+static void list_item_cb(lv_event_t *e);
+
+/// 清單的一列。right 是靠右的小字（訊號強度、已儲存圖示），用內建的
+/// montserrat 字型，所以只能放 ASCII 與 LV_SYMBOL_*。
+static void add_list_item(const char *ssid, const char *icon, const char *right) {
+  char buf[48];
+  lv_snprintf(buf, sizeof(buf), "%s", ssid);
+  lv_obj_t *btn = lv_list_add_btn(s_list, icon, buf);
+  lv_obj_set_style_text_color(btn, lv_color_hex(C_TEXT), 0);
+  lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
+  lv_obj_add_event_cb(btn, list_item_cb, LV_EVENT_CLICKED, NULL);
+
+  lv_obj_t *r = lv_label_create(btn);
+  lv_label_set_text(r, right);
+  lv_obj_set_style_text_font(r, &lv_font_montserrat_18, 0);
+  lv_obj_set_style_text_color(r, lv_color_hex(C_UNIT), 0);
+  lv_obj_align(r, LV_ALIGN_RIGHT_MID, 0, 0);
+}
+
+/// 清單改列已知網路（面板打開時清單還是空的、或忘記某台之後）
+static void show_known_list(void) {
+  lv_obj_clean(s_list);
+  s_list_known_mode = true;
+  if (!s_known_at_cb) return;
+  const char *ssid;
+  for (int i = 0; (ssid = s_known_at_cb(i)) != NULL; i++) {
+    add_list_item(ssid, LV_SYMBOL_WIFI, LV_SYMBOL_SAVE);
+  }
+}
+
 // ── 事件 ────────────────────────────────────────────────────────────────
 /// 點任一輸入框：把鍵盤指向它
 static void ta_event_cb(lv_event_t *e) {
@@ -83,16 +129,35 @@ static void ta_event_cb(lv_event_t *e) {
   lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
 }
 
-/// 點掃描結果的某一列：填入 SSID，游標移到密碼欄
+/// 點清單的某一列：填入 SSID。連線成功過的網路直接帶出密碼，
+/// 按「儲存並連線」就好；其他的把游標移到密碼欄等使用者輸入。
 static void list_item_cb(lv_event_t *e) {
   lv_obj_t *btn = lv_event_get_target(e);
   const char *ssid = lv_list_get_btn_text(s_list, btn);
   if (ssid == NULL) return;
 
+  char pass[65];
+  bool known = known_pass(ssid, pass, sizeof(pass));
   lv_textarea_set_text(s_ssid_ta, ssid);
-  lv_textarea_set_text(s_pass_ta, "");
+  lv_textarea_set_text(s_pass_ta, known ? pass : "");
   lv_keyboard_set_textarea(s_kb, s_pass_ta);
   lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+  ui_settings_set_status(known ? "已帶入密碼" : "");
+}
+
+/// 「忘記」：把網路名稱欄那台從已知網路移除
+static void forget_btn_cb(lv_event_t *e) {
+  LV_UNUSED(e);
+  const char *ssid = lv_textarea_get_text(s_ssid_ta);
+  char pass[65];
+  if (ssid == NULL || !known_pass(ssid, pass, sizeof(pass))) {
+    ui_settings_set_status("不是已儲存的網路");
+    return;
+  }
+  if (s_forget_cb) s_forget_cb(ssid);
+  lv_textarea_set_text(s_pass_ta, "");
+  ui_settings_set_status("已忘記");
+  if (s_list_known_mode) show_known_list();
 }
 
 static void scan_btn_cb(lv_event_t *e) {
@@ -245,12 +310,13 @@ void ui_settings_create(void) {
   lv_obj_set_style_text_font(s_list, F_LABEL, 0);
 
   make_button(card, "掃描", LIST_X, 276, 120, C_FIELD, scan_btn_cb);
+  make_button(card, "忘記", LIST_X + 132, 276, 100, C_FIELD, forget_btn_cb);
 
   s_status = lv_label_create(card);
   lv_label_set_text(s_status, "");
   lv_obj_set_style_text_font(s_status, F_LABEL, 0);
   lv_obj_set_style_text_color(s_status, lv_color_hex(C_UNIT), 0);
-  lv_obj_set_pos(s_status, LIST_X + 166, 295);
+  lv_obj_set_pos(s_status, LIST_X + 246, 288);
 
   // 右：輸入欄位與動作鈕
   s_ssid_ta = make_field(card, "網路名稱", 55, false);
@@ -395,10 +461,13 @@ void ui_settings_set_volume(int volume) {
 
 // ── 開關 ────────────────────────────────────────────────────────────────
 void ui_settings_open(const char *current_ssid) {
+  char pass[65];
   if (current_ssid != NULL) {
     lv_textarea_set_text(s_ssid_ta, current_ssid);
   }
-  lv_textarea_set_text(s_pass_ta, "");
+  lv_textarea_set_text(s_pass_ta,
+                       known_pass(current_ssid, pass, sizeof(pass)) ? pass : "");
+  if (lv_obj_get_child_cnt(s_list) == 0) show_known_list();
   lv_keyboard_set_textarea(s_kb, s_ssid_ta);
   ui_settings_set_status("");
   lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
@@ -413,26 +482,23 @@ void ui_settings_close(void) {
 bool ui_settings_is_open(void) { return s_open; }
 
 // ── 掃描結果 ────────────────────────────────────────────────────────────
-void ui_settings_clear_networks(void) { lv_obj_clean(s_list); }
+void ui_settings_clear_networks(void) {
+  lv_obj_clean(s_list);
+  s_list_known_mode = false;
+}
 
 void ui_settings_add_network(const char *ssid, int rssi, bool locked) {
   if (ssid == NULL || ssid[0] == '\0') return;
 
-  char buf[48];
-  lv_snprintf(buf, sizeof(buf), "%s", ssid);
-  lv_obj_t *btn = lv_list_add_btn(
-      s_list, locked ? LV_SYMBOL_WIFI : LV_SYMBOL_OK, buf);
-  lv_obj_set_style_text_color(btn, lv_color_hex(C_TEXT), 0);
-  lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
-  lv_obj_add_event_cb(btn, list_item_cb, LV_EVENT_CLICKED, NULL);
-
-  // 訊號強度靠右附註
-  lv_obj_t *r = lv_label_create(btn);
-  lv_snprintf(buf, sizeof(buf), "%d", rssi);
-  lv_label_set_text(r, buf);
-  lv_obj_set_style_text_font(r, &lv_font_montserrat_18, 0);
-  lv_obj_set_style_text_color(r, lv_color_hex(C_UNIT), 0);
-  lv_obj_align(r, LV_ALIGN_RIGHT_MID, 0, 0);
+  // 訊號強度靠右附註；存過密碼的網路前面加儲存圖示
+  char right[24];
+  char pass[65];
+  if (known_pass(ssid, pass, sizeof(pass))) {
+    lv_snprintf(right, sizeof(right), LV_SYMBOL_SAVE "  %d", rssi);
+  } else {
+    lv_snprintf(right, sizeof(right), "%d", rssi);
+  }
+  add_list_item(ssid, locked ? LV_SYMBOL_WIFI : LV_SYMBOL_OK, right);
 }
 
 void ui_settings_set_status(const char *text) {
