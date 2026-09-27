@@ -34,6 +34,8 @@ typedef struct {
     bool  has_tpms;
 
     bool  low_beam, high_beam;      bool has_lights;
+    bool  position_lamp;            bool has_position_lamp;
+    bool  rear_fog;                 bool has_rear_fog;
     bool  door_open, door_unlocked, trunk_open;
     bool  has_doors, has_lock;
     bool  reversing;    bool has_reversing;

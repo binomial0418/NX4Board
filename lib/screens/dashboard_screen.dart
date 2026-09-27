@@ -762,6 +762,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       "lights": {
         "low": provider.isLowBeamOn,
         "high": provider.isHighBeamOn,
+        "position": provider.isPositionLampOn,
+        "rear_fog": provider.isRearFogOn,
       },
       // 倒車檔（22BC08 byte F bit3）。板子端比照本機儀表，把時速數字整個
       // 換成琥珀色的 R。P 與 N 沒有已知訊號可以區分，這裡只送得出 R。

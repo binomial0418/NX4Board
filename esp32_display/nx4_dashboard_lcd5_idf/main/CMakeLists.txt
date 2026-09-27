@@ -6,7 +6,7 @@ idf_component_register(
         "ui_dashboard.c"
         "ui_settings.c"
         "nx4_font_icons_40.c"
-        "nx4_font_icons_80.c"
+        "nx4_font_icons_64.c"
         "nx4_font_num_100.c"
         "nx4_font_num_112.c"
         "nx4_font_num_145.c"

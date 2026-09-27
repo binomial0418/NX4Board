@@ -33,7 +33,7 @@ LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
-LV_FONT_DECLARE(nx4_font_icons_80);
+LV_FONT_DECLARE(nx4_font_icons_64);
 LV_FONT_DECLARE(nx4_font_icons_40);
 
 #define F_SPEED &nx4_font_num_310s
@@ -60,7 +60,7 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 // 維持 26px——它們與右側的數值同一列，放大會擠掉數值的位置。
 #define F_LABEL &nx4_font_tc_26
 #define F_TITLE &nx4_font_tc_32
-#define F_ICON &nx4_font_icons_80
+#define F_ICON &nx4_font_icons_64
 
 // 圖示字元（UTF-8）。順序與產生腳本的 --range 對應，改動時要一起改。
 #define ICO_LOW_BEAM "\xEE\x80\x80"  // U+E000 car-light-dimmed
@@ -68,9 +68,11 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ICO_DOOR "\xEE\x80\x82"      // U+E002 car-door
 #define ICO_UNLOCK "\xEE\x80\x83"    // U+E003 lock-open-variant（純鎖頭，不帶車門背景）
 #define ICO_TRUNK "\xEE\x80\x84"     // U+E004 自製「後車廂開啟」，見 tools/build_trunk_icon.py
+#define ICO_POSITION "\xEE\x80\x85"  // U+E005 car-parking-lights（小燈）
+#define ICO_REAR_FOG "\xEE\x80\x86"  // U+E006 car-light-fog 鏡射，見 tools/build_rear_fog_icon.py
 
 // 里程 / 油箱的行內標籤改用圖示取代中文字。碼位刻意從 U+E010 起跳，
-// 與上面 80px 指示燈條的 U+E000-E004 分開，免得同一組位元組在不同字型下
+// 與上面 64px 指示燈條的 U+E000-E006 分開，免得同一組位元組在不同字型下
 // 代表不同圖示。
 #define ICO_ODO "\xEE\x80\x90"       // U+E010 counter（里程表滾輪）
 #define ICO_FUEL "\xEE\x80\x91"      // U+E011 gas-station（加油槍）
@@ -251,16 +253,22 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define STATUS_RIGHT 1258
 #define STATUS_IP_Y 650
 
-// ── 指示燈（大燈 / 車門 / 門鎖 / 後車廂）─────────────────────────────
+// ── 指示燈（小燈 / 大燈 / 後霧燈 / 車門 / 門鎖 / 後車廂）─────────────────
 // 原本是畫面最右側的垂直四格，那會吃掉右邊 102px（1178..1280）。
 // 改成橫排放在時速上方之後，中央區從 544 變成 626，時速得以由 272 放大到 310。
-// 圖示字型每個字都是 80x80 的字框，實際 line_height 71。
-#define ICON_H 71
-#define ICON_W 80
-#define ICON_DX 130                       // 80 寬 + 50 間距
-#define ICON_ROW_W (4 * ICON_W + 3 * (ICON_DX - ICON_W))
+//
+// 以 STACK_CX 897 置中，左邊只到 CARDS_RIGHT 612，半寬上限 285。
+// 80px 的圖示六格就算間距歸零也要 480、而且會黏在一起，所以縮到 64px：
+// 列寬 6x64 + 5x28 = 524，佔 635..1159，離卡片 23px。
+// 64px 的 line_height 是 57，ICON_Y 由 56 下移到 63，維持原本 80px 那排
+// （56..127）的垂直中心，與時速之間的留白不變。
+#define ICON_COUNT 6
+#define ICON_H 57
+#define ICON_W 64
+#define ICON_DX 92                        // 64 寬 + 28 間距
+#define ICON_ROW_W (ICON_COUNT * ICON_W + (ICON_COUNT - 1) * (ICON_DX - ICON_W))
 #define ICON_X0 (STACK_CX - ICON_ROW_W / 2)
-#define ICON_Y 56
+#define ICON_Y 63
 
 #define RPM_MAX 7000
 
@@ -296,9 +304,11 @@ static lv_obj_t *s_turbo_unit;
 static lv_obj_t *s_turbo_bar;
 
 static lv_obj_t *s_status_ip;
-// 右側四格指示燈。位置固定，不成立時以 HIDDEN 隱藏而非移除，
-// 這樣其它三格不會因為某一格消失而往上遞補。
+// 時速上方六格指示燈。位置固定，不成立時以 HIDDEN 隱藏而非移除，
+// 這樣其它格不會因為某一格消失而遞補過去。
+static lv_obj_t *s_icon_position;
 static lv_obj_t *s_icon_light;
+static lv_obj_t *s_icon_rear_fog;
 static lv_obj_t *s_icon_door;
 static lv_obj_t *s_icon_lock;
 static lv_obj_t *s_icon_trunk;
@@ -590,7 +600,8 @@ static void build_speed_stack(void) {
 }
 
 // ── 指示燈 ──────────────────────────────────────────────────────────────
-// 時速上方的橫排四格：大燈 / 車門 / 門鎖 / 後車廂，對應手機端狀態區。
+// 時速上方的橫排六格：小燈 / 大燈 / 後霧燈 / 車門 / 門鎖 / 後車廂，
+// 順序與手機端狀態區的閱讀順序相同。
 // 位置寫死，只靠顯示或隱藏切換，因此不會互相推擠。
 static lv_obj_t *make_icon(const char *glyph, uint32_t color, int slot) {
   lv_obj_t *o = make_label(s_scr, glyph, F_ICON, color);
@@ -600,11 +611,14 @@ static lv_obj_t *make_icon(const char *glyph, uint32_t color, int slot) {
 }
 
 static void build_indicators(void) {
+  s_icon_position = make_icon(ICO_POSITION, C_GREEN, 0);
   // 大燈：近燈綠、遠燈藍，比照車規儀表的慣例（圖示也會換成遠燈符號）
-  s_icon_light = make_icon(ICO_LOW_BEAM, C_GREEN, 0);
-  s_icon_door = make_icon(ICO_DOOR, C_ORANGE, 1);
-  s_icon_lock = make_icon(ICO_UNLOCK, C_ORANGE, 2);
-  s_icon_trunk = make_icon(ICO_TRUNK, C_ORANGE, 3);
+  s_icon_light = make_icon(ICO_LOW_BEAM, C_GREEN, 1);
+  // 後霧燈用琥珀色，車規上它是警示性質的燈
+  s_icon_rear_fog = make_icon(ICO_REAR_FOG, C_ORANGE, 2);
+  s_icon_door = make_icon(ICO_DOOR, C_ORANGE, 3);
+  s_icon_lock = make_icon(ICO_UNLOCK, C_ORANGE, 4);
+  s_icon_trunk = make_icon(ICO_TRUNK, C_ORANGE, 5);
 }
 
 /// 單一格的顯示與隱藏。狀態沒變就不動，避免多餘的 invalidate。
@@ -974,7 +988,10 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   update_tire(2, data->tire_rl, p->tire_rl, force);
   update_tire(3, data->tire_rr, p->tire_rr, force);
 
-  // 右側指示燈條：大燈 / 車門 / 門鎖 / 後車廂
+  // 時速上方指示燈條：小燈 / 大燈 / 後霧燈 / 車門 / 門鎖 / 後車廂
+  if (force || data->position_lamp != p->position_lamp) {
+    set_icon(s_icon_position, data->position_lamp);
+  }
   if (force || data->low_beam != p->low_beam ||
       data->high_beam != p->high_beam) {
     // 遠燈一定伴隨大燈開啟，所以顯示條件是 low_beam；
@@ -984,6 +1001,9 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
                       data->high_beam ? ICO_HIGH_BEAM : ICO_LOW_BEAM);
     lv_obj_set_style_text_color(
         s_icon_light, lv_color_hex(data->high_beam ? C_BLUE : C_GREEN), 0);
+  }
+  if (force || data->rear_fog != p->rear_fog) {
+    set_icon(s_icon_rear_fog, data->rear_fog);
   }
   if (force || data->door_open != p->door_open) {
     set_icon(s_icon_door, data->door_open);
@@ -1060,7 +1080,9 @@ void ui_dashboard_set_stale(bool stale) {
     lv_obj_set_style_text_opa(s_tire_value[i], opa, 0);
   }
   // 指示燈同樣淡出：逾時後的車門 / 門鎖狀態一樣是過期資料
+  lv_obj_set_style_text_opa(s_icon_position, opa, 0);
   lv_obj_set_style_text_opa(s_icon_light, opa, 0);
+  lv_obj_set_style_text_opa(s_icon_rear_fog, opa, 0);
   lv_obj_set_style_text_opa(s_icon_door, opa, 0);
   lv_obj_set_style_text_opa(s_icon_lock, opa, 0);
   lv_obj_set_style_text_opa(s_icon_trunk, opa, 0);

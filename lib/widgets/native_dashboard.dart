@@ -559,14 +559,16 @@ class _NativeDashboardState extends State<NativeDashboard>
     );
   }
 
-  /// 胎壓卡片右邊的狀態燈區：2x2 指示燈（大燈 / 車門 / 門鎖 / 尾門）。
+  /// 胎壓卡片右邊的狀態燈區：2x3 指示燈，依閱讀順序為
+  /// 小燈 / 大燈 / 後霧燈 / 車門 / 門鎖 / 尾門，與 ESP32 板子上那一排的順序相同。
   /// 純黑底、無卡片外框，只有亮起的燈看得見。
   ///
   /// 每格固定佔位，圖示只在狀態成立時顯示（Visibility 保留尺寸）——
-  /// 若改成不成立就不放進 tree，四個格子會隨狀態互相推擠、位置跳來跳去。
+  /// 若改成不成立就不放進 tree，格子會隨狀態互相推擠、位置跳來跳去。
   Widget _buildStatusPanel(AppProvider p) {
     // 格寬要吃得下最寬的圖示：大燈的長寬比是 455:350，
     // 高 84 時實際寬度約 109，所以格子不能只比 iconSize 大一點。
+    // 三列共 336，這一區的高度是 (1080 - 32 - 16) / 3 = 344，剛好放得下。
     const double cellSize = 112;
     const double iconSize = 84;
     const Color warn = Color(0xfff59e0b); // amber-500
@@ -597,6 +599,8 @@ class _NativeDashboardState extends State<NativeDashboard>
           children: [
             Row(
               children: [
+                slot(p.isPositionLampOn,
+                    const _PositionLampIcon(size: iconSize, color: ok)),
                 // 大燈。遠燈時轉藍，比照車規儀表的慣例；
                 // 遠燈一定伴隨大燈開啟，所以顯示條件仍是 isLowBeamOn。
                 slot(
@@ -606,6 +610,13 @@ class _NativeDashboardState extends State<NativeDashboard>
                     color: p.isHighBeamOn ? high : ok,
                   ),
                 ),
+              ],
+            ),
+            Row(
+              children: [
+                // 後霧燈用琥珀色，比照車規儀表
+                slot(p.isRearFogOn,
+                    const _RearFogIcon(size: iconSize, color: warn)),
                 // 任一車門開啟
                 slot(p.isAnyDoorOpen,
                     const _DoorsOpenIcon(size: iconSize, color: warn)),
@@ -1582,6 +1593,128 @@ class _HeadlightIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HeadlightIconPainter old) => old.color != color;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 小燈圖示（車規位置燈符號：兩個背對背的半圓燈罩，各自向外放出三道光）
+//
+// 與大燈圖示同一套筆畫粗細，並排出現時份量一致。參考畫布 455×350。
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PositionLampIcon extends StatelessWidget {
+  const _PositionLampIcon({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size * _HeadlightIcon._refW / _HeadlightIcon._refH,
+      height: size,
+      child: CustomPaint(painter: _PositionLampPainter(color)),
+    );
+  }
+}
+
+class _PositionLampPainter extends CustomPainter {
+  const _PositionLampPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.height / _HeadlightIcon._refH);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 30
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 以中線 x=227.5 左右對稱：左燈罩平邊朝左、弧面朝右，右燈罩鏡射
+    for (final double dir in [-1.0, 1.0]) {
+      double x(double dx) => 227.5 + dir * dx;
+
+      // 燈罩：平邊在 dx=108，弧面鼓到 dx=34。兩個弧頂之間留約 40 的縫，
+      // 再窄在 84px 下就黏成一團，看不出是兩顆燈
+      final lamp = Path()
+        ..moveTo(x(108), 95)
+        ..cubicTo(x(52), 95, x(34), 140, x(34), 175)
+        ..cubicTo(x(34), 210, x(52), 255, x(108), 255)
+        ..close();
+      canvas.drawPath(lamp, paint);
+
+      // 三道光：中間水平，上下兩道往外斜張開
+      canvas.drawLine(Offset(x(152), 175), Offset(x(208), 175), paint);
+      canvas.drawLine(Offset(x(148), 110), Offset(x(195), 70), paint);
+      canvas.drawLine(Offset(x(148), 240), Offset(x(195), 280), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PositionLampPainter old) => old.color != color;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 後霧燈圖示（車規後霧燈符號：D 形燈罩朝右，三道水平光線被一條直線貫穿）
+//
+// 等於大燈圖示左右翻轉，光線改成水平再加一條直線。參考畫布同為 455×350。
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RearFogIcon extends StatelessWidget {
+  const _RearFogIcon({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size * _HeadlightIcon._refW / _HeadlightIcon._refH,
+      height: size,
+      child: CustomPaint(painter: _RearFogPainter(color)),
+    );
+  }
+}
+
+class _RearFogPainter extends CustomPainter {
+  const _RearFogPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.height / _HeadlightIcon._refH);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 30
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 燈罩：大燈的 D 形左右鏡射（455 - x），平邊在右、弧面朝左
+    final lamp = Path()
+      ..moveTo(217, 60)
+      ..lineTo(187, 60)
+      ..cubicTo(87, 60, 29, 112, 29, 174)
+      ..cubicTo(29, 236, 87, 288, 187, 288)
+      ..lineTo(217, 288)
+      ..close();
+    canvas.drawPath(lamp, paint);
+
+    // 三道水平光線，再以一條直線貫穿
+    for (int i = 0; i < 3; i++) {
+      final double y = 94.0 + i * 80.0;
+      canvas.drawLine(Offset(262, y), Offset(420, y), paint);
+    }
+    canvas.drawLine(const Offset(341, 50), const Offset(341, 298), paint);
+  }
+
+  @override
+  bool shouldRepaint(_RearFogPainter old) => old.color != color;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

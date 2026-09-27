@@ -121,6 +121,38 @@ for sz in 26 32; do
 done
 ```
 
+## 指示燈圖示
+
+`nx4_font_icons_64` 的來源是 MDI 6.9.96（`materialdesignicons-webfont.ttf`，
+存成 `mdi.ttf`）外加兩個自製 glyph。前五個碼位的由來與「MDI 碼位會隨版本位移」
+的注意事項見 Arduino 版 README 的〈指示燈圖示〉，這裡只列本版多出來的兩個：
+
+| 重映後 | 來源 | 原碼位 | 用途 |
+|---|---|---|---|
+| `U+E005` | MDI `car-parking-lights` | `U+F0D63` | 小燈 |
+| `U+E006` | **自製** `nx4-rear-fog` | `U+F0001` | 後霧燈 |
+
+MDI 只有前霧燈 `car-light-fog`（光線朝左），車規的後霧燈是同一個符號左右翻轉，
+`tools/build_rear_fog_icon.py` 就是把它鏡射後塞進空碼位。
+
+```bash
+pip install fonttools skia-pathops
+cd tools   # 同目錄下要有 mdi.ttf
+python3 build_trunk_icon.py      # mdi.ttf → mdi-nx4.ttf（加後車廂）
+python3 build_rear_fog_icon.py   # mdi-nx4.ttf 原地加後霧燈
+npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
+  --lv-include lvgl.h --font mdi-nx4.ttf --size 64 \
+  --range '0xF0C4A=>0xE000' --range '0xF0C4C=>0xE001' \
+  --range '0xF0B6B=>0xE002' --range '0xF0FC6=>0xE003' \
+  --range '0xF0000=>0xE004' --range '0xF0D63=>0xE005' \
+  --range '0xF0001=>0xE006' -o ../main/nx4_font_icons_64.c
+```
+
+原本是 80px。加了小燈與後霧燈變成六格之後，80px 在時速上方那排
+（半寬上限 285px）怎麼排都放不下，所以整組縮到 64px。
+
+以 6.9.96 在 80px 重跑時，前五個 glyph 的點陣與舊檔逐位元相同，可確認來源版本。
+
 ## 固定 IP
 
 設定頁「儲存並連線」那一列右邊有一顆按鈕，按下去會把**目前 DHCP 拿到的

@@ -239,6 +239,26 @@ static void parse_bc09(const char *d) {      // 大燈：G 的 0xC0、遠燈在 
     xSemaphoreGive(s_data_lock);
 }
 
+static void parse_bc07(const char *d) {      // 後霧燈：byte F 的 bit1
+    if (!d || strlen(d) < 12) return;
+    int f = hex2(d + 10);
+    xSemaphoreTake(s_data_lock, portMAX_DELAY);
+    s_data.rear_fog = (f & 0x02) != 0;
+    s_data.has_rear_fog = true;
+    xSemaphoreGive(s_data_lock);
+}
+
+// 小燈：byte E 的 bit4~7（四個位元同動，應是前後位置燈那一組）。
+// 只開小燈時 22BC09 的 byte G 全程是 00，所以小燈不會被誤判成近燈。
+static void parse_bc10(const char *d) {
+    if (!d || strlen(d) < 10) return;
+    int e = hex2(d + 8);
+    xSemaphoreTake(s_data_lock, portMAX_DELAY);
+    s_data.position_lamp = (e & 0xF0) != 0;
+    s_data.has_position_lamp = true;
+    xSemaphoreGive(s_data_lock);
+}
+
 static void parse_c00b(const char *d) {      // 胎壓，四個值各除以 5
     if (!d || strlen(d) < 42) return;
     xSemaphoreTake(s_data_lock, portMAX_DELAY);
@@ -284,7 +304,7 @@ static void parse_b002(const char *d) {      // 里程 / 油量 / 電壓
 }
 
 // ── 輪詢 ─────────────────────────────────────────────────────────────────
-// IGMP（大燈 / 車門 / 門鎖 / 倒車）共用一個 Header，一次切換全部查完。
+// IGMP（大燈 / 小燈 / 後霧燈 / 車門 / 門鎖 / 倒車）共用一個 Header，一次切換全部查完。
 // 兩個候選 Header 試到哪個回得出 62BC09 就鎖定，之後不再試另一個。
 static const char *kIgmpHeaders[] = {"ATSH302", "ATSH770"};
 static const char *s_igmp_locked = NULL;
@@ -304,6 +324,8 @@ static void poll_igmp(void) {
             parse_bc03(uds_payload(elm_send("22BC03", 1500), "BC03"));
             parse_bc04(uds_payload(elm_send("22BC04", 1500), "BC04"));
             parse_bc08(uds_payload(elm_send("22BC08", 1500), "BC08"));
+            parse_bc07(uds_payload(elm_send("22BC07", 1500), "BC07"));
+            parse_bc10(uds_payload(elm_send("22BC10", 1500), "BC10"));
             elm_send("ATSH7DF", 1000);
             if (!s_igmp_locked) {
                 s_igmp_locked = hdrs[i];
@@ -402,11 +424,11 @@ static void obd_task(void *arg) {
             elm_send("ATSH7DF", 1000);
         }
 
-        // 大燈 / 車門 / 門鎖 / 倒車。間隔依車速調整（照搬手機端 _pollIgmp）：
+        // 燈號 / 車門 / 門鎖 / 倒車。間隔依車速調整（照搬手機端 _pollIgmp）：
         // 車門與門鎖幾乎只在靜止時變動，行進間查得再勤也不會有事情發生，
         // 不如把匯流排讓給 300ms 的時速/轉速快輪詢。
         //
-        // 這一批是 6 道指令（Header + 四個 PID + 還原 Header），在 BLE 上
+        // 這一批是 8 道指令（Header + 六個 PID + 還原 Header），在 BLE 上
         // 單道來回大約 100ms 起跳，行進間若還是每秒一批，光這批就吃掉大半
         // 秒的匯流排時間，快輪詢會被推到 1 秒以上。
         xSemaphoreTake(s_data_lock, portMAX_DELAY);

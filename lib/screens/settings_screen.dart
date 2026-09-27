@@ -393,6 +393,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final speedLimit = cycle < 100 ? 60 : (cycle < 150 ? 90 : 50);
     final lowBeam = cycle >= 100 && cycle < 180;
     final highBeam = cycle >= 130 && cycle < 150;
+    // 小燈比近燈早亮、晚熄，前後各露出一段只有小燈的畫面
+    final positionLamp = cycle >= 80 && cycle < 190;
+    final rearFog = cycle >= 160 && cycle < 185;
     final cameraActive = cycle >= 130 && cycle < 165;
     final now = DateTime.now();
 
@@ -422,7 +425,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         "rr": 33,
       },
       "camera": {"active": cameraActive, "limit": 50},
-      "lights": {"low": lowBeam, "high": highBeam},
+      "lights": {
+        "low": lowBeam,
+        "high": highBeam,
+        "position": positionLamp,
+        "rear_fog": rearFog,
+      },
       "brightness": SettingsService()
           .esp32BrightnessFor(lowBeam: lowBeam, highBeam: highBeam),
     };

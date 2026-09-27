@@ -21,7 +21,7 @@
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90, "kind": "speed"},
-//   "lights": {"low": true, "high": false},
+//   "lights": {"low": true, "high": false, "position": true, "rear_fog": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "brightness": 40
 // }
@@ -342,6 +342,9 @@ static void handleDashPayload(const char *payload, size_t length) {
         if (cJSON_IsObject(lights)) {
             g_dash.low_beam = j_bool(lights, "low", false);
             g_dash.high_beam = j_bool(lights, "high", false);
+            // 舊版 App 不送這兩個鍵，視為沒亮——與 doors 裡缺鍵的處理一致
+            g_dash.position_lamp = j_bool(lights, "position", false);
+            g_dash.rear_fog = j_bool(lights, "rear_fog", false);
         }
 
         // 車門 / 門鎖 / 後車廂 → 右側指示燈條的後三格。
@@ -429,6 +432,26 @@ static void serviceVoice(void) {
     }
     said_camera = g_dash.camera_active;
     said_red_light = g_dash.camera_red_light;
+
+    // 車門沒關好就起步：車速由 0 變成大於 0 的那一刻有車門開著，念兩次。
+    // 手機端 AppProvider._maybeWarnDoorOpenOnDeparture 是同一套規則。
+    //
+    // 資料逾時就當作沒有車速（-1），否則開機時 g_dash.speed 的初值 0
+    // 會被當成「停著」，第一包資料一進來就可能誤判成起步。
+    // 停車場裡時速常在 0 與 1 之間跳，兩次警告至少隔 30 秒。
+    static int prev_speed = -1;
+    static int64_t last_door_warn = 0;
+    int64_t t = now_ms();
+    bool fresh = g_last_data_ms != 0 && t - g_last_data_ms <= DATA_TIMEOUT_MS;
+    int speed = fresh ? g_dash.speed : -1;
+    if (prev_speed == 0 && speed > 0 && g_dash.door_open &&
+        (last_door_warn == 0 || t - last_door_warn >= 30000)) {
+        last_door_warn = t;
+        // 佇列長度 4，兩段一起排進去；每段前面各有一段靜音，自然隔開
+        nx4_tts_say("door_open");
+        nx4_tts_say("door_open");
+    }
+    prev_speed = speed;
 }
 
 /// 把 OBD 解析結果搬進畫面資料。只搬「讀到過」的欄位，沒讀到的保留 "--"。
@@ -455,6 +478,8 @@ static void obd_apply(void) {
         g_dash.low_beam = o.low_beam;
         g_dash.high_beam = o.high_beam;
     }
+    if (o.has_position_lamp) g_dash.position_lamp = o.position_lamp;
+    if (o.has_rear_fog)      g_dash.rear_fog = o.rear_fog;
     if (o.has_doors) {
         g_dash.door_open = o.door_open;
         g_dash.trunk_open = o.trunk_open;

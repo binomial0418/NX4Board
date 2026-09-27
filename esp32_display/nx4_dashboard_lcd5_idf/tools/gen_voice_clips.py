@@ -31,6 +31,7 @@ CLIPS = [
     ("high_beam_off", "遠燈關閉"),
     ("camera", "前有測速照相"),
     ("red_light", "前有闖紅燈照相"),
+    ("door_open", "車門沒關好"),
 ] + [(f"camera_{n}", f"前有測速照相，速限{n}") for n in SPEED_LIMITS]
 
 # ── IMA ADPCM ────────────────────────────────────────────────────────────

@@ -44,6 +44,8 @@ typedef struct {
   bool camera_red_light;  // 是闖紅燈照相（沒有速限，改念「前有闖紅燈照相」）
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
+  bool position_lamp;  // 小燈（示寬燈）開啟
+  bool rear_fog;       // 後霧燈開啟
   bool reversing;      // 倒車檔（時速位置改顯示 R）
   bool door_open;      // 任一車門開啟
   bool door_unlocked;  // 任一車門解鎖（22BC04 只有前兩門有訊號）

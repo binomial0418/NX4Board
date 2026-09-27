@@ -61,6 +61,11 @@ class AppProvider extends ChangeNotifier {
   bool? _lastObservedHighBeam;
   Timer? _highBeamDebounce;
 
+  /// 上一次看到的車速，用來抓「由 0 變成大於 0」的起步瞬間。
+  /// null 代表還沒有車速資料，起步判斷要等拿到第一筆 0 之後才成立。
+  int? _lastSpeedForDoorWarn;
+  DateTime? _lastDoorWarnAt;
+
   /// 目前路型：道路追蹤有結果時以它為準（能分辨高架與正下方的平面道路），
   /// 圖資無法判定時退回 RoadTypeService 的地標判定。
   RoadType get effectiveRoadType =>
@@ -232,6 +237,7 @@ class AppProvider extends ChangeNotifier {
 
   void _onObdServiceUpdated() {
     _maybeAnnounceHighBeam();
+    _maybeWarnDoorOpenOnDeparture();
     notifyListeners();
   }
 
@@ -269,6 +275,32 @@ class AppProvider extends ChangeNotifier {
       _lastAnnouncedHighBeam = stable;
       TtsService().speak(stable ? '遠燈開啟' : '遠燈關閉');
     });
+  }
+
+  /// 車門沒關好就起步：車速由 0 變成大於 0 的那一刻，若有任一車門開著，
+  /// 連念兩次「車門沒關好」。
+  ///
+  /// 只看起步的那一瞬間，行進中才打開的車門不在這裡管。停車場裡時速常在
+  /// 0 與 1 之間跳，所以兩次警告至少隔 30 秒，避免一路念個不停。
+  /// ESP32 板子端有同樣的邏輯（main.c 的 serviceVoice）。
+  void _maybeWarnDoorOpenOnDeparture() {
+    final bool hasData = _isDemoEnabled || _obdService.hasDoors;
+    final int? speed = hasData ? obdSpeed : null;
+    final int? prev = _lastSpeedForDoorWarn;
+    _lastSpeedForDoorWarn = speed;
+
+    if (speed == null || prev != 0 || speed <= 0) return;
+    if (!isAnyDoorOpen) return;
+
+    final now = DateTime.now();
+    if (_lastDoorWarnAt != null &&
+        now.difference(_lastDoorWarnAt!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastDoorWarnAt = now;
+    // flutter_tts 預設是 QUEUE_FLUSH，連呼叫兩次 speak 第一句會被砍掉，
+    // 所以兩次合成一句念
+    TtsService().speak('車門沒關好，車門沒關好');
   }
 
   @override
@@ -355,6 +387,7 @@ class AppProvider extends ChangeNotifier {
       if (_demoTicks % 70 == 0) _demoIsTrunkOpen = !_demoIsTrunkOpen;
 
       _maybeAnnounceHighBeam();
+      _maybeWarnDoorOpenOnDeparture();
       notifyListeners();
     });
   }
