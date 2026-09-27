@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -65,13 +66,54 @@ static const char *elm_send(const char *cmd, int timeout_ms) {
         return NULL;
     }
 
-    // 就地正規化：去空白與換行、轉大寫。解析全部以這個形式進行。
+    // 就地正規化。必須逐行處理，不能只是去掉空白換行。
+    //
+    // ATAL 開著時長回應是分行帶編號的，實車抓到的 22B002 長這樣：
+    //     00F
+    //     0:62B002E00000
+    //     1:001EA7009FFC00
+    //     2:0000AAAAAAAAAA
+    //     >
+    // 第一行是總長度，後面是編號的資料段。舊版只去掉空白換行，結果
+    // 那些 "0:" "1:" "2:" 與長度、提示符全部留在字串裡，直接把位元組
+    // 位置錯開：油量讀成 0（正確 30）、里程讀成 10944671（正確 40956）。
+    // 水溫沒事只因為 0167 是單幀回應，沒有行首編號可以汙染。
+    //
+    // 規則：行首「一個十六進位字元加冒號」是段號，去掉；只有 1~3 個
+    // 十六進位字元的整行是長度標示，整行丟掉；其餘純十六進位才串接。
     static char clean[RX_MAX];
     size_t k = 0;
-    for (size_t i = 0; i < s_rx_len && k < sizeof(clean) - 1; i++) {
-        char c = s_rx[i];
-        if (c == ' ' || c == '\r' || c == '\n') continue;
-        clean[k++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+    size_t i = 0;
+    while (i < s_rx_len && k < sizeof(clean) - 1) {
+        // 取出一行（到 \r 或 \n 為止），順手去空白、轉大寫、丟掉 '>'
+        char ln[RX_MAX];
+        size_t m = 0;
+        while (i < s_rx_len && s_rx[i] != '\r' && s_rx[i] != '\n') {
+            char c = s_rx[i++];
+            if (c == ' ' || c == '>') continue;
+            if (m < sizeof(ln) - 1) {
+                ln[m++] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+            }
+        }
+        while (i < s_rx_len && (s_rx[i] == '\r' || s_rx[i] == '\n')) i++;
+        ln[m] = '\0';
+        if (m == 0) continue;
+
+        const char *body = ln;
+        size_t blen = m;
+        if (m >= 2 && ln[1] == ':' && isxdigit((unsigned char)ln[0])) {
+            body = ln + 2;                 // 去掉段號
+            blen = m - 2;
+        } else if (m <= 3) {
+            bool all_hex = true;
+            for (size_t j = 0; j < m; j++) {
+                if (!isxdigit((unsigned char)ln[j])) { all_hex = false; break; }
+            }
+            if (all_hex) continue;         // 長度標示行，整行丟掉
+        }
+        for (size_t j = 0; j < blen && k < sizeof(clean) - 1; j++) {
+            clean[k++] = body[j];
+        }
     }
     clean[k] = '\0';
 
