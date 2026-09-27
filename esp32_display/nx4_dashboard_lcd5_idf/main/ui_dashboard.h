@@ -20,12 +20,16 @@ extern "C" {
 // ─────────────────────────────────────────────────────────────────────────
 
 /// 手機端 esp32_dash JSON 解析後的儀表資料
+/// 浮點欄位「尚未取得」的哨兵。增壓的合法範圍是 -1.0 ~ +1.0，
+/// 拿遠離該範圍的值當哨兵，比較時用 < 就夠，不必擔心浮點相等。
+#define NX4_NO_VALUE_F (-99.0f)
+
 typedef struct {
-  int speed;        // km/h
-  int rpm;          // rpm
+  int speed;        // km/h，-1 表示尚未取得（0 是合法讀數，靜止時就是 0）
+  int rpm;          // rpm，-1 表示尚未取得（0 是合法讀數，油電熄火時顯示 EV）
   int coolant;      // °C
   float soc;        // 混合動力電池 %
-  int fuel;         // 油量 %
+  int fuel;         // 油量 %，-1 表示尚未取得
   int speed_limit;  // 目前路段速限 km/h，0 表示無資料
   // 高架與正下方平面道路判別不出來、且兩者速限不同時，另一條路的速限；
   // 0 表示判定有把握或兩者速限相同
@@ -33,7 +37,7 @@ typedef struct {
   // 另一條路在上面（高架）還是下面，決定箭頭方向
   bool limit_alt_above;
   int odo;          // 里程 km
-  float turbo;      // 渦輪增壓 Bar
+  float turbo;      // 渦輪增壓 Bar，NX4_NO_VALUE_F 表示尚未取得（0.0 是合法讀數）
   int throttle;     // 相對節氣門開度 %（PID 0145），-1 表示尚未取得
   int tire_fl;      // 胎壓 psi
   int tire_fr;

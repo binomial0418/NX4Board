@@ -387,7 +387,14 @@ static void clock_tick_cb(lv_timer_t *timer) {
 
 void nx4_dash_data_init(nx4_dash_data_t *data) {
   memset(data, 0, sizeof(nx4_dash_data_t));
-  data->throttle = -1;   // 0 是合法的節氣門讀數，未取得要用 -1
+  // 這幾個欄位的 0 都是合法讀數，不能拿 memset 的 0 當「沒資料」，
+  // 否則開機還沒連上 OBD 就會顯示時速 0、轉速 EV、油量 0、增壓 +0.0，
+  // 看起來像真實狀態。水溫、里程、電量、胎壓的 0 不合理，沿用 > 0 判斷即可。
+  data->throttle = -1;
+  data->speed = -1;
+  data->rpm = -1;
+  data->fuel = -1;
+  data->turbo = NX4_NO_VALUE_F;
   strcpy(data->clock, "--:--:--");
   strcpy(data->date, "--/--");
 }
@@ -845,6 +852,17 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   // 時速：大字（以補間平滑過渡）。倒車時整個換成琥珀色的 R，比照 App 儀表。
   if (force || data->speed != p->speed || data->reversing != p->reversing) {
     int speed = data->speed;
+    if (speed < 0 && !data->reversing) {
+      // 還沒讀到過。停掉補間，否則它會把 "--" 蓋成數字
+      lv_anim_del(s_speed_value, anim_speed_cb);
+      lv_obj_set_style_text_color(s_speed_value, lv_color_hex(C_TEXT), 0);
+      lv_label_set_text(s_speed_value, "--");
+      lv_obj_update_layout(s_speed_value);
+      lv_obj_set_pos(s_speed_value,
+                     STACK_CX - lv_obj_get_width(s_speed_value) / 2, SPEED_Y);
+      s_speed_shown = -1;
+      goto speed_done;
+    }
     if (speed < 0) speed = 0;
     if (data->reversing) {
       // 已經在倒車就維持原樣；倒車中時速仍會跳動，不擋的話每筆資料
@@ -875,11 +893,23 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
       }
     }
   }
+speed_done:
 
   // 轉速（以補間平滑過渡）
   if (force || data->rpm != p->rpm) {
     int rpm = data->rpm;
-    if (rpm < 0) rpm = 0;
+    if (rpm < 0) {
+      // 還沒讀到過。不能讓它走到 anim_rpm_cb，那裡 0 會被畫成綠色的 EV
+      lv_anim_del(s_rpm_value, anim_rpm_cb);
+      lv_obj_set_style_text_color(s_rpm_value, lv_color_hex(C_BLUE), 0);
+      lv_label_set_text(s_rpm_value, "--");
+      lv_obj_add_flag(s_rpm_unit, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_update_layout(s_rpm_value);
+      lv_obj_set_pos(s_rpm_value,
+                     STACK_CX - lv_obj_get_width(s_rpm_value) / 2, RPM_Y);
+      s_rpm_shown = -1;
+      goto rpm_done;
+    }
     if (rpm > RPM_MAX) rpm = RPM_MAX;
     // EV 狀態的綠色由 anim_rpm_cb 決定，這裡只處理有轉速時的配色
     if (rpm > 0) {
@@ -895,6 +925,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
                  anim_ms(&s_rpm_last_ms));
     }
   }
+rpm_done:;
 
 
   // Hev 電池
@@ -949,11 +980,18 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   }
   if (force || data->fuel != p->fuel) {
     int fuel = data->fuel;
-    if (fuel < 0) fuel = 0;
+    if (fuel < 0) {
+      // 還沒讀到過。油量要攢滿五筆才算一次平均，30 秒一輪等於開機
+      // 兩分半內都沒有值，這段期間本來會顯示 0。
+      lv_label_set_text(s_fuel_value, "--");
+      set_alert(s_fuel_value, false, C_TEXT);
+      goto fuel_done;
+    }
     if (fuel > 100) fuel = 100;
     lv_label_set_text_fmt(s_fuel_value, "%d", fuel);
     set_alert(s_fuel_value, fuel <= ALERT_FUEL_MAX, C_TEXT);
   }
+fuel_done:;
 
 
   // 節氣門開度
@@ -968,6 +1006,14 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
   // 渦輪增壓（以補間平滑過渡）
   if (force || data->turbo != p->turbo) {
     float turbo = data->turbo;
+    if (turbo < NX4_NO_VALUE_F / 2.0f) {
+      // 還沒讀到過。0.0 是合法的增壓值，所以要另外用哨兵區分
+      lv_anim_del(s_turbo_value, anim_turbo_cb);
+      lv_label_set_text(s_turbo_value, "--");
+      s_turbo_shown = 0;
+      s_turbo_deci_shown = 999;
+      goto turbo_done;
+    }
     if (turbo < -1.0f) turbo = -1.0f;
     if (turbo > 1.0f) turbo = 1.0f;
     int centi = (int)(turbo * 100.0f + (turbo >= 0 ? 0.5f : -0.5f));
@@ -981,6 +1027,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
                  anim_ms(&s_turbo_last_ms));
     }
   }
+turbo_done:;
 
   // 胎壓
   update_tire(0, data->tire_fl, p->tire_fl, force);
