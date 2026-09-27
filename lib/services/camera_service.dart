@@ -123,6 +123,14 @@ class CameraService {
 
   bool _isInitialized = false;
 
+  /// 最後一次算得出來的行進方向。停車或龜速時軌跡太短算不出方向，
+  /// 沿用它才不會讓方向過濾失效——否則下閘道停紅燈時，身後高架上的
+  /// 相機會重新被當成「前方」。
+  double? _lastHeading;
+
+  /// 在國道／快速道路上時，速限比所在道路低這麼多的相機視為高架下的平面道路
+  static const int _underpassLimitGap = 20;
+
   Future<void> init() async {
     if (_isInitialized) return;
     try {
@@ -161,11 +169,15 @@ class CameraService {
 
   List<Position> get trajectory => List.unmodifiable(_trajectory);
 
+  /// 最後一次算得出來的行進方向（度），尚未移動過為 null
+  double? get lastHeading => _lastHeading;
+
   /// 供測試注入相機資料，略過 rootBundle
   @visibleForTesting
   void setCamerasForTest(List<SpeedCamera> cameras) {
     _cameras = cameras;
     _trajectory.clear();
+    _lastHeading = null;
     _isInitialized = true;
   }
 
@@ -183,9 +195,16 @@ class CameraService {
   /// [surfaceConfirmed] 為 true 代表道路追蹤有把握目前在平面道路上，
   /// 此時排除國道/快速道路的相機——行駛在高架正下方時，上方高架的相機
   /// 水平距離很近，不排除就會誤報。
+  ///
+  /// [roadLimit] 是有把握在國道／快速道路上、且速限來自實測（OSM 標註）時
+  /// 的所在道路速限。速限低了 [_underpassLimitGap] 以上的相機必定屬於別條路
+  /// ——典型是西濱高架（90）正下方的平面道路（70）：兩者距離不到 30m、
+  /// 方向相同，位置與方向都分不開，而圖資的路型分類也常把這種相機算成
+  /// 快速道路。速限是推定值時不套用，推錯會漏報真正的相機。
   Map<String, dynamic>? checkNearbyCamera({
     RoadType currentRoadType = RoadType.none,
     bool surfaceConfirmed = false,
+    int? roadLimit,
   }) {
     if (_trajectory.length < 2) return null;
 
@@ -196,14 +215,13 @@ class CameraService {
       first.latitude, first.longitude, last.latitude, last.longitude
     );
 
-    double? userHeading;
-
-    // Threshold 5m to avoid drift noise
+    // Threshold 5m to avoid drift noise；算不出來就沿用上一次的方向
     if (moveDist >= 0.005) {
-      userHeading = CameraAlgorithm.calculateBearing(
+      _lastHeading = CameraAlgorithm.calculateBearing(
         first.latitude, first.longitude, last.latitude, last.longitude
       );
     }
+    final double? userHeading = _lastHeading;
 
     SpeedCamera? nearestCam;
     final double searchRadiusKm = (currentRoadType != RoadType.none)
@@ -224,6 +242,8 @@ class CameraService {
       //   確認在平面道路 → 排除高速路相機
       if (currentRoadType != RoadType.none && cam.roadType != currentRoadType) continue;
       if (surfaceConfirmed && cam.roadType != RoadType.none) continue;
+      if (roadLimit != null && cam.limit != null &&
+          cam.limit! <= roadLimit - _underpassLimitGap) { continue; }
 
       if ((cam.latitude - refLat).abs() > bboxDeg ||
           (cam.longitude - refLon).abs() > bboxDeg) { continue; }
@@ -301,6 +321,8 @@ class CameraService {
         "lon": nearestCam.longitude,
         "direct": nearestCam.direct,
         "is_zone": nearestCam.isZone,
+        "heading": nearestCam.heading,
+        "road_type": nearestCam.roadType.name,
         "kind": nearestCam.kind.name,
         "message": msg,
         "debug_heading": userHeading,

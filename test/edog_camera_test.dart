@@ -18,13 +18,14 @@ Position _pos(double lat, double lon) => Position(
     );
 
 /// 由南往北開，停在相機南方約 [distM] 公尺
-Map<String, dynamic>? _approachNorthbound(List<SpeedCamera> cams, double distM) {
+Map<String, dynamic>? _approachNorthbound(List<SpeedCamera> cams, double distM,
+    {RoadType roadType = RoadType.none, int? roadLimit}) {
   final svc = CameraService()..setCamerasForTest(cams);
   const camLat = 24.0;
   for (final back in [distM + 100, distM + 50, distM]) {
     svc.addPosition(_pos(camLat - back / 111000, 120.6));
   }
-  return svc.checkNearbyCamera();
+  return svc.checkNearbyCamera(currentRoadType: roadType, roadLimit: roadLimit);
 }
 
 void main() {
@@ -55,5 +56,31 @@ void main() {
     final info = _approachNorthbound([red], 250);
     expect(info?['kind'], 'redLight');
     expect(info?['message'], '前有闖紅燈照相');
+  });
+
+  test('on an elevated road, skips the surface camera below by its lower limit', () {
+    // 西濱高架 90，正下方平面道路 70 的相機被圖資算成快速道路
+    final surface = SpeedCamera.fromEdogCsv(['24.0', '120.6', '0', '70', 'speed', 'expressway', '']);
+    expect(_approachNorthbound([surface], 800, roadType: RoadType.expressway, roadLimit: 90), isNull);
+    // 速限不是實測值（未提供）時照常提示，寧可多報
+    expect(_approachNorthbound([surface], 800, roadType: RoadType.expressway)?['limit'], 70);
+    // 同一條路速限差 10 以內（例如 80 路段）仍提示
+    final same = SpeedCamera.fromEdogCsv(['24.0', '120.6', '0', '80', 'speed', 'expressway', '']);
+    expect(_approachNorthbound([same], 800, roadType: RoadType.expressway, roadLimit: 90)?['limit'], 80);
+  });
+
+  test('keeps last heading while stopped, so a camera behind stays filtered', () {
+    // 往東開到停下，相機在北邊、受測方向朝北（高架上另一條路線）
+    final cam = SpeedCamera.fromEdogCsv(['24.003', '120.6', '0', '60', 'speed', 'none', '']);
+    final svc = CameraService()..setCamerasForTest([cam]);
+    for (final dx in [0.0, 50.0, 100.0]) {
+      svc.addPosition(_pos(24.0, 120.6 + dx / 101000));
+    }
+    expect(svc.checkNearbyCamera(), isNull);
+    // 停住不動：軌跡算不出方向，仍沿用「往東」，不會把北向相機當成前方
+    for (var i = 0; i < 5; i++) {
+      svc.addPosition(_pos(24.0, 120.6 + 100 / 101000));
+    }
+    expect(svc.checkNearbyCamera(), isNull);
   });
 }

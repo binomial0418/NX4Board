@@ -27,6 +27,10 @@ class AppProvider extends ChangeNotifier {
   DateTime? _zoneCameraActiveUntil;
   static const Duration _zoneCameraDisplayDuration = Duration(seconds: 60);
 
+  /// 已進入提示距離的相機（lat_lon）。語音、畫面與 ESP 都以「進入提示距離」
+  /// 為準；之後直到相機消失（通過或離開路線）都維持提示，距離抖動不會閃爍。
+  String? _alertedCameraId;
+
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
   Timer? _obdStatusTimer;
@@ -485,12 +489,39 @@ class AppProvider extends ChangeNotifier {
     }
 
     // ── 測速照相偵測 ──
+    final slService = SpeedLimitService();
+    final trackedType = slService.trackedRoadType;
+    // 有把握在國道／快速道路上、且速限是 OSM 實測值時才提供，
+    // 用來排除高架正下方平面道路的相機（見 checkNearbyCamera）
+    final bool onHighSpeedRoad = trackedType != null &&
+        trackedType != RoadType.none &&
+        !slService.isLevelUncertain;
     final camInfo = camService.checkNearbyCamera(
       currentRoadType: effectiveRoadType,
-      surfaceConfirmed: SpeedLimitService().surfaceConfirmed,
+      surfaceConfirmed: slService.surfaceConfirmed,
+      roadLimit: onHighSpeedRoad && slService.source == LimitSource.osm
+          ? _roadSpeedLimit
+          : null,
     );
 
+    // 提示距離門檻：
+    //   區間測速        → 100m
+    //   平面道路固定測速  → 500m
+    //   國道/快速道路    → 1000m
+    // 搜尋半徑（1～2km）比門檻大，相機在半徑內但還沒到門檻時不算提示中——
+    // 否則畫面與 ESP 會在兩公里外就亮起，比語音早了一大截。
+    bool alerting = false;
     if (camInfo != null) {
+      final String camId = '${camInfo['lat']}_${camInfo['lon']}';
+      final int distM = camInfo['dist_m'] ?? 9999;
+      final bool isZone = camInfo['is_zone'] == true;
+      final bool isNormalRoad = effectiveRoadType == RoadType.none;
+      final int alertThresholdM = isZone ? 100 : (isNormalRoad ? 500 : 1000);
+      if (distM <= alertThresholdM) _alertedCameraId = camId;
+      alerting = _alertedCameraId == camId;
+    }
+
+    if (camInfo != null && alerting) {
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
@@ -507,23 +538,17 @@ class AppProvider extends ChangeNotifier {
       final int? limit = camInfo['limit'];
       final bool isZone = camInfo['is_zone'] == true;
 
-      // 提示距離門檻：
-      //   區間測速        → 100m
-      //   平面道路固定測速  → 500m
-      //   國道/快速道路    → 1000m
-      final bool isNormalRoad = effectiveRoadType == RoadType.none;
-      final int alertThresholdM = isZone ? 100 : (isNormalRoad ? 500 : 1000);
-      if (distM <= alertThresholdM) {
-        TtsService().speakCameraAlert(camInfo, speedKmh);
-      }
+      TtsService().speakCameraAlert(camInfo, speedKmh);
 
       // 距離 300m 內且超速 10km/h 以上 → 額外播報超速警示（區間測速不適用）
       if (!isZone && distM <= 300 && limit != null && speedKmh > limit + 10) {
         TtsService().speakSpeedingAlert(camInfo);
       }
     } else {
+      if (camInfo == null) _alertedCameraId = null;
       if (_zoneCameraActiveUntil != null &&
-          DateTime.now().isBefore(_zoneCameraActiveUntil!)) {
+          DateTime.now().isBefore(_zoneCameraActiveUntil!) &&
+          _stillInZone(camService.lastHeading, slService.surfaceConfirmed)) {
         _nearestCameraInfo = _activeZoneCameraInfo;
       } else {
         _nearestCameraInfo = null;
@@ -533,6 +558,21 @@ class AppProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// 通過區間起點後，區間提示會保留一段時間。下閘道或轉進別條路就立刻清掉，
+  /// 不必等到逾時：追蹤器確認已在平面道路上，或行進方向偏離區間方向超過 60°。
+  bool _stillInZone(double? heading, bool surfaceConfirmed) {
+    final zone = _activeZoneCameraInfo;
+    if (zone == null) return false;
+    if (surfaceConfirmed && zone['road_type'] != RoadType.none.name) return false;
+    final double? zoneHeading = (zone['heading'] as num?)?.toDouble();
+    if (heading != null && zoneHeading != null) {
+      double diff = (heading - zoneHeading).abs();
+      if (diff > 180) diff = 360 - diff;
+      if (diff > 60) return false;
+    }
+    return true;
   }
 
   /// Check if speeding
