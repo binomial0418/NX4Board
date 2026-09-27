@@ -725,11 +725,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final Map<String, dynamic> dashData = {
       "_type": "esp32_dash",
-      "speed": _currentDisplaySpeed.round(),
-      "rpm": provider.obdRpm ?? 0,
-      "coolant": provider.obdCoolant ?? 0,
-      "soc": provider.obdHevSoc ?? 0,
-      "fuel": provider.obdFuel ?? 0,
       "speed_limit": provider.roadSpeedLimit,
       // 高架與正下方平面道路判別不出來、且兩者速限不同時的另一個可能值；
       // 0 表示判定有把握。路名不送，ESP32 的中文字型只收錄卡片抬頭用的字。
@@ -738,8 +733,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       "limit_alt_above": provider.alternativeRoadLevel > provider.currentRoadLevel,
       // 速限是依道路分級推定，而非 OSM 標註或省道牌面實測（目前僅供記錄，畫面不顯示）
       "limit_inferred": provider.isSpeedLimitInferred,
-      "odo": provider.obdOdometer?.round() ?? 0,
-      "turbo": provider.obdTurbo ?? 0.0,
       // 相對節氣門開度 %（PID 0145）。顯示在增壓數值左側，用來判讀增壓是否可信
       // ——油電車引擎原地充電時轉速高但節氣門關閉，增壓本來就會是負值。
       // -1 表示尚未取得，板子端顯示 "--%"。
@@ -747,12 +740,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       // ESP32 沒有 RTC，日期時間由手機端提供
       "time": DateFormat('HH:mm:ss').format(now),
       "date": '${DateFormat('MM/dd').format(now)} ${_weekdayZh(now)}',
-      "tires": {
-        "fl": provider.tpmsFl ?? 0,
-        "fr": provider.tpmsFr ?? 0,
-        "rl": provider.tpmsRl ?? 0,
-        "rr": provider.tpmsRr ?? 0,
-      },
       "camera": {
         "active": camInfo != null,
         "limit": camInfo?['limit'] ?? 0,
@@ -782,6 +769,37 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     };
 
+    // 沒讀到的車輛數值一律不送，不要填 0。
+    //
+    // 板子端 j_int(doc, "x", 既有值) 在欄位缺席時保留上一次的值，而
+    // nx4_dash_data_init 把 speed / rpm / fuel 設成 -1、turbo 設成哨兵，
+    // 畫面因此顯示 "--"。送 0 會被當成真實讀數照顯示：時速 0、油量 0、
+    // 增壓 +0.0，轉速 0 甚至會被畫成綠色的 EV，謊報正在純電行駛。
+    void put(String key, Object? value) {
+      if (value != null) dashData[key] = value;
+    }
+
+    put("speed", _displaySpeedOrNull?.round());
+    put("rpm", provider.obdRpm);
+    put("coolant", provider.obdCoolant);
+    put("soc", provider.obdHevSoc);
+    put("fuel", provider.obdFuel);
+    put("odo", provider.obdOdometer?.round());
+    put("turbo", provider.obdTurbo);
+
+    // 胎壓四輪同進同出，缺一就整包不送
+    if (provider.tpmsFl != null &&
+        provider.tpmsFr != null &&
+        provider.tpmsRl != null &&
+        provider.tpmsRr != null) {
+      dashData["tires"] = {
+        "fl": provider.tpmsFl,
+        "fr": provider.tpmsFr,
+        "rl": provider.tpmsRl,
+        "rr": provider.tpmsRr,
+      };
+    }
+
     try {
       _esp32Channel!.sink.add(jsonEncode(dashData));
     } catch (e) {
@@ -794,6 +812,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // 顯示用數值
   // ──────────────────────────────────────────────
+  /// 時速，兩個來源都沒有時回傳 null。
+  ///
+  /// 推給 ESP32 時要用這個而不是 _currentDisplaySpeed：後者沒來源時回傳
+  /// 0.0，板子收到 0 會當成「靜止」照實顯示，看起來像真的讀到了。
+  double? get _displaySpeedOrNull {
+    final provider = context.read<AppProvider>();
+    if (provider.obdSpeed != null) return provider.obdSpeed!.toDouble();
+    final position = provider.currentPosition;
+    if (position == null) return null;
+    final gpsSpeed = position.speed * 3.6;
+    return gpsSpeed > 1.5 ? gpsSpeed : 0.0;
+  }
+
   /// 速度來源：OBD 優先，GPS 備援（低於 1.5 m/s 視為靜止歸零）
   double get _currentDisplaySpeed {
     final provider = context.read<AppProvider>();
