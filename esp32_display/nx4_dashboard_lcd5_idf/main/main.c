@@ -23,9 +23,12 @@
 //   "camera": {"active": true, "limit": 90, "kind": "speed", "passed": 3},
 //   "lights": {"low": true, "high": false, "position": true, "rear_fog": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
-//   "traffic": {"active": true, "sys": "P", "ref": "61", "km": 152.3,
+//   "traffic": {"active": true, "alerts": 2, "sys": "P", "ref": "61", "km": 152.3,
 //               "segs": [[0, 420, 78, 0], ...],
-//               "jam": {"dist": 420, "len": 1400, "speed": 22, "level": 3}},
+//               "jam": {"dist": 420, "len": 1400, "speed": 22, "level": 3,
+//                       "via": {"sys": "P", "ref": "61", "dir": "S"}},
+//               "ramp": {"sys": "P", "ref": "61",
+//                        "dirs": [{"dir": "N", "level": 0, "speed": 85}]}},
 //   "brightness": 40
 // }
 //
@@ -222,6 +225,7 @@ static void applyBrightness(int percent) {
 // 而缺欄位在協定上是合法的（沿用舊值），畫面上看起來就像「不會更新」。
 static uint32_t g_seen_fields = 0;
 static int g_said_passed = -1;   // 已念過「通過」的累計次數，-1 = 尚無基準
+static int g_said_alerts = -1;   // 已念過「注意前方路況」的累計次數，-1 = 尚無基準
 static bool g_log_next_payload = false;
 
 #define FIELD_ODO (1 << 0)
@@ -325,15 +329,50 @@ static void handleDashPayload(const char *payload, size_t length) {
 
     // 前方路況（TDX）。traffic 整個缺席是舊版 App，維持不顯示；
     // 有 traffic 但沒有 jam 就是前方順暢或不在國道／快速公路上。
+    // 閘道前預知時 active 為 false（還不在主線上），但 jam 帶 via，照樣顯示。
     const cJSON *traffic = cJSON_GetObjectItemCaseSensitive(doc, "traffic");
     if (cJSON_IsObject(traffic)) {
+        g_dash.traffic_alerts = j_int(traffic, "alerts", -1);
         const cJSON *jam = cJSON_GetObjectItemCaseSensitive(traffic, "jam");
-        g_dash.jam_active = j_bool(traffic, "active", false) && cJSON_IsObject(jam);
+        g_dash.jam_active = cJSON_IsObject(jam);
         if (g_dash.jam_active) {
             g_dash.jam_dist = j_int(jam, "dist", 0);
             g_dash.jam_len = j_int(jam, "len", 0);
             g_dash.jam_speed = j_int(jam, "speed", 0);
             g_dash.jam_level = j_int(jam, "level", 3);
+            const cJSON *via = cJSON_GetObjectItemCaseSensitive(jam, "via");
+            g_dash.jam_via = cJSON_IsObject(via);
+            if (g_dash.jam_via) {
+                const char *sys = j_str(via, "sys");
+                const char *ref = j_str(via, "ref");
+                const char *dir = j_str(via, "dir");
+                g_dash.via_sys = (sys && sys[0]) ? sys[0] : 'P';
+                strncpy(g_dash.via_ref, ref ? ref : "", sizeof(g_dash.via_ref) - 1);
+                g_dash.via_ref[sizeof(g_dash.via_ref) - 1] = '\0';
+                g_dash.via_dir = (dir && dir[0]) ? dir[0] : ' ';
+            }
+        }
+        // 閘道前預知、上去之後路況正常：同樣顯示（最多兩個方向）
+        const cJSON *ramp = cJSON_GetObjectItemCaseSensitive(traffic, "ramp");
+        const cJSON *dirs = cJSON_IsObject(ramp) ? cJSON_GetObjectItemCaseSensitive(ramp, "dirs") : NULL;
+        g_dash.ramp_active = cJSON_IsArray(dirs) && cJSON_GetArraySize(dirs) > 0;
+        if (g_dash.ramp_active) {
+            const char *sys = j_str(ramp, "sys");
+            const char *ref = j_str(ramp, "ref");
+            g_dash.ramp_sys = (sys && sys[0]) ? sys[0] : 'P';
+            strncpy(g_dash.ramp_ref, ref ? ref : "", sizeof(g_dash.ramp_ref) - 1);
+            g_dash.ramp_ref[sizeof(g_dash.ramp_ref) - 1] = '\0';
+            int n = 0;
+            const cJSON *d;
+            cJSON_ArrayForEach(d, dirs) {
+                if (n >= 2) break;
+                const char *dir = j_str(d, "dir");
+                g_dash.ramp_dir[n] = (dir && dir[0]) ? dir[0] : ' ';
+                g_dash.ramp_level[n] = j_int(d, "level", 0);
+                g_dash.ramp_speed[n] = j_int(d, "speed", 0);
+                n++;
+            }
+            g_dash.ramp_n = n;
         }
     }
 
@@ -468,6 +507,15 @@ static void serviceVoice(void) {
             nx4_tts_say("passed");
         }
         g_said_passed = g_dash.camera_passed;
+    }
+
+    // 前方壅塞：同樣是累計次數。要不要提醒、同一段壅塞不重複，都由 App 決定
+    // （TrafficService._maybeAnnounce），這裡只負責數字變大時念。
+    if (g_dash.traffic_alerts >= 0) {
+        if (g_said_alerts >= 0 && g_dash.traffic_alerts > g_said_alerts) {
+            nx4_tts_say("traffic");
+        }
+        g_said_alerts = g_dash.traffic_alerts;
     }
 
     // 車門沒關好就起步：車速由 0 變成大於 0 的那一刻有車門開著，念兩次。
@@ -789,6 +837,8 @@ void app_main(void) {
             g_log_next_payload = true;
             g_said_passed = -1;
             g_dash.camera_passed = -1;
+            g_said_alerts = -1;
+            g_dash.traffic_alerts = -1;
         }
         size_t n = nx4_ws_take(rx, sizeof(rx));
         if (n > 0) handleDashPayload(rx, n);

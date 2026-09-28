@@ -114,7 +114,7 @@ python3 tools/tc_symbols.py           # 印出完整的 --symbols 字串
 
 ```bash
 SYM=$(python3 tools/tc_symbols.py)
-for sz in 26 32; do
+for sz in 26 32 44; do
   npx -y lv_font_conv@1.5.2 --no-compress --bpp 4 --format lvgl \
     --lv-include lvgl.h --font NotoSansTC-Regular.ttf --size $sz \
     --range 0x20-0x7E --symbols "$SYM" -o main/nx4_font_tc_$sz.c

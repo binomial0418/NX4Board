@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """列出「會顯示在畫面上」的中文字，給 lv_font_conv 的 --symbols 用。
 
-nx4_font_tc_26 / tc_32 是只收用到的字的子集字型，新增任何中文字串卻忘了把
+nx4_font_tc_26 / tc_32 / tc_44 是只收用到的字的子集字型，新增任何中文字串卻忘了把
 新字補進去，畫面上就會是方塊——而且功能完全正常，很容易到很後面才發現。
 這支腳本就是為了不要再靠人工記憶。
 
@@ -29,7 +29,8 @@ SCAN_FOR_UI_CALLS = ["main.c"]
 # 日期是手機端算好直接送過來的（"01/01 週一"，見 dashboard_screen.dart 的
 # _weekdayZh），板子這邊只是原樣顯示，所以星期幾這幾個字沒有任何 C 字串
 # 字面值可以掃。漏掉的話日期會變方塊。
-RUNTIME = "週一二三四五六日"
+# 閘道前預知的路線編號也是手機送來的（"3甲"、"2甲"），國道支線的「甲」只出現在執行期。
+RUNTIME = "週一二三四五六日甲"
 
 STR = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
@@ -68,7 +69,7 @@ def main():
 
     # 字型檔頭會記下產生時用的 --symbols，直接拿來比對
     missing = set()
-    for f in ["nx4_font_tc_26.c", "nx4_font_tc_32.c"]:
+    for f in ["nx4_font_tc_26.c", "nx4_font_tc_32.c", "nx4_font_tc_44.c"]:
         head = io.open(os.path.join(MAIN, f), encoding="utf-8").read(4096)
         m = re.search(r"--symbols (\S+)", head)
         have = set(m.group(1)) if m else set()

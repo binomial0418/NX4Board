@@ -31,6 +31,7 @@ LV_FONT_DECLARE(nx4_font_num_46);
 LV_FONT_DECLARE(nx4_font_num_48);
 LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
+LV_FONT_DECLARE(nx4_font_tc_44);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_64);
@@ -270,18 +271,28 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ICON_X0 (STACK_CX - ICON_ROW_W / 2)
 #define ICON_Y 63
 
-// ── 前方路況紅條 ────────────────────────────────────────────────────────
-// 夾在指示燈列與時速之間。指示燈 64px 字型行高 57，列底 63+57=120；
-// 時速 310s 字型行高 224、base_line 3，數字最高的 glyph 高 219、ofs_y -2，
-// 筆畫頂端在 180 + 224 - 3 - 217 = 184。兩者之間 64px，紅條高 46
-// （32px 中文字行高 38 + 上下各 4）放在 129..175，上下各留約 9px。
-// 寬度隨文字變動、以 STACK_CX 置中。以 Noto Sans TC 字寬實算，最長的
-// 「前方9.9公里緩慢  長9.9公里  時速99」含內距 545px → 625..1170，
-// 中央區左界是卡片右緣 612，不會碰到。車速必定低於速限六成（兩位數），
-// 前方只掃 10 公里（長度不會到三位數），所以不會更長。
-#define JAM_Y 129
-#define JAM_PAD_X 20
-#define JAM_PAD_Y 4
+// ── 前方路況提示條 ──────────────────────────────────────────────────────
+// 夾在指示燈列與時速之間，兩行：第一行 44px 放重點（「前方2.4公里緩慢」
+// 「台61南下 前方2公里壅塞」），第二行 32px 放長度與時速。
+//
+// 顯示時時速整組下移 SPEED_SHIFT，讓出空間。時速 310s 字型筆畫在
+// SPEED_Y + 4 .. SPEED_Y + 223，轉速筆畫頂端在 RPM_Y + 2 = 474：
+//   平常時速與轉速之間 71px；下移 48 之後剩 23px
+//   提示條可用範圍 = 指示燈列底 120 到時速筆畫頂端 180 + 48 + 4 = 232，共 112px
+//
+// 寬度以 Noto Sans TC 字寬實算：第一行最長「國3甲北上 前方9.9公里緩慢」
+// 在 44px 約 575px、加內距 607，中央區 612..1266 共 654 放得下；
+// 置中後左緣若壓到卡片（< CARDS_RIGHT）就往右推。
+#define SPEED_SHIFT 48
+#define JAM_AREA_TOP (ICON_Y + ICON_H)
+#define JAM_AREA_BOTTOM (SPEED_Y + SPEED_SHIFT + 4)
+#define JAM_PAD_X 16
+#define JAM_PAD_Y 3
+#define JAM_LINE_GAP 0
+#define H_BANNER 53  // nx4_font_tc_44 的 line_height
+#define F_BANNER &nx4_font_tc_44
+// 提示條底色：壅塞／緩慢紅、閘道暢通綠
+#define C_BANNER_OK 0x15803D
 
 #define RPM_MAX 7000
 
@@ -325,7 +336,11 @@ static lv_obj_t *s_icon_rear_fog;
 static lv_obj_t *s_icon_door;
 static lv_obj_t *s_icon_lock;
 static lv_obj_t *s_icon_trunk;
-static lv_obj_t *s_jam;  // 前方路況紅條
+static lv_obj_t *s_jam;     // 前方路況提示條（容器，底色在這）
+static lv_obj_t *s_jam_l1;  // 第一行：重點
+static lv_obj_t *s_jam_l2;  // 第二行：長度與時速
+// 時速目前的 y。提示條顯示時下移 SPEED_SHIFT
+static lv_coord_t s_speed_y = SPEED_Y;
 static char s_current_ssid[36];
 
 // ── 數值補間 ────────────────────────────────────────────────────────────
@@ -646,13 +661,54 @@ static void build_indicators(void) {
 // 手機端只在國道與快速公路上送 jam（平面省道的旅行速率含號誌等候，偏低是常態），
 // 所以這裡看到就顯示，不再另外判斷道路種類。
 static void build_jam_banner(void) {
-  s_jam = make_label(s_scr, "", F_TITLE, C_TEXT);
+  s_jam = lv_obj_create(s_scr);
+  lv_obj_clear_flag(s_jam, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(s_jam, lv_color_hex(C_RED), 0);
   lv_obj_set_style_bg_opa(s_jam, LV_OPA_COVER, 0);
-  lv_obj_set_style_radius(s_jam, 6, 0);
-  lv_obj_set_style_pad_hor(s_jam, JAM_PAD_X, 0);
-  lv_obj_set_style_pad_ver(s_jam, JAM_PAD_Y, 0);
+  lv_obj_set_style_border_width(s_jam, 0, 0);
+  lv_obj_set_style_radius(s_jam, 8, 0);
+  lv_obj_set_style_pad_all(s_jam, 0, 0);
+  s_jam_l1 = make_label(s_jam, "", F_BANNER, C_TEXT);
+  s_jam_l2 = make_label(s_jam, "", F_TITLE, C_TEXT);
   lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+}
+
+/// 時速整組（數字與 km/h）上下移動。數字的 x 維持原本置中的位置。
+static void set_speed_shift(bool shifted) {
+  const lv_coord_t y = SPEED_Y + (shifted ? SPEED_SHIFT : 0);
+  if (y == s_speed_y) return;
+  s_speed_y = y;
+  lv_obj_set_y(s_speed_value, s_speed_y);
+  lv_obj_align(s_speed_unit, LV_ALIGN_TOP_RIGHT, -UNIT_OFS,
+               SPEED_UNIT_Y + (shifted ? SPEED_SHIFT : 0));
+}
+
+static void hide_jam(void) {
+  lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+  set_speed_shift(false);
+}
+
+/// 兩行各自置中後，整條置中在中央區、垂直置中在指示燈列與下移後的時速之間
+static void show_jam(const char *l1, const char *l2, uint32_t bg) {
+  lv_label_set_text(s_jam_l1, l1);
+  lv_label_set_text(s_jam_l2, l2);
+  lv_obj_set_style_bg_color(s_jam, lv_color_hex(bg), 0);
+  lv_obj_update_layout(s_jam_l1);
+  lv_obj_update_layout(s_jam_l2);
+  const lv_coord_t w1 = lv_obj_get_width(s_jam_l1);
+  const lv_coord_t w2 = lv_obj_get_width(s_jam_l2);
+  const lv_coord_t w = (w1 > w2 ? w1 : w2) + 2 * JAM_PAD_X;
+  const lv_coord_t h = 2 * JAM_PAD_Y + H_BANNER + JAM_LINE_GAP + H_TITLE;
+  lv_obj_set_size(s_jam, w, h);
+  lv_obj_set_pos(s_jam_l1, (w - w1) / 2, JAM_PAD_Y);
+  lv_obj_set_pos(s_jam_l2, (w - w2) / 2, JAM_PAD_Y + H_BANNER + JAM_LINE_GAP);
+
+  lv_coord_t x = STACK_CX - w / 2;
+  if (x < CARDS_RIGHT + 4) x = CARDS_RIGHT + 4;
+  const lv_coord_t y = JAM_AREA_TOP + (JAM_AREA_BOTTOM - JAM_AREA_TOP - h) / 2;
+  lv_obj_set_pos(s_jam, x, y);
+  lv_obj_clear_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+  set_speed_shift(true);
 }
 
 /// 距離轉成念起來順的文字：1 公里以上取一位小數（整數時不帶 .0），以下取整百公尺
@@ -670,29 +726,76 @@ static void format_distance(char *out, size_t n, int m) {
   }
 }
 
+static const char *via_dir_text(char dir) {
+  switch (dir) {
+    case 'N': return "北上";
+    case 'S': return "南下";
+    case 'E': return "東行";
+    case 'W': return "西行";
+    default: return "";
+  }
+}
+
+/// 要上去的道路，例如「台61」「國3甲」
+static void format_road(char *out, size_t n, char sys, const char *ref) {
+  lv_snprintf(out, n, "%s%s", sys == 'F' ? "國" : "台", ref);
+}
+
 static void set_jam(const nx4_dash_data_t *d) {
-  if (!d->jam_active || d->jam_len <= 0) {
-    lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+  char l1[80];
+  char l2[64];
+
+  if (d->jam_active && d->jam_len > 0) {
+    const char *what = d->jam_level >= 3 ? "壅塞" : "緩慢";
+    char len[16];
+    format_distance(len, sizeof(len), d->jam_len);
+    if (d->jam_via) {
+      // 閘道前預知：還沒上主線，距離從匯入點起算
+      char road[24];
+      format_road(road, sizeof(road), d->via_sys, d->via_ref);
+      if (d->jam_dist < 300) {
+        lv_snprintf(l1, sizeof(l1), "%s%s即%s", road, via_dir_text(d->via_dir), what);
+      } else {
+        char dist[16];
+        format_distance(dist, sizeof(dist), d->jam_dist);
+        lv_snprintf(l1, sizeof(l1), "%s%s 前方%s%s", road, via_dir_text(d->via_dir), dist,
+                    what);
+      }
+      lv_snprintf(l2, sizeof(l2), "長%s  時速%d", len, d->jam_speed);
+    } else if (d->jam_dist < 100) {
+      // 已經在車陣裡，距離沒有意義，改說還剩多長
+      lv_snprintf(l1, sizeof(l1), "%s中", what);
+      lv_snprintf(l2, sizeof(l2), "剩%s  時速%d", len, d->jam_speed);
+    } else {
+      char dist[16];
+      format_distance(dist, sizeof(dist), d->jam_dist);
+      lv_snprintf(l1, sizeof(l1), "前方%s%s", dist, what);
+      lv_snprintf(l2, sizeof(l2), "長%s  時速%d", len, d->jam_speed);
+    }
+    show_jam(l1, l2, C_RED);
     return;
   }
-  const char *what = d->jam_level >= 3 ? "壅塞" : "緩慢";
-  char len[16];
-  char buf[64];
-  format_distance(len, sizeof(len), d->jam_len);
-  if (d->jam_dist < 100) {
-    // 已經在車陣裡，距離沒有意義，改說還剩多長
-    lv_snprintf(buf, sizeof(buf), "%s中  剩%s  時速%d", what, len, d->jam_speed);
-  } else {
-    char dist[16];
-    format_distance(dist, sizeof(dist), d->jam_dist);
-    lv_snprintf(buf, sizeof(buf), "前方%s%s  長%s  時速%d", dist, what, len,
-                d->jam_speed);
+
+  if (d->ramp_active && d->ramp_n > 0) {
+    // 閘道前預知（平面接近閘道或主線接近系統交流道）、上去之後沒有壅塞：
+    // 一律顯示。車多（速限六～八成）也算暢通，只有緩慢／壅塞才走上面的紅底。
+    // 第二行帶上是哪條路與車速，只有一個方向時（台88 往西只接國1 北上）寫出方向。
+    char road[24];
+    format_road(road, sizeof(road), d->ramp_sys, d->ramp_ref);
+    if (d->ramp_n == 1) {
+      lv_snprintf(l1, sizeof(l1), "閘道暢通");
+      lv_snprintf(l2, sizeof(l2), "%s%s  時速%d", road, via_dir_text(d->ramp_dir[0]),
+                  d->ramp_speed[0]);
+    } else {
+      lv_snprintf(l1, sizeof(l1), "閘道雙向暢通");
+      lv_snprintf(l2, sizeof(l2), "%s  %s時速%d  %s時速%d", road, via_dir_text(d->ramp_dir[0]),
+                  d->ramp_speed[0], via_dir_text(d->ramp_dir[1]), d->ramp_speed[1]);
+    }
+    show_jam(l1, l2, C_BANNER_OK);
+    return;
   }
-  lv_label_set_text(s_jam, buf);
-  lv_obj_clear_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
-  // 寬度隨文字變動，每次重新置中（不能用 lv_obj_align，見 README 的 LVGL 坑）
-  lv_obj_update_layout(s_jam);
-  lv_obj_set_pos(s_jam, STACK_CX - lv_obj_get_width(s_jam) / 2, JAM_Y);
+
+  hide_jam();
 }
 
 /// 單一格的顯示與隱藏。狀態沒變就不動，避免多餘的 invalidate。
@@ -804,7 +907,7 @@ void ui_dashboard_create(void) {
   // 先手動擺一次，否則會停在 (0,0)
   lv_obj_update_layout(s_speed_value);
   lv_obj_set_pos(s_speed_value, STACK_CX - lv_obj_get_width(s_speed_value) / 2,
-                 SPEED_Y);
+                 s_speed_y);
   lv_obj_update_layout(s_rpm_value);
   lv_obj_set_pos(s_rpm_value, STACK_CX - lv_obj_get_width(s_rpm_value) / 2,
                  RPM_Y);
@@ -829,7 +932,7 @@ static void anim_speed_cb(void *var, int32_t v) {
   // 位數改變時字寬會變，重新對齊到堆疊中線
   lv_obj_update_layout(s_speed_value);
   lv_obj_set_pos(s_speed_value, STACK_CX - lv_obj_get_width(s_speed_value) / 2,
-                 SPEED_Y);
+                 s_speed_y);
 }
 
 /// 轉速補間。引擎熄火（轉速 0）時改顯示 EV — HEV 以純電行駛的狀態。
@@ -929,7 +1032,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
       lv_label_set_text(s_speed_value, "--");
       lv_obj_update_layout(s_speed_value);
       lv_obj_set_pos(s_speed_value,
-                     STACK_CX - lv_obj_get_width(s_speed_value) / 2, SPEED_Y);
+                     STACK_CX - lv_obj_get_width(s_speed_value) / 2, s_speed_y);
       s_speed_shown = -1;
       goto speed_done;
     }
@@ -944,7 +1047,7 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
         lv_label_set_text(s_speed_value, "R");
         lv_obj_update_layout(s_speed_value);
         lv_obj_set_pos(s_speed_value,
-                       STACK_CX - lv_obj_get_width(s_speed_value) / 2, SPEED_Y);
+                       STACK_CX - lv_obj_get_width(s_speed_value) / 2, s_speed_y);
         // 讓退出倒車時 cb 一定會重寫（s_speed_shown 目前對應的是 "R"）
         s_speed_shown = -1;
       }
@@ -1132,10 +1235,17 @@ turbo_done:;
     set_icon(s_icon_trunk, data->trunk_open);
   }
 
-  // 前方路況紅條
+  // 前方路況提示條
   if (force || data->jam_active != p->jam_active ||
       data->jam_dist != p->jam_dist || data->jam_len != p->jam_len ||
-      data->jam_speed != p->jam_speed || data->jam_level != p->jam_level) {
+      data->jam_speed != p->jam_speed || data->jam_level != p->jam_level ||
+      data->jam_via != p->jam_via || data->via_sys != p->via_sys ||
+      data->via_dir != p->via_dir || strcmp(data->via_ref, p->via_ref) != 0 ||
+      data->ramp_active != p->ramp_active || data->ramp_sys != p->ramp_sys ||
+      strcmp(data->ramp_ref, p->ramp_ref) != 0 || data->ramp_n != p->ramp_n ||
+      memcmp(data->ramp_dir, p->ramp_dir, sizeof(data->ramp_dir)) != 0 ||
+      memcmp(data->ramp_level, p->ramp_level, sizeof(data->ramp_level)) != 0 ||
+      memcmp(data->ramp_speed, p->ramp_speed, sizeof(data->ramp_speed)) != 0) {
     set_jam(data);
   }
 
@@ -1212,7 +1322,7 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_icon_trunk, opa, 0);
 
   // 路況同樣是過期資料，逾時直接收掉紅條；恢復時 force 重套會再顯示
-  if (stale) lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+  if (stale) hide_jam();
 
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限

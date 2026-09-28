@@ -1,7 +1,52 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+
+/// 滑動視窗限流：任意 [window] 內最多 [max] 次，超過就等到最舊的一次滑出視窗。
+///
+/// TDX 免費會員每分鐘 5 次。伺服器端的視窗怎麼切不得而知（滑動或整分），
+/// 滑動視窗的上限同時也保證任何整分鐘內不超過。
+class RateLimiter {
+  final int max;
+  final Duration window;
+  final DateTime Function() clock;
+  final Queue<DateTime> _stamps = Queue();
+
+  RateLimiter(this.max, this.window, {DateTime Function()? clock})
+      : clock = clock ?? DateTime.now;
+
+  /// 現在發出下一次請求之前需要等多久
+  Duration waitNeeded() {
+    final now = clock();
+    while (_stamps.isNotEmpty && now.difference(_stamps.first) >= window) {
+      _stamps.removeFirst();
+    }
+    if (_stamps.length < max) return Duration.zero;
+    return window - now.difference(_stamps.first);
+  }
+
+  /// 登記一次請求
+  void record() => _stamps.add(clock());
+
+  Future<void> acquire() async {
+    while (true) {
+      final w = waitNeeded();
+      if (w <= Duration.zero) {
+        record();
+        return;
+      }
+      await Future<void>.delayed(w + const Duration(milliseconds: 50));
+    }
+  }
+}
+
+/// [TrafficService] 用到的 TDX 查詢，抽出來讓測試可以換成假的實作
+abstract class TdxApi {
+  Future<Map<String, double>> sectionSpeeds(String api, List<String> ids);
+  Future<Map<String, Map<String, double>>> vdLinkSpeeds(List<String> vdIds);
+}
 
 /// TDX 即時路況 API。只查指定的路段或 VD，一次回應幾百 bytes，
 /// 不像 RoadRader 下載整包（省道全線 2.8 MB）。
@@ -11,13 +56,21 @@ import 'package:flutter/foundation.dart';
 ///   - 全部只有 3 個代理 slot，與系統連線偵測共用，連線要等任一端斷線才釋放。
 ///     所以同一主機最多 1 條連線、請求逐一發送，閒置幾秒就關閉歸還 slot
 ///   - 每次 loop 只搬 512 bytes，查詢一律用 $select / $filter 壓小回應
-class TdxClient {
+///
+/// TDX 免費會員每分鐘只能 5 次，所有請求（含 token）都經過 [limiter]，
+/// 任意 60 秒最多 [maxPerMinute] 次，留一次餘裕。
+class TdxClient implements TdxApi {
   static const _host = 'tdx.transportdata.tw';
   static const _authPath = '/auth/realms/TDXConnect/protocol/openid-connect/token';
   static const _apiBase = '/api/basic/v2/Road/Traffic';
 
-  /// OData $filter 以 or 串接，每次請求最多這麼多個 ID，避免網址過長
-  static const _chunkSize = 20;
+  /// OData $filter 以 or 串接，每次請求最多這麼多個 ID。
+  /// 50 個 VDID 的網址約 2.2 KB，遠低於一般 8 KB 的上限；一條路線前方 15 公里
+  /// （台61 約 21 段）一次就查得完，請求數才壓得住。
+  static const chunkSize = 50;
+
+  static const maxPerMinute = 4;
+  final RateLimiter limiter = RateLimiter(maxPerMinute, const Duration(seconds: 60));
 
   final String clientId;
   final String clientSecret;
@@ -37,6 +90,7 @@ class TdxClient {
 
   Future<String> _getToken() async {
     if (_token != null && DateTime.now().isBefore(_tokenExpiry)) return _token!;
+    await limiter.acquire();
     final req = await _http.postUrl(Uri.https(_host, _authPath));
     req.headers.contentType = ContentType('application', 'x-www-form-urlencoded');
     req.write(Uri(queryParameters: {
@@ -54,6 +108,7 @@ class TdxClient {
 
   Future<dynamic> _get(String path, Map<String, String> params) async {
     final token = await _getToken();
+    await limiter.acquire();
     final uri = Uri.https(_host, '$_apiBase/$path', {r'$format': 'JSON', ...params});
     final req = await _http.getUrl(uri);
     req.headers.set('authorization', 'Bearer $token');
@@ -77,10 +132,11 @@ class TdxClient {
 
   /// 路段旅行速率（km/h）。[api] 為 'Freeway' 或 'Highway'。
   /// 回應中沒有的路段、或速率無效（TDX 以 -99 表示）的路段不會出現在結果裡。
+  @override
   Future<Map<String, double>> sectionSpeeds(String api, List<String> ids) async {
     final out = <String, double>{};
-    for (int i = 0; i < ids.length; i += _chunkSize) {
-      final chunk = ids.sublist(i, (i + _chunkSize).clamp(0, ids.length));
+    for (int i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, (i + chunkSize).clamp(0, ids.length));
       final json = await _get('Live/$api', {
         r'$select': 'SectionID,TravelSpeed',
         r'$filter': _orFilter('SectionID', chunk),
@@ -98,10 +154,11 @@ class TdxClient {
   ///
   /// 一支 VD 可能同時偵測雙向（各為一條 LinkFlow），所以一定要依 LinkID 取，
   /// 不能像 RoadRader 把所有 LinkFlow 平均——對向塞車會算到自己頭上。
+  @override
   Future<Map<String, Map<String, double>>> vdLinkSpeeds(List<String> vdIds) async {
     final out = <String, Map<String, double>>{};
-    for (int i = 0; i < vdIds.length; i += _chunkSize) {
-      final chunk = vdIds.sublist(i, (i + _chunkSize).clamp(0, vdIds.length));
+    for (int i = 0; i < vdIds.length; i += chunkSize) {
+      final chunk = vdIds.sublist(i, (i + chunkSize).clamp(0, vdIds.length));
       final json = await _get('Live/VD/Highway', {
         r'$select': 'VDID,Status,LinkFlows',
         r'$filter': _orFilter('VDID', chunk),

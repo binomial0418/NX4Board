@@ -406,6 +406,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 距離歸零後切成「壅塞中 剩…」，三種文字都看得到
     final jamActive = cycle >= 20 && cycle < 140;
     final jamDist = (2400 - (cycle - 20) * 30).clamp(0, 2400);
+    // 接著模擬閘道前預知：還在平面道路上，上台61南下之後前方壅塞
+    final rampJam = cycle >= 150 && cycle < 175;
+    // 再來是閘道前預知、上去之後路況正常：一律顯示（綠底）
+    final rampOk = cycle >= 175;
     final now = DateTime.now();
 
     return {
@@ -436,6 +440,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       "camera": {"active": cameraActive, "limit": 50},
       "traffic": {
         "active": true,
+        // 每一輪在主線壅塞（cycle 60）與閘道壅塞（cycle 150）開始時各加一，板子念「注意前方路況」
+        "alerts": t ~/ _simCycleTicks * 2 + (cycle >= 60 ? 1 : 0) + (cycle >= 150 ? 1 : 0),
         "sys": "P",
         "ref": "61",
         "km": 150.0,
@@ -446,6 +452,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             "len": jamDist > 0 ? 1400 : 1400 - (cycle - 100) * 30,
             "speed": cycle < 60 ? 45 : 22,
             "level": cycle < 60 ? 2 : 3,
+          }
+        else if (rampJam)
+          "jam": {
+            "dist": cycle < 163 ? 2000 : 0,
+            "len": 3000,
+            "speed": 18,
+            "level": 3,
+            "via": const {"sys": "P", "ref": "61", "dir": "S"},
+          },
+        if (rampOk)
+          "ramp": const {
+            "sys": "F",
+            "ref": "1",
+            "dirs": [
+              {"dir": "N", "level": 0, "speed": 95},
+              {"dir": "S", "level": 1, "speed": 62},
+            ],
           },
       },
       "lights": {
@@ -884,7 +907,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           title: const Text('前方路況 (TDX)',
                               style: TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: Text(TrafficService().isAvailable
-                              ? '國道與省道前方 10 公里的即時車速，推送至 ESP32 面板。'
+                              ? '國道與快速公路前方 10 公里的即時車速，以及閘道前預知，推送至 ESP32 面板。'
                               : '缺少 assets/private/tdx.json 憑證，目前無法使用。'),
                           value: _trafficEnabled,
                           onChanged: (val) async {

@@ -2,6 +2,10 @@
 //
 // 需要 assets/private/tdx.json 的憑證與網路，缺少時略過。
 // 國道、台61（Live/Highway 路段車速）、台74（改查 VD 鏈路）各取一段路線測試。
+// token 加上各查詢共 5 次，超過限流器的每分鐘 4 次，最後一個會等到視窗滑過，
+// 所以整組放寬逾時。
+@Timeout(Duration(minutes: 3))
+library;
 import 'dart:convert';
 import 'dart:io';
 

@@ -72,4 +72,26 @@ void main() {
       '前方600公尺車流緩慢，長約800公尺，車速45',
     );
   });
+
+  test('閘道前預知的播報文字', () {
+    RampPreview preview(String sys, String ref, String dir) => RampPreview(
+          roadName: '',
+          system: sys,
+          ref: ref,
+          cardinal: dir,
+          mergeDistanceM: 600,
+          segments: const [],
+          congestion: null,
+        );
+    expect(
+      TrafficService.rampAnnouncementFor(preview('P', '61', 'S'),
+          const CongestionAhead(2000, 3000, 18, TrafficLevel.jammed, 0)),
+      '上台61南下，前方2公里壅塞，長約3公里，車速18',
+    );
+    expect(
+      TrafficService.rampAnnouncementFor(preview('F', '1', 'N'),
+          const CongestionAhead(0, 1500, 35, TrafficLevel.slow, 0)),
+      '上國道1號北上即車流緩慢，長約1.5公里，車速35',
+    );
+  });
 }

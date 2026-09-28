@@ -68,6 +68,22 @@ typedef struct {
   int jam_len;         // 壅塞長度 m
   int jam_speed;       // 區間內最低旅行速率 km/h
   int jam_level;       // 2 緩慢、3 壅塞
+  // 閘道前預知：還沒上主線，jam 描述的是上去之後的路況，距離從匯入點起算
+  bool jam_via;
+  char via_sys;        // 'F' 國道、'P' 省道
+  char via_ref[8];     // 路線編號，如 "61"、"3甲"（UTF-8）
+  char via_dir;        // 'N' 北上、'S' 南下、'E' 東行、'W' 西行
+  // 閘道前預知、上去之後沒有壅塞：一律顯示（jam 有值時以 jam 為準）
+  bool ramp_active;
+  char ramp_sys;
+  char ramp_ref[8];
+  int ramp_n;          // 方向數，最多 2
+  char ramp_dir[2];
+  int ramp_level[2];   // 0 順暢、1 車多
+  int ramp_speed[2];   // km/h
+  // 壅塞提醒的累計次數（App 每決定播報一次壅塞就加一），變大時念「注意前方路況」；
+  // -1 表示 App 沒送
+  int traffic_alerts;
   char clock[12];      // 手機端時間 "HH:MM:SS"
   char date[24];       // 手機端日期 "09/01 週一"
 } nx4_dash_data_t;

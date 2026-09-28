@@ -123,6 +123,9 @@ class TdxSectionIndex {
   /// 同一路名、同一行車方向（里程遞增或遞減）的路段，依行車方向排序
   final Map<String, List<TdxSection>> _lines = {};
 
+  /// 每條路線的主要方向：'N'、'S'、'E'、'W'
+  final Map<String, String> _cardinal = {};
+
   TdxSectionIndex(this.sections) {
     for (int s = 0; s < sections.length; s++) {
       final p = sections[s].points;
@@ -146,7 +149,36 @@ class TdxSectionIndex {
       // 沿行車方向排序：遞增方向依起點由小到大，遞減方向由大到小
       line.sort((a, b) => (a.startKm - b.startKm).sign.toInt() * a.kmSign);
     }
+    _lines.forEach((key, line) => _cardinal[key] = _dominantCardinal(line));
   }
+
+  /// 路線的主要方向。軸向依台灣的編號慣例：奇數為南北向（國1、台61）、偶數為東西向
+  /// （國4、台64），國3甲 是唯一例外（東西向）。只看路段 RoadDirection 的多數不可靠——
+  /// 台64 里程遞增方向偏南的路段比偏東的多，會被判成「南下」，但路牌是東行。
+  /// 軸向決定後，再取該軸上路段方向的多數（台61 北上有 N 也有 NE）。
+  static String _dominantCardinal(List<TdxSection> line) {
+    final count = {'N': 0, 'S': 0, 'E': 0, 'W': 0};
+    for (final s in line) {
+      for (final c in s.direction.split('')) {
+        if (count.containsKey(c)) count[c] = count[c]! + 1;
+      }
+    }
+    final ref = line.first.ref;
+    final n = int.tryParse(RegExp(r'^\d+').stringMatch(ref) ?? '');
+    final bool northSouth;
+    if (line.first.system == 'F' && ref == '3甲') {
+      northSouth = false;
+    } else if (n != null) {
+      northSouth = n.isOdd;
+    } else {
+      northSouth = count['N']! + count['S']! >= count['E']! + count['W']!;
+    }
+    if (northSouth) return count['N']! >= count['S']! ? 'N' : 'S';
+    return count['E']! >= count['W']! ? 'E' : 'W';
+  }
+
+  /// [section] 所屬路線的主要方向：'N'、'S'、'E'、'W'
+  String cardinalOf(TdxSection section) => _cardinal[_lineKey(section)] ?? 'N';
 
   static String _lineKey(TdxSection s) => '${s.roadName}|${s.kmSign}';
 

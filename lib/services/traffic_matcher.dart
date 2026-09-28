@@ -103,10 +103,48 @@ class TrafficMatcher {
     double speedKmh = 0,
   }) {
     if (road == null) return _current = null;
-
     final headingUsable =
         headingDeg != null && headingDeg >= 0 && speedKmh >= minHeadingSpeedKmh;
-    final prev = _current?.section;
+    return _current = _best(lat, lon, road, headingUsable ? headingDeg : null,
+        _current?.section);
+  }
+
+  /// 不動到目前狀態，直接找某個位置與行進方位所在的路段。
+  /// 閘道前預知路況用：[road] 是匝道匯入的主線、[headingDeg] 是匯入時的方位。
+  ///
+  /// 匯入點附近常常沒有路段：TDX 的路段折線在交流道範圍內有缺口（台74 台中系統
+  /// 往西的匯入點離最近的往西路段 1 公里多）。對不到時改往行進方向前方找
+  /// [gapSearchM] 內、起點在前方且起始方向一致的路段，從它的起點算起；
+  /// 回傳的 [SectionPosition.distanceM] 此時是匯入點到該起點的缺口長度。
+  SectionPosition? locate(double lat, double lon, OsmRoad road, double headingDeg) =>
+      _best(lat, lon, road, headingDeg, null) ?? _firstAhead(lat, lon, road, headingDeg);
+
+  static const double gapSearchM = 1500;
+
+  SectionPosition? _firstAhead(double lat, double lon, OsmRoad road, double headingDeg) {
+    final kx = 111320.0 * math.cos(lat * math.pi / 180.0);
+    const ky = 110574.0;
+    SectionPosition? best;
+    for (final s in index.near(lat, lon, gapSearchM)) {
+      if (!accepts(s, road)) continue;
+      final p = s.points;
+      if (p.length < 4) continue;
+      final dx = (p[0] - lon) * kx;
+      final dy = (p[1] - lat) * ky;
+      final d = math.sqrt(dx * dx + dy * dy);
+      if (d > gapSearchM || (best != null && d >= best.distanceM)) continue;
+      // 起點要在前方，路段一開始的方向也要跟匯入方向一致（排除對向）
+      final toStart = (math.atan2(dx, dy) * 180 / math.pi + 360) % 360;
+      if (d > 50 && _angleDiff(toStart, headingDeg) > 45) continue;
+      final first = (math.atan2((p[2] - p[0]) * kx, (p[3] - p[1]) * ky) * 180 / math.pi + 360) % 360;
+      if (_angleDiff(first, headingDeg) > headingToleranceDeg) continue;
+      best = SectionPosition(s, 0, s.startKm, d);
+    }
+    return best;
+  }
+
+  SectionPosition? _best(
+      double lat, double lon, OsmRoad road, double? headingDeg, TdxSection? prev) {
     final prevNext = prev == null ? null : _nextOf(prev);
 
     SectionPosition? best;
@@ -118,7 +156,7 @@ class TrafficMatcher {
       if (proj == null || proj.distance > matchRadiusM) continue;
 
       double score = proj.distance;
-      if (headingUsable) {
+      if (headingDeg != null) {
         final diff = _angleDiff(headingDeg, proj.bearing);
         if (diff > headingToleranceDeg) continue;
         score += diff / headingToleranceDeg * 10;
@@ -133,26 +171,30 @@ class TrafficMatcher {
         best = SectionPosition(s, proj.along, s.kmAt(proj.along), proj.distance);
       }
     }
-    return _current = best;
+    return best;
   }
 
   /// 目前位置前方 [scanKm] 公里內、同一路線同方向的路段，依距離排序
   List<AheadSection> ahead(double scanKm) {
     final cur = _current;
-    if (cur == null) return const [];
-    final sec = cur.section;
+    return cur == null ? const [] : aheadFrom(cur, scanKm);
+  }
+
+  /// [from] 前方 [scanKm] 公里內、同一路線同方向的路段，依距離排序
+  List<AheadSection> aheadFrom(SectionPosition from, double scanKm) {
+    final sec = from.section;
     final sign = sec.kmSign;
     final out = <AheadSection>[
-      AheadSection(sec, 0, math.max(0, sec.lengthM - cur.alongM)),
+      AheadSection(sec, 0, math.max(0, sec.lengthM - from.alongM)),
     ];
     for (final s in index.lineOf(sec)) {
       if (identical(s, sec)) continue;
-      final startKm = (s.startKm - cur.km) * sign;
-      final endKm = (s.endKm - cur.km) * sign;
+      final startKm = (s.startKm - from.km) * sign;
+      final endKm = (s.endKm - from.km) * sign;
       if (endKm <= 0) continue; // 已經在後方
       if (startKm > scanKm) break;
-      final from = math.max(0.0, startKm);
-      out.add(AheadSection(s, from * 1000, (endKm - from) * 1000));
+      final start = math.max(0.0, startKm);
+      out.add(AheadSection(s, start * 1000, (endKm - start) * 1000));
     }
     out.sort((a, b) => a.distanceM.compareTo(b.distanceM));
     return out;

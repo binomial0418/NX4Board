@@ -190,6 +190,23 @@ class OsmTileService {
     return _lookup(_cacheKey(lonToTileX(lon), latToTileY(lat))).$2;
   }
 
+  /// 所在格與周圍 8 格中已快取的道路。匝道常跨 tile 邊界，
+  /// 沿匝道追到主線要用這個範圍（搭配 [prefetchAround] 預先載入）。
+  List<OsmRoad> cachedRoadsAround(double lat, double lon) {
+    if (!_initialized) return const [];
+    final cx = lonToTileX(lon);
+    final cy = latToTileY(lat);
+    final out = <OsmRoad>[];
+    for (int dx = -1; dx <= 1; dx++) {
+      for (int dy = -1; dy <= 1; dy++) {
+        final key = _cacheKey(cx + dx, cy + dy);
+        final roads = _cache[key];
+        if (roads != null) out.addAll(roads);
+      }
+    }
+    return out;
+  }
+
   /// 該座標是否已載入（含「範圍外」的否定結果）
   bool hasTileAt(double lat, double lon) {
     if (!_initialized) return false;

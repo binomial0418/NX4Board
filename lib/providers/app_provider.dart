@@ -125,6 +125,15 @@ class AppProvider extends ChangeNotifier {
 
   /// 前方路況；不在 TDX 路段上、沒有憑證或功能關閉時為 null
   TrafficState? get trafficState => TrafficService().state;
+
+  /// 閘道前預知：上去之後有緩慢／壅塞的方向（多個時取最嚴重、最近的）
+  RampPreview? get congestedRamp => TrafficService().congestedRamp;
+
+  /// 閘道前預知的全部方向，路況好壞都有
+  List<RampPreview> get rampPreviews => TrafficService().rampPreviews;
+
+  /// 壅塞提醒累計次數，板子據此念「注意前方路況」
+  int get trafficAlertCount => TrafficService().alertCount;
   bool get isLoading => _isLoading;
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;

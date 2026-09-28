@@ -34,6 +34,7 @@ CLIPS = [
     ("passed", "通過"),
     ("overpass", "注意天橋偷拍"),
     ("door_open", "車門沒關好"),
+    ("traffic", "注意前方路況"),
 ] + [(f"camera_{n}", f"前有測速照相，速限{n}") for n in SPEED_LIMITS]
 
 # ── IMA ADPCM ────────────────────────────────────────────────────────────

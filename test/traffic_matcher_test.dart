@@ -263,4 +263,19 @@ void main() {
       expect(surfaceMatched / math.max(1, onSurface), lessThan(0.10), reason: t.label);
     }
   });
+
+  test('路線方向：南北向道路給北上／南下，東西向給東行／西行', () {
+    String dirOf(String road, int sign) =>
+        index.cardinalOf(index.sections.firstWhere((s) => s.roadName == road && s.kmSign == sign));
+    // 國道與台61 里程由北往南遞增
+    expect(dirOf('國道1號', 1), 'S');
+    expect(dirOf('國道1號', -1), 'N');
+    expect(dirOf('台61線', 1), 'S');
+    expect(dirOf('台61線', -1), 'N');
+    // 東西向快速公路里程由西往東遞增
+    expect(dirOf('台64線', 1), 'E');
+    expect(dirOf('台64線', -1), 'W');
+    expect(dirOf('國道4號', 1), 'E');
+    expect(dirOf('國道3甲', 1), anyOf('E', 'W'));
+  });
 }
