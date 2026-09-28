@@ -270,6 +270,19 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ICON_X0 (STACK_CX - ICON_ROW_W / 2)
 #define ICON_Y 63
 
+// ── 前方路況紅條 ────────────────────────────────────────────────────────
+// 夾在指示燈列與時速之間。指示燈 64px 字型行高 57，列底 63+57=120；
+// 時速 310s 字型行高 224、base_line 3，數字最高的 glyph 高 219、ofs_y -2，
+// 筆畫頂端在 180 + 224 - 3 - 217 = 184。兩者之間 64px，紅條高 46
+// （32px 中文字行高 38 + 上下各 4）放在 129..175，上下各留約 9px。
+// 寬度隨文字變動、以 STACK_CX 置中。以 Noto Sans TC 字寬實算，最長的
+// 「前方9.9公里緩慢  長9.9公里  時速99」含內距 545px → 625..1170，
+// 中央區左界是卡片右緣 612，不會碰到。車速必定低於速限六成（兩位數），
+// 前方只掃 10 公里（長度不會到三位數），所以不會更長。
+#define JAM_Y 129
+#define JAM_PAD_X 20
+#define JAM_PAD_Y 4
+
 #define RPM_MAX 7000
 
 // ── 警示門檻（達到即以紅字標示）─────────────────────────────────────────
@@ -312,6 +325,7 @@ static lv_obj_t *s_icon_rear_fog;
 static lv_obj_t *s_icon_door;
 static lv_obj_t *s_icon_lock;
 static lv_obj_t *s_icon_trunk;
+static lv_obj_t *s_jam;  // 前方路況紅條
 static char s_current_ssid[36];
 
 // ── 數值補間 ────────────────────────────────────────────────────────────
@@ -628,6 +642,59 @@ static void build_indicators(void) {
   s_icon_trunk = make_icon(ICO_TRUNK, C_ORANGE, 5);
 }
 
+// ── 前方路況 ────────────────────────────────────────────────────────────
+// 手機端只在國道與快速公路上送 jam（平面省道的旅行速率含號誌等候，偏低是常態），
+// 所以這裡看到就顯示，不再另外判斷道路種類。
+static void build_jam_banner(void) {
+  s_jam = make_label(s_scr, "", F_TITLE, C_TEXT);
+  lv_obj_set_style_bg_color(s_jam, lv_color_hex(C_RED), 0);
+  lv_obj_set_style_bg_opa(s_jam, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(s_jam, 6, 0);
+  lv_obj_set_style_pad_hor(s_jam, JAM_PAD_X, 0);
+  lv_obj_set_style_pad_ver(s_jam, JAM_PAD_Y, 0);
+  lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+}
+
+/// 距離轉成念起來順的文字：1 公里以上取一位小數（整數時不帶 .0），以下取整百公尺
+static void format_distance(char *out, size_t n, int m) {
+  if (m >= 1000) {
+    int d10 = (m + 50) / 100;
+    if (d10 % 10 == 0) {
+      lv_snprintf(out, n, "%d公里", d10 / 10);
+    } else {
+      lv_snprintf(out, n, "%d.%d公里", d10 / 10, d10 % 10);
+    }
+  } else {
+    int h = (m + 50) / 100 * 100;
+    lv_snprintf(out, n, "%d公尺", h < 100 ? 100 : h);
+  }
+}
+
+static void set_jam(const nx4_dash_data_t *d) {
+  if (!d->jam_active || d->jam_len <= 0) {
+    lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  const char *what = d->jam_level >= 3 ? "壅塞" : "緩慢";
+  char len[16];
+  char buf[64];
+  format_distance(len, sizeof(len), d->jam_len);
+  if (d->jam_dist < 100) {
+    // 已經在車陣裡，距離沒有意義，改說還剩多長
+    lv_snprintf(buf, sizeof(buf), "%s中  剩%s  時速%d", what, len, d->jam_speed);
+  } else {
+    char dist[16];
+    format_distance(dist, sizeof(dist), d->jam_dist);
+    lv_snprintf(buf, sizeof(buf), "前方%s%s  長%s  時速%d", dist, what, len,
+                d->jam_speed);
+  }
+  lv_label_set_text(s_jam, buf);
+  lv_obj_clear_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
+  // 寬度隨文字變動，每次重新置中（不能用 lv_obj_align，見 README 的 LVGL 坑）
+  lv_obj_update_layout(s_jam);
+  lv_obj_set_pos(s_jam, STACK_CX - lv_obj_get_width(s_jam) / 2, JAM_Y);
+}
+
 /// 單一格的顯示與隱藏。狀態沒變就不動，避免多餘的 invalidate。
 static void set_icon(lv_obj_t *o, bool on) {
   if (on == !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
@@ -730,6 +797,7 @@ void ui_dashboard_create(void) {
   build_speed_stack();
   build_status();
   build_indicators();
+  build_jam_banner();
   ui_settings_create();
 
   // 這兩個 label 平常由補間的 callback 定位；開機時還沒有資料，
@@ -1064,6 +1132,13 @@ turbo_done:;
     set_icon(s_icon_trunk, data->trunk_open);
   }
 
+  // 前方路況紅條
+  if (force || data->jam_active != p->jam_active ||
+      data->jam_dist != p->jam_dist || data->jam_len != p->jam_len ||
+      data->jam_speed != p->jam_speed || data->jam_level != p->jam_level) {
+    set_jam(data);
+  }
+
   // 道路速限卡片：有測速照相時取代為警示，消失後恢復速限
   if (force || data->speed_limit != p->speed_limit ||
       data->camera_active != p->camera_active ||
@@ -1135,6 +1210,9 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_icon_door, opa, 0);
   lv_obj_set_style_text_opa(s_icon_lock, opa, 0);
   lv_obj_set_style_text_opa(s_icon_trunk, opa, 0);
+
+  // 路況同樣是過期資料，逾時直接收掉紅條；恢復時 force 重套會再顯示
+  if (stale) lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
 
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限

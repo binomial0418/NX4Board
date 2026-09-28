@@ -15,6 +15,7 @@ import '../providers/app_provider.dart';
 import '../services/device_status_service.dart';
 import '../services/location_service.dart';
 import '../services/settings_service.dart';
+import '../services/traffic_service.dart';
 import '../services/obd_spp_service.dart';
 import '../services/wifi_service.dart';
 import '../services/screen_recorder_service.dart';
@@ -693,6 +694,41 @@ class _DashboardScreenState extends State<DashboardScreen>
     return names[t.weekday - 1];
   }
 
+  /// ESP32 最多畫這麼多段前方路況
+  static const int _trafficMaxSegs = 8;
+
+  /// 前方路況（TDX 路段）。路名只送系統與編號（F=國道、P=省道），
+  /// ESP32 的中文字型沒有收錄路名用字。
+  ///
+  /// segs 每段為 [距起點公尺, 長度公尺, 車速 km/h（-1 無資料）, 等級]，
+  /// 等級 -1 無資料、0 順暢、1 車多、2 緩慢、3 壅塞；第一段是目前所在路段。
+  /// jam 是前方第一段連續的緩慢／壅塞，沒有時不送；只在國道與快速公路送，
+  /// 平面省道的旅行速率含號誌等候，偏低是常態，每個路口都跳紅條只會是雜訊
+  /// （與語音播報的條件相同）。
+  static Map<String, dynamic> _trafficPayload(TrafficState? t) {
+    if (t == null) return {"active": false};
+    final out = <String, dynamic>{
+      "active": true,
+      "sys": t.system,
+      "ref": t.ref,
+      "km": double.parse(t.km.toStringAsFixed(1)),
+      "segs": [
+        for (final s in t.segments.take(_trafficMaxSegs))
+          [s.distanceM.round(), s.lengthM.round(), s.speed?.round() ?? -1, s.level],
+      ],
+    };
+    final c = t.congestion;
+    if (c != null && t.isFastRoad) {
+      out["jam"] = {
+        "dist": c.distanceM.round(),
+        "len": c.lengthM.round(),
+        "speed": c.speed.round(),
+        "level": c.level,
+      };
+    }
+    return out;
+  }
+
   /// 推送 esp32_dash 儀表資料（於每次 OBD/GPS 更新時呼叫，具節流保護）
   ///
   /// 協定格式：
@@ -702,7 +738,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   ///  "odo":33676,"turbo":0.15,"time":"18:04:37","date":"09/01 週一",
   ///  "tires":{"fl":34,"fr":34,"rl":33,"rr":33},
   ///  "camera":{"active":true,"limit":90},
-  ///  "lights":{"low":true,"high":false},"reversing":false,"brightness":40}
+  ///  "lights":{"low":true,"high":false},"reversing":false,"brightness":40,
+  ///  "traffic":{"active":true,"sys":"P","ref":"61","km":152.3,
+  ///             "segs":[[0,420,78,0],[420,700,35,2]],
+  ///             "jam":{"dist":420,"len":1400,"speed":22,"level":3}}}
   /// ```
   void _sendEsp32DashData() {
     if (!mounted) return;
@@ -764,6 +803,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         "unlocked": provider.isDoorUnlocked,
         "trunk": provider.isTrunkOpen,
       },
+      "traffic": _trafficPayload(provider.trafficState),
       // 螢幕亮度由手機端依大燈狀態決定，ESP32 只負責套用
       "brightness": SettingsService().esp32BrightnessFor(
         lowBeam: provider.isLowBeamOn,

@@ -18,6 +18,12 @@ class SettingsService {
   String get obdMac => _prefs?.getString('obd_mac') ?? '';
   bool get enableOcr => _prefs?.getBool('enable_ocr') ?? true;
 
+  /// 前方路況（TDX）。需要 assets/private/tdx.json 憑證才會實際運作
+  bool get trafficEnabled => _prefs?.getBool('traffic_enabled') ?? true;
+
+  /// 國道與快速公路前方壅塞時語音提醒
+  bool get trafficVoice => _prefs?.getBool('traffic_voice') ?? true;
+
   // ── ESP32 儀表顯示器 (第二通道 WebSocket) ──────────────────────────────
   /// ESP32-P4 顯示器的 WebSocket Server IP
   String get esp32Ip => _prefs?.getString('esp32_ip') ?? '192.168.4.2';
@@ -128,6 +134,14 @@ class SettingsService {
 
   Future<void> setGearProbeEnabled(bool value) async {
     await _prefs?.setBool('gear_probe_enabled', value);
+  }
+
+  Future<void> setTrafficEnabled(bool value) async {
+    await _prefs?.setBool('traffic_enabled', value);
+  }
+
+  Future<void> setTrafficVoice(bool value) async {
+    await _prefs?.setBool('traffic_voice', value);
   }
 
   Future<void> setEnableOcr(bool value) async {

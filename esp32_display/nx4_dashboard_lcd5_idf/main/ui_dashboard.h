@@ -62,6 +62,12 @@ typedef struct {
   bool door_open;      // 任一車門開啟
   bool door_unlocked;  // 任一車門解鎖（22BC04 只有前兩門有訊號）
   bool trunk_open;     // 後車廂開啟
+  // 前方路況（手機端 traffic.jam）：國道／快速公路前方第一段連續的緩慢或壅塞
+  bool jam_active;
+  int jam_dist;        // 到壅塞起點的距離 m，0 表示已在壅塞路段內
+  int jam_len;         // 壅塞長度 m
+  int jam_speed;       // 區間內最低旅行速率 km/h
+  int jam_level;       // 2 緩慢、3 壅塞
   char clock[12];      // 手機端時間 "HH:MM:SS"
   char date[24];       // 手機端日期 "09/01 週一"
 } nx4_dash_data_t;

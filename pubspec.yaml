@@ -51,6 +51,7 @@ flutter:
   
   assets:
     - assets/speed_tiles.bin
+    - assets/tdx_sections.json.gz
     - assets/省道速限圖資.csv
     - assets/camera_data.csv
     - assets/private/

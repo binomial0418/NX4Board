@@ -8,6 +8,7 @@ import '../services/camera_service.dart';
 import '../services/settings_service.dart';
 import '../services/tts_service.dart';
 import '../services/speed_limit_service.dart';
+import '../services/traffic_service.dart';
 import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
 import 'dart:async';
@@ -121,6 +122,9 @@ class AppProvider extends ChangeNotifier {
   int get alternativeRoadLevel => SpeedLimitService().alternativeRoad?.level ?? 0;
   String get alternativeRoadName => SpeedLimitService().alternativeRoadName;
   int? get alternativeSpeedLimit => SpeedLimitService().alternativeLimit;
+
+  /// 前方路況；不在 TDX 路段上、沒有憑證或功能關閉時為 null
+  TrafficState? get trafficState => TrafficService().state;
   bool get isLoading => _isLoading;
   String get status => _status;
   Map<String, dynamic>? get nearestCameraInfo => _nearestCameraInfo;
@@ -208,6 +212,10 @@ class AppProvider extends ChangeNotifier {
 
       // Initialize Speed Limit Service
       await SpeedLimitService().init();
+
+      // 前方路況（TDX 路段）。車速是非同步查回來的，查到時要刷新畫面與推送
+      await TrafficService().init();
+      TrafficService().onChanged = notifyListeners;
 
       // Initialize Camera Service
       await CameraService().init();
@@ -472,6 +480,16 @@ class AppProvider extends ChangeNotifier {
       _roadSpeedLimit = 40;
     }
     // 上次來源為省道牌面 → 保留最後牌面值，不更動
+
+    // ── 前方路況：高架／平面沒把握時不比對，免得側車道拿到主線的路況 ──
+    TrafficService().update(
+      position.latitude,
+      position.longitude,
+      road: speedLimitService.isLevelUncertain ? null : speedLimitService.currentRoad,
+      headingDeg: position.heading,
+      speedKmh: position.speed * 3.6,
+      roadLimit: _roadSpeedLimit,
+    );
 
     // Find nearby signs within 500m (Legacy logic, keep for backward compatibility or other indicators)
     _nearbySpeedSigns = CsvParser.findNearby(

@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/settings_service.dart';
+import '../services/traffic_service.dart';
 import '../services/obd_spp_service.dart';
 import '../services/tts_service.dart';
 import '../services/screen_recorder_service.dart';
@@ -44,6 +45,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _brightnessHigh = 25;
 
   bool _enableOcr = true;
+  bool _trafficEnabled = true;
+  bool _trafficVoice = true;
   double _ttsVolume = 1.0;
   String _appVersion = 'Loading...';
 
@@ -144,6 +147,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _brightnessLow = SettingsService().esp32BrightnessLowBeam;
     _brightnessHigh = SettingsService().esp32BrightnessHighBeam;
     _enableOcr = SettingsService().enableOcr;
+    _trafficEnabled = SettingsService().trafficEnabled;
+    _trafficVoice = SettingsService().trafficVoice;
     _ttsVolume = SettingsService().ttsVolume;
 
     _initPackageInfo();
@@ -397,6 +402,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final positionLamp = cycle >= 80 && cycle < 190;
     final rearFog = cycle >= 160 && cycle < 185;
     final cameraActive = cycle >= 130 && cycle < 165;
+    // 前方路況紅條：由 2.4 公里外逐漸接近，前段「緩慢」、後段「壅塞」，
+    // 距離歸零後切成「壅塞中 剩…」，三種文字都看得到
+    final jamActive = cycle >= 20 && cycle < 140;
+    final jamDist = (2400 - (cycle - 20) * 30).clamp(0, 2400);
     final now = DateTime.now();
 
     return {
@@ -425,6 +434,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         "rr": 33,
       },
       "camera": {"active": cameraActive, "limit": 50},
+      "traffic": {
+        "active": true,
+        "sys": "P",
+        "ref": "61",
+        "km": 150.0,
+        "segs": const [],
+        if (jamActive)
+          "jam": {
+            "dist": jamDist,
+            "len": jamDist > 0 ? 1400 : 1400 - (cycle - 100) * 30,
+            "speed": cycle < 60 ? 45 : 22,
+            "level": cycle < 60 ? 2 : 3,
+          },
+      },
       "lights": {
         "low": lowBeam,
         "high": highBeam,
@@ -851,6 +874,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _enableOcr = val);
                         await SettingsService().setEnableOcr(val);
                       },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: const Text('前方路況 (TDX)',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(TrafficService().isAvailable
+                              ? '國道與省道前方 10 公里的即時車速，推送至 ESP32 面板。'
+                              : '缺少 assets/private/tdx.json 憑證，目前無法使用。'),
+                          value: _trafficEnabled,
+                          onChanged: (val) async {
+                            setState(() => _trafficEnabled = val);
+                            await SettingsService().setTrafficEnabled(val);
+                          },
+                        ),
+                        SwitchListTile(
+                          title: const Text('壅塞語音提醒'),
+                          subtitle: const Text('國道與快速公路前方緩慢或壅塞時播報距離、長度與車速。'),
+                          value: _trafficVoice,
+                          onChanged: _trafficEnabled
+                              ? (val) async {
+                                  setState(() => _trafficVoice = val);
+                                  await SettingsService().setTrafficVoice(val);
+                                }
+                              : null,
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),

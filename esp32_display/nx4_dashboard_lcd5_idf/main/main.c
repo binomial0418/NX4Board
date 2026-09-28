@@ -23,6 +23,9 @@
 //   "camera": {"active": true, "limit": 90, "kind": "speed", "passed": 3},
 //   "lights": {"low": true, "high": false, "position": true, "rear_fog": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
+//   "traffic": {"active": true, "sys": "P", "ref": "61", "km": 152.3,
+//               "segs": [[0, 420, 78, 0], ...],
+//               "jam": {"dist": 420, "len": 1400, "speed": 22, "level": 3}},
 //   "brightness": 40
 // }
 //
@@ -230,6 +233,7 @@ static bool g_log_next_payload = false;
 #define FIELD_DOORS (1 << 6)
 #define FIELD_THROTTLE (1 << 7)
 #define FIELD_REVERSING (1 << 8)
+#define FIELD_TRAFFIC (1 << 9)
 
 // cJSON 的取值輔助。ArduinoJson 的 `doc["x"] | fallback` 語法在 C 裡沒有
 // 對應寫法，這幾個小函式就是它的替代品：欄位不存在或型別不符時回傳預設值。
@@ -278,6 +282,7 @@ static void handleDashPayload(const char *payload, size_t length) {
     if (j_has(doc, "doors")) g_seen_fields |= FIELD_DOORS;
     if (j_has(doc, "throttle")) g_seen_fields |= FIELD_THROTTLE;
     if (j_has(doc, "reversing")) g_seen_fields |= FIELD_REVERSING;
+    if (j_has(doc, "traffic")) g_seen_fields |= FIELD_TRAFFIC;
 
     // 只處理本機認得的協定，其餘（例如第一通道的 BVB-7980）直接忽略
     const char *type = j_str(doc, "_type");
@@ -316,6 +321,20 @@ static void handleDashPayload(const char *payload, size_t length) {
                            : strcmp(kind, "overpass") == 0 ? NX4_CAM_OVERPASS
                                                            : NX4_CAM_SPEED;
         g_dash.camera_passed = j_int(camera, "passed", -1);
+    }
+
+    // 前方路況（TDX）。traffic 整個缺席是舊版 App，維持不顯示；
+    // 有 traffic 但沒有 jam 就是前方順暢或不在國道／快速公路上。
+    const cJSON *traffic = cJSON_GetObjectItemCaseSensitive(doc, "traffic");
+    if (cJSON_IsObject(traffic)) {
+        const cJSON *jam = cJSON_GetObjectItemCaseSensitive(traffic, "jam");
+        g_dash.jam_active = j_bool(traffic, "active", false) && cJSON_IsObject(jam);
+        if (g_dash.jam_active) {
+            g_dash.jam_dist = j_int(jam, "dist", 0);
+            g_dash.jam_len = j_int(jam, "len", 0);
+            g_dash.jam_speed = j_int(jam, "speed", 0);
+            g_dash.jam_level = j_int(jam, "level", 3);
+        }
     }
 
     // ── 車輛數值：只有 WebSocket 模式才採用 ──────────────────────────
@@ -602,7 +621,7 @@ static void serviceWifi(void) {
         // 只要有 client 就檢查欄位齊不齊，缺哪個直接點名
         if (nx4_ws_clients() > 0) {
             printf("[FIELD] odo=%c time=%c date=%c turbo=%c lights=%c bright=%c "
-                   "doors=%c thr=%c rev=%c",
+                   "doors=%c thr=%c rev=%c traffic=%c",
                    (g_seen_fields & FIELD_ODO) ? 'Y' : 'N',
                    (g_seen_fields & FIELD_TIME) ? 'Y' : 'N',
                    (g_seen_fields & FIELD_DATE) ? 'Y' : 'N',
@@ -611,7 +630,8 @@ static void serviceWifi(void) {
                    (g_seen_fields & FIELD_BRIGHT) ? 'Y' : 'N',
                    (g_seen_fields & FIELD_DOORS) ? 'Y' : 'N',
                    (g_seen_fields & FIELD_THROTTLE) ? 'Y' : 'N',
-                   (g_seen_fields & FIELD_REVERSING) ? 'Y' : 'N');
+                   (g_seen_fields & FIELD_REVERSING) ? 'Y' : 'N',
+                   (g_seen_fields & FIELD_TRAFFIC) ? 'Y' : 'N');
             if ((g_seen_fields & (FIELD_ODO | FIELD_TIME | FIELD_DATE)) !=
                 (FIELD_ODO | FIELD_TIME | FIELD_DATE)) {
                 printf("   <- 手機 App 版本可能過舊，缺少的欄位不會更新");

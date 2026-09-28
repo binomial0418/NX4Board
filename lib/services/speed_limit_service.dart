@@ -316,8 +316,7 @@ class SpeedLimitService {
   }
 
   /// OSM 的 ref 可能是多值（"106;北77-1"），拆開後各自去掉「台」字，
-  /// 以便與 CSV 的「台106」對應。
-  @visibleForTesting
+  /// 以便與 CSV 的「台106」對應。路況也用它對 TDX 路段編號。
   static Set<String> normalizedRefs(String? ref) {
     if (ref == null || ref.isEmpty) return const {};
     return ref
