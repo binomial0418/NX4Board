@@ -30,6 +30,16 @@ class AppProvider extends ChangeNotifier {
   /// 已進入提示距離的相機（lat_lon）。語音、畫面與 ESP 都以「進入提示距離」
   /// 為準；之後直到相機消失（通過或離開路線）都維持提示，距離抖動不會閃爍。
   String? _alertedCameraId;
+  Map<String, dynamic>? _alertedCameraInfo;
+
+  /// 通過相機的累計次數。送給 ESP 當事件用：200ms 一筆的狀態封包可能掉包，
+  /// 單次旗標會漏；ESP 只要看到數字變大就念「通過」。
+  int _cameraPassedCount = 0;
+  int get cameraPassedCount => _cameraPassedCount;
+
+  /// 提示中的相機從偵測結果消失時，若它在身後且距離在這之內，視為「通過」。
+  /// 下閘道或轉彎離開時相機多半還在前方、或已離很遠，不會誤報。
+  static const double _passedMaxDistKm = 0.25;
 
   // Obd State Properties
   final ObdSppService _obdService = ObdSppService();
@@ -510,6 +520,21 @@ class AppProvider extends ChangeNotifier {
     //   國道/快速道路    → 1000m
     // 搜尋半徑（1～2km）比門檻大，相機在半徑內但還沒到門檻時不算提示中——
     // 否則畫面與 ESP 會在兩公里外就亮起，比語音早了一大截。
+    // 上一支提示中的相機不見了（或換成另一支）→ 判斷是不是剛通過
+    final String? currentCamId =
+        camInfo == null ? null : '${camInfo['lat']}_${camInfo['lon']}';
+    if (_alertedCameraInfo != null && currentCamId != _alertedCameraId) {
+      // 區間起點不念：那是區間的開始，要等區間終點才算通過
+      if (_alertedCameraInfo!['kind'] != CameraKind.zoneStart.name &&
+          _cameraBehindAndClose(_alertedCameraInfo!, position,
+              camService.lastHeading)) {
+        if (TtsService().speakCameraPassed(_alertedCameraInfo!)) {
+          _cameraPassedCount++;
+        }
+      }
+      _alertedCameraInfo = null;
+    }
+
     bool alerting = false;
     if (camInfo != null) {
       final String camId = '${camInfo['lat']}_${camInfo['lon']}';
@@ -522,6 +547,7 @@ class AppProvider extends ChangeNotifier {
     }
 
     if (camInfo != null && alerting) {
+      _alertedCameraInfo = camInfo;
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
         _currentSpeedLimit = camInfo['limit'];
@@ -558,6 +584,20 @@ class AppProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  bool _cameraBehindAndClose(
+      Map<String, dynamic> cam, Position pos, double? heading) {
+    final double lat = (cam['lat'] as num).toDouble();
+    final double lon = (cam['lon'] as num).toDouble();
+    final double d = CameraAlgorithm.haversine(pos.latitude, pos.longitude, lat, lon);
+    if (d > _passedMaxDistKm) return false;
+    if (heading == null) return false;
+    final double bearing =
+        CameraAlgorithm.calculateBearing(pos.latitude, pos.longitude, lat, lon);
+    double diff = (bearing - heading).abs();
+    if (diff > 180) diff = 360 - diff;
+    return diff > 90;
   }
 
   /// 通過區間起點後，區間提示會保留一段時間。下閘道或轉進別條路就立刻清掉，

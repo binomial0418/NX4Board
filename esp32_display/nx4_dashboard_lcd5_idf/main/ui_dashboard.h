@@ -24,6 +24,13 @@ extern "C" {
 /// 拿遠離該範圍的值當哨兵，比較時用 < 就夠，不必擔心浮點相等。
 #define NX4_NO_VALUE_F (-99.0f)
 
+// 相機類型（App 送的 camera.kind）。決定語音與速限卡片的標題。
+typedef enum {
+  NX4_CAM_SPEED = 0,   // 測速照相（含區間測速）
+  NX4_CAM_RED_LIGHT,   // 闖紅燈照相：沒有速限，念「前有闖紅燈照相」
+  NX4_CAM_OVERPASS,    // 國道天橋上的移動式測速：念「注意天橋偷拍」
+} nx4_cam_kind_t;
+
 typedef struct {
   int speed;        // km/h，-1 表示尚未取得（0 是合法讀數，靜止時就是 0）
   int rpm;          // rpm，-1 表示尚未取得（0 是合法讀數，油電熄火時顯示 EV）
@@ -45,7 +52,8 @@ typedef struct {
   int tire_rr;
   bool camera_active;  // 前方有測速照相
   int camera_limit;    // 該測速照相的速限 km/h
-  bool camera_red_light;  // 是闖紅燈照相（沒有速限，改念「前有闖紅燈照相」）
+  nx4_cam_kind_t camera_kind;  // 相機類型
+  int camera_passed;   // 通過相機累計次數（-1 = App 沒送），變大時念「通過」
   bool low_beam;       // 近燈（大燈）開啟
   bool high_beam;      // 遠燈開啟
   bool position_lamp;  // 小燈（示寬燈）開啟

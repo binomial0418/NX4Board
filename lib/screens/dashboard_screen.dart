@@ -745,6 +745,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         "limit": camInfo?['limit'] ?? 0,
         // speed / redLight / zoneStart / zoneEnd，板子據此選語音
         "kind": camInfo?['kind'] ?? 'speed',
+        // 通過相機的累計次數，數字變大時板子念「通過」
+        "passed": provider.cameraPassedCount,
       },
       "lights": {
         "low": provider.isLowBeamOn,

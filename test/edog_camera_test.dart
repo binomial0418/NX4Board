@@ -83,4 +83,27 @@ void main() {
     }
     expect(svc.checkNearbyCamera(), isNull);
   });
+
+  test('camera drops out right after it is passed', () {
+    final cam = SpeedCamera.fromEdogCsv(['24.0', '120.6', '0', '60', 'speed', 'none', '']);
+    final svc = CameraService()..setCamerasForTest([cam]);
+    // 往北接近，最後一點在相機北方 [past] 公尺
+    Map<String, dynamic>? at(double past) {
+      for (final m in [past - 60, past - 30, past]) {
+        svc.addPosition(_pos(24.0 + m / 111000, 120.6));
+      }
+      return svc.checkNearbyCamera();
+    }
+    expect(at(-50)?['limit'], 60);   // 還在前方 50m
+    expect(at(40), isNull);          // 通過 40m 後就不再是前方相機
+  });
+
+  test('overpass points parse and carry their own message', () {
+    final cam = SpeedCamera.fromEdogCsv(['24.0', '120.6', '0', '110', 'overpass', 'highway', '']);
+    expect(cam.kind, CameraKind.overpass);
+    expect(cam.roadType, RoadType.highway);
+    final info = _approachNorthbound([cam], 800, roadType: RoadType.highway);
+    expect(info?['kind'], 'overpass');
+    expect(info?['message'], startsWith('注意天橋偷拍'));
+  });
 }

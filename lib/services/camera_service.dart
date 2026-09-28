@@ -5,7 +5,9 @@ import 'package:csv/csv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'road_type_service.dart' show RoadType;
 
-enum CameraKind { speed, redLight, zoneStart, zoneEnd }
+/// overpass：國道天橋上的移動式測速點（廠商圖資的國道移動式中，位於跨越
+/// 國道的天橋旁的那些；其餘移動式點不收，見 tools/edog_convert.py）
+enum CameraKind { speed, redLight, zoneStart, zoneEnd, overpass }
 
 class SpeedCamera {
   final String address;
@@ -37,6 +39,7 @@ class SpeedCamera {
       'redlight' => CameraKind.redLight,
       'zone_start' => CameraKind.zoneStart,
       'zone_end' => CameraKind.zoneEnd,
+      'overpass' => CameraKind.overpass,
       _ => CameraKind.speed,
     };
     final roadType = switch (row[5].toString()) {
@@ -304,6 +307,7 @@ class CameraService {
         CameraKind.redLight => '前有闖紅燈照相',
         CameraKind.zoneStart => '進入區間測速路段',
         CameraKind.zoneEnd => '區間測速終點',
+        CameraKind.overpass => '注意天橋偷拍',
         CameraKind.speed => '前有測速照相',
       };
       final String msg = [

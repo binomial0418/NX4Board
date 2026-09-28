@@ -15,6 +15,7 @@ class TtsService {
   // 防重複報讀：針對同一 ID (或座標 Hash) 延長至 10 分鐘不重複，確保單次通過只會警示一次
   final Map<String, DateTime> _lastAlerts = {};
   final Map<String, DateTime> _speedingAlerts = {};
+  final Map<String, DateTime> _passedAlerts = {};
   static const Duration _duplicateCooldown = Duration(minutes: 10);
 
   // 音量回饋 Debounce
@@ -73,6 +74,20 @@ class TtsService {
     speak('$limitPart泥再不減速就要噴錢錢摟');
   }
 
+  /// 通過相機點。與提示共用冷卻時間，同一支相機不會重複念。
+  /// 回傳這次是否真的有念（冷卻中回傳 false）。
+  bool speakCameraPassed(Map<String, dynamic> camInfo) {
+    final String id = "${camInfo['lat']}_${camInfo['lon']}";
+    final now = DateTime.now();
+    if (_passedAlerts.containsKey(id) &&
+        now.difference(_passedAlerts[id]!) < _duplicateCooldown) {
+      return false;
+    }
+    _passedAlerts[id] = now;
+    speak('通過');
+    return true;
+  }
+
   /// 智慧報讀測速點
   void speakCameraAlert(Map<String, dynamic> camInfo, double currentSpeed) {
     final String id = "${camInfo['lat']}_${camInfo['lon']}";
@@ -93,7 +108,10 @@ class TtsService {
 
     final bool isZone = camInfo['is_zone'] == true;
     String msg;
-    if (isZone) {
+    if (camInfo['kind'] == 'overpass') {
+      // 天橋偷拍只念這句，不報速限（國道速限駕駛本來就知道）
+      msg = "注意天橋偷拍";
+    } else if (isZone) {
       msg = "進入區間測速路段";
       if (limit != null) msg += "，速限 $limit";
     } else {

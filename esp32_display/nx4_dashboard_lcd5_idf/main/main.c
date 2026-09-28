@@ -20,7 +20,7 @@
 //   "odo": 33676, "turbo": 0.15, "throttle": 12, "reversing": false,
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
-//   "camera": {"active": true, "limit": 90, "kind": "speed"},
+//   "camera": {"active": true, "limit": 90, "kind": "speed", "passed": 3},
 //   "lights": {"low": true, "high": false, "position": true, "rear_fog": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "brightness": 40
@@ -218,6 +218,7 @@ static void applyBrightness(int percent) {
 // 診斷：記錄手機端「曾經送過」哪些欄位。手機 App 版本較舊時會缺欄位，
 // 而缺欄位在協定上是合法的（沿用舊值），畫面上看起來就像「不會更新」。
 static uint32_t g_seen_fields = 0;
+static int g_said_passed = -1;   // 已念過「通過」的累計次數，-1 = 尚無基準
 static bool g_log_next_payload = false;
 
 #define FIELD_ODO (1 << 0)
@@ -310,7 +311,11 @@ static void handleDashPayload(const char *payload, size_t length) {
         g_dash.camera_active = j_bool(camera, "active", false);
         g_dash.camera_limit = j_int(camera, "limit", 0);
         const char *kind = j_str(camera, "kind");
-        g_dash.camera_red_light = kind && strcmp(kind, "redLight") == 0;
+        g_dash.camera_kind = !kind                           ? NX4_CAM_SPEED
+                           : strcmp(kind, "redLight") == 0 ? NX4_CAM_RED_LIGHT
+                           : strcmp(kind, "overpass") == 0 ? NX4_CAM_OVERPASS
+                                                           : NX4_CAM_SPEED;
+        g_dash.camera_passed = j_int(camera, "passed", -1);
     }
 
     // ── 車輛數值：只有 WebSocket 模式才採用 ──────────────────────────
@@ -419,19 +424,32 @@ static void onSettingsSource(bool direct, const char *obd_name) {
 static void serviceVoice(void) {
     static bool said_high_beam = false;
     static bool said_camera = false;
-    static bool said_red_light = false;
+    static nx4_cam_kind_t said_kind = NX4_CAM_SPEED;
     if (g_dash.high_beam != said_high_beam) {
         said_high_beam = g_dash.high_beam;
         nx4_tts_high_beam(said_high_beam);
     }
     // 警示期間換成另一種相機（例如紅燈照相後緊接測速）也要再念一次
     if (g_dash.camera_active &&
-        (!said_camera || g_dash.camera_red_light != said_red_light)) {
-        if (g_dash.camera_red_light) nx4_tts_say("red_light");
-        else nx4_tts_camera_alert(g_dash.camera_limit);
+        (!said_camera || g_dash.camera_kind != said_kind)) {
+        switch (g_dash.camera_kind) {
+        case NX4_CAM_RED_LIGHT: nx4_tts_say("red_light"); break;
+        case NX4_CAM_OVERPASS:  nx4_tts_say("overpass"); break;
+        default:                nx4_tts_camera_alert(g_dash.camera_limit); break;
+        }
     }
     said_camera = g_dash.camera_active;
-    said_red_light = g_dash.camera_red_light;
+    said_kind = g_dash.camera_kind;
+
+    // 通過相機：App 送的是累計次數而非單次旗標——200ms 一筆的狀態封包可能
+    // 掉包，旗標會漏。只在數字變大時念；變小代表 App 重開、計數歸零，只記下不念。
+    // 新 client 連上時歸零基準（見主迴圈的 nx4_ws_take_connected_flag），斷線期間累積的不補念。
+    if (g_dash.camera_passed >= 0) {
+        if (g_said_passed >= 0 && g_dash.camera_passed > g_said_passed) {
+            nx4_tts_say("passed");
+        }
+        g_said_passed = g_dash.camera_passed;
+    }
 
     // 車門沒關好就起步：車速由 0 變成大於 0 的那一刻有車門開著，念兩次。
     // 手機端 AppProvider._maybeWarnDoorOpenOnDeparture 是同一套規則。
@@ -628,6 +646,7 @@ static void serial_inject_task(void *arg) {
 }
 
 void app_main(void) {
+    g_dash.camera_passed = -1;   // 還沒收到 App 的計數，不能把 0 當基準
     printf("\nNX4Board ESP32-P4 Dashboard (ESP-IDF)\n");
 
     nx4_dash_data_init(&g_dash);
@@ -748,6 +767,8 @@ void app_main(void) {
         if (nx4_ws_take_connected_flag()) {
             g_seen_fields = 0;
             g_log_next_payload = true;
+            g_said_passed = -1;
+            g_dash.camera_passed = -1;
         }
         size_t n = nx4_ws_take(rx, sizeof(rx));
         if (n > 0) handleDashPayload(rx, n);

@@ -88,7 +88,7 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
   "time": "18:04:37",
   "date": "09/01 週一",
   "tires": { "fl": 34, "fr": 34, "rl": 33, "rr": 33 },
-  "camera": { "active": true, "limit": 90, "kind": "speed" },
+  "camera": { "active": true, "limit": 90, "kind": "speed", "passed": 3 },
   "lights": { "low": true, "high": false },
   "doors": { "open": false, "unlocked": false, "trunk": false },
   "brightness": 40
@@ -114,7 +114,8 @@ LVGL 的繪圖緩衝也改用 `heap_caps_aligned_alloc(64, ...)`，對齊快取�
 | `tires.{fl,fr,rl,rr}` | int | 四輪胎壓 psi，`0` 表示無資料 |
 | `camera.active` | bool | 前方是否偵測到測速照相 |
 | `camera.limit` | int | 該測速照相的速限 km/h |
-| `camera.kind` | string | `speed` / `redLight` / `zoneStart` / `zoneEnd`；`redLight` 念「前有闖紅燈照相」 |
+| `camera.kind` | string | `speed` / `redLight` / `zoneStart` / `zoneEnd` / `overpass`；`redLight` 念「前有闖紅燈照相」、`overpass`（國道天橋移動式測速）念「注意天橋偷拍」 |
+| `camera.passed` | int | 通過相機的累計次數；數字變大時念「通過」（用計數而非旗標，掉包也不會漏念） |
 | `lights.low` | bool | 近燈（大燈）是否開啟 |
 | `lights.high` | bool | 遠燈是否開啟 |
 | `doors.open` | bool | 任一車門開啟 |

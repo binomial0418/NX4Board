@@ -674,12 +674,14 @@ static void cam_blink_cb(lv_timer_t *timer) {
 }
 
 /// 切換「道路速限」卡片在一般模式與測速照相警示模式之間
-static void set_camera_mode(bool active, bool red_light, int camera_limit,
+static void set_camera_mode(bool active, nx4_cam_kind_t kind, int camera_limit,
                             int speed_limit) {
   s_cam_active = active;
 
   if (active) {
-    lv_label_set_text(s_limit_title, red_light ? "闖紅燈照相" : "測速照相");
+    lv_label_set_text(s_limit_title, kind == NX4_CAM_RED_LIGHT  ? "闖紅燈照相"
+                                     : kind == NX4_CAM_OVERPASS ? "天橋偷拍"
+                                                                : "測速照相");
     lv_obj_set_style_text_color(s_limit_title, lv_color_hex(0xFFFFFF), 0);
     if (camera_limit > 0) {
       lv_label_set_text_fmt(s_limit_value, "%d", camera_limit);
@@ -1066,8 +1068,8 @@ turbo_done:;
   if (force || data->speed_limit != p->speed_limit ||
       data->camera_active != p->camera_active ||
       data->camera_limit != p->camera_limit ||
-      data->camera_red_light != p->camera_red_light) {
-    set_camera_mode(data->camera_active, data->camera_red_light, data->camera_limit,
+      data->camera_kind != p->camera_kind) {
+    set_camera_mode(data->camera_active, data->camera_kind, data->camera_limit,
                     data->speed_limit);
   }
   if (force || data->limit_alt != p->limit_alt ||
@@ -1136,7 +1138,7 @@ void ui_dashboard_set_stale(bool stale) {
 
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限
-    set_camera_mode(false, false, 0, s_last.speed_limit);
+    set_camera_mode(false, NX4_CAM_SPEED, 0, s_last.speed_limit);
     set_limit_extras(s_last.limit_alt, s_last.limit_alt_above, false);
   }
 }
