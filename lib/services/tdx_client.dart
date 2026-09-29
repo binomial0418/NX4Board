@@ -57,8 +57,9 @@ abstract class TdxApi {
 ///     所以同一主機最多 1 條連線、請求逐一發送，閒置幾秒就關閉歸還 slot
 ///   - 每次 loop 只搬 512 bytes，查詢一律用 $select / $filter 壓小回應
 ///
-/// TDX 免費會員每分鐘只能 5 次，所有請求（含 token）都經過 [limiter]，
-/// 任意 60 秒最多 [maxPerMinute] 次，留一次餘裕。
+/// TDX 銅級會員每秒 5 次（2026-09 由基礎會員的每分鐘 5 次升級），所有請求
+/// （含 token）都經過 [limiter]，任意 1 秒最多 [maxPerSecond] 次，留一次餘裕。
+/// 請求仍逐一發送：轉發器只有 3 個代理 slot，這和會員等級無關。
 class TdxClient implements TdxApi {
   static const _host = 'tdx.transportdata.tw';
   static const _authPath = '/auth/realms/TDXConnect/protocol/openid-connect/token';
@@ -69,8 +70,8 @@ class TdxClient implements TdxApi {
   /// （台61 約 21 段）一次就查得完，請求數才壓得住。
   static const chunkSize = 50;
 
-  static const maxPerMinute = 4;
-  final RateLimiter limiter = RateLimiter(maxPerMinute, const Duration(seconds: 60));
+  static const maxPerSecond = 4;
+  final RateLimiter limiter = RateLimiter(maxPerSecond, const Duration(seconds: 1));
 
   final String clientId;
   final String clientSecret;

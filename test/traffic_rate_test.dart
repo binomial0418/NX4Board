@@ -1,7 +1,8 @@
 // TDX 呼叫頻率：沿整條路線模擬行駛，統計任意 60 秒內的 HTTP 請求數。
 //
-// TDX 免費會員限制每分鐘 5 次。假 API 依 TdxClient 的分批規則（每批
-// TdxClient.chunkSize 個 ID 一個請求）換算成實際請求數，時鐘由測試推進。
+// TDX 銅級會員限制每秒 5 次（TdxClient 自己限 4 次）。假 API 依 TdxClient 的分批規則
+// （每批 TdxClient.chunkSize 個 ID 一個請求）換算成實際請求數，時鐘由測試推進。
+// 每月 200 點約 30 萬次，這裡順便印出每分鐘的平均與峰值，確認用量數量級。
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -111,7 +112,8 @@ void main() {
         '共 ${api.calls.length} 次，平均每分鐘 ${perMin.toStringAsFixed(2)} 次，'
         '任意 60 秒最多 ${api.maxInWindow(const Duration(seconds: 60))} 次，'
         '所在路段有車速 ${(withData * 100 / seconds).toStringAsFixed(1)}% 的時間');
-    expect(api.maxInWindow(const Duration(seconds: 60)), lessThanOrEqualTo(TdxClient.maxPerMinute));
+    // 模擬時鐘每秒走一步，同一秒內的請求數就是一次批次或補查的請求數
+    expect(api.maxInWindow(const Duration(seconds: 1)), lessThanOrEqualTo(TdxClient.maxPerSecond));
   }
 
   /// 真實路網軌跡：含閘道前預知（同時查國道、省道與 VD）
@@ -147,7 +149,8 @@ void main() {
         '平均每分鐘 ${(api.calls.length / minutes).toStringAsFixed(2)} 次，'
         '任意 60 秒最多 ${api.maxInWindow(const Duration(seconds: 60))} 次'
         '（閘道預知 $previewSeconds 秒）');
-    expect(api.maxInWindow(const Duration(seconds: 60)), lessThanOrEqualTo(TdxClient.maxPerMinute));
+    // 模擬時鐘每秒走一步，同一秒內的請求數就是一次批次或補查的請求數
+    expect(api.maxInWindow(const Duration(seconds: 1)), lessThanOrEqualTo(TdxClient.maxPerSecond));
   }
 
   test('沿路線行駛的 TDX 請求頻率', () async {

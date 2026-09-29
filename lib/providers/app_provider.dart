@@ -481,6 +481,9 @@ class AppProvider extends ChangeNotifier {
       roadType: RoadTypeService().currentRoadType,
       headingDeg: position.heading,
       speedKmh: position.speed * 3.6,
+      // 高架正下方的平面道路位置分不出來，快速路車流順暢而自己一直很慢就是反證
+      // （見 RoadTracker.flowMinKmh）。取上一次定位時查到的車流，不多發請求。
+      fastFlowKmh: TrafficService().currentFlowKmh,
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;

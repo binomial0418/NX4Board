@@ -159,16 +159,11 @@ class TrafficService {
   /// TDX 路段與 VD 資料都是每 60 秒更新
   static const Duration refreshInterval = Duration(seconds: 60);
 
-  /// 畫面上的路段完全沒有資料（剛上主線、剛出現閘道預知）時，可以提早查的最短間隔。
-  /// 其餘情況一律每 [refreshInterval] 一批，實際上限另由 TdxClient 的限流保證。
-  static const Duration minRetry = Duration(seconds: 20);
-
-  /// 閘道／交會道路預知剛出現、還沒有任何資料時的最短間隔。主線時速 100 時，
-  /// 從偵測到系統交流道（1.5 km 前）到進匝道只有約 50 秒，等下一批（最多 60 秒）
-  /// 會來不及：實測國1 北上接近台中系統時，進了匝道才顯示國4 的路況。
-  /// 提早查詢只查沒資料的那幾個方向（通常一次請求），不整批重查，
-  /// 免得連續經過幾個交流道時請求數疊加（S1 軌跡曾在 60 秒內疊到 5 次）。
-  static const Duration rampBlindRetry = Duration(seconds: 10);
+  /// 畫面上（本線前方 [scanKm] 內與閘道預知）有從沒查過的路段時，只補查那幾段的
+  /// 最短間隔。剛上主線、剛偵測到閘道或系統交流道時路況才能馬上出現；追蹤器的
+  /// 車流佐證（RoadTracker.fastFlowKmh）也要靠它，誤判到高架上時頭上那段通常還沒查過。
+  /// 基礎會員時期（每分鐘 5 次）這要等 10～20 秒並記帳保留額度，銅級每秒 5 次後放寬。
+  static const Duration earlyRetry = Duration(seconds: 3);
 
   /// 超過這個時間的車速不再採用
   static const Duration staleAfter = Duration(minutes: 5);
@@ -221,24 +216,8 @@ class TrafficService {
   bool _fetching = false;
   DateTime? _lastAttempt;
 
-  /// 上一次只補查預知方向的時間；不影響每分鐘一批的節奏
+  /// 上一次補查沒資料路段的時間；不影響每分鐘一批的節奏
   DateTime? _lastEarly;
-
-  /// 最近發出的請求（時間, 次數），用來讓提早補查不要把每分鐘的額度吃光
-  final List<(DateTime, int)> _requestLog = [];
-
-  /// 查這些路段大約要幾次請求：每種 API 一次，快速公路台66～88 可能再補一次 VD
-  static int _estimateRequests(Iterable<TdxSection> sections) {
-    final apis = sections.map((s) => s.liveApi).toSet().length;
-    final vd = sections.any((s) =>
-        s.vdLinks.isNotEmpty && (int.tryParse(RegExp(r'^\d+').stringMatch(s.ref) ?? '') ?? 0) >= 66);
-    return apis + (vd ? 1 : 0);
-  }
-
-  int _requestsInLastMinute(DateTime now) {
-    _requestLog.removeWhere((e) => now.difference(e.$1) >= const Duration(seconds: 60));
-    return _requestLog.fold(0, (a, e) => a + e.$2);
-  }
 
   /// 決定播報壅塞的累計次數。隨 esp32_dash 送給板子，數字變大時板子念
   /// 「注意前方路況」。用累計而不是旗標，200ms 一筆的推送掉包也不會漏念或重念
@@ -255,6 +234,17 @@ class TrafficService {
 
   /// 不在主線上時，前方入口匝道各自上去之後的路況
   List<RampPreview> get rampPreviews => _previews;
+
+  /// 目前所在快速路路段的即時車流（km/h），供 RoadTracker 當車流佐證；
+  /// 不在主線上、比對暫時中斷、或這段還沒有新的資料時為 null。
+  /// 只取已經查到的資料，不會為此多發請求。
+  double? get currentFlowKmh {
+    final pos = _pos;
+    if (pos == null || _lostSince != null) return null;
+    final live = _live[pos.section.id];
+    if (live == null || _now().difference(live.fetchedAt) >= staleAfter) return null;
+    return live.speed;
+  }
 
   /// 閘道前預知中，前方有緩慢／壅塞的方向裡最嚴重（同級取最近）的一個
   RampPreview? get congestedRamp {
@@ -293,7 +283,6 @@ class TrafficService {
     _lastUpdate = null;
     _lastAttempt = null;
     _lastEarly = null;
-    _requestLog.clear();
     _fetching = false;
   }
 
@@ -550,7 +539,7 @@ class TrafficService {
 
   /// 每 [refreshInterval] 把前方所有路段（含預先查的部分與閘道預知）一次查完，
   /// 讓它們同時到期，下一批才不會因為到期時間錯開而拆成好幾次。
-  /// 例外是畫面上的路段完全沒有資料時（剛上主線），隔 [minRetry] 就可以先查。
+  /// 批次之間若畫面上出現從沒查過的路段，隔 [earlyRetry] 只補查那幾段。
   void _maybeRefresh() {
     final client = _client;
     if (client == null || _fetching) return;
@@ -569,44 +558,26 @@ class TrafficService {
     if (!anyStale) return;
 
     final since = _lastAttempt == null ? null : now.difference(_lastAttempt!);
-    final sinceEarly = _lastEarly == null ? null : now.difference(_lastEarly!);
     if (since != null && since < refreshInterval) {
-      final shownIds = <String>{
+      final sinceEarly = _lastEarly == null ? null : now.difference(_lastEarly!);
+      if (sinceEarly != null && sinceEarly < earlyRetry) return;
+      // 查過但沒有資料的路段也記在 _live 裡，不會在這裡反覆補查
+      final missing = <String, TdxSection>{
         for (final a in _ahead)
-          if (a.distanceM <= scanKm * 1000) a.section.id,
+          if (a.distanceM <= scanKm * 1000 && _live[a.section.id] == null) a.section.id: a.section,
         for (final r in _ramps)
-          for (final a in r.ahead) a.section.id,
+          for (final a in r.ahead)
+            if (_live[a.section.id] == null) a.section.id: a.section,
       };
-      final blind = shownIds.isNotEmpty && shownIds.every((id) => _live[id] == null);
-      if (blind && since >= minRetry) {
-        // 畫面上完全沒資料（剛上主線）：整批查
-      } else {
-        // 某個預知方向完全沒資料（剛偵測到的閘道或系統交流道），主線有資料也要先查，
-        // 但只查那幾個方向；整批的節奏維持每分鐘一次
-        final blindRamps = [
-          for (final r in _ramps)
-            if (r.ahead.every((a) => _live[a.section.id] == null)) r,
-        ];
-        if (blindRamps.isEmpty || since < rampBlindRetry) return;
-        if (sinceEarly != null && sinceEarly < rampBlindRetry) return;
-        final only = <String, TdxSection>{
-          for (final r in blindRamps)
-            for (final a in r.ahead) a.section.id: a.section,
-        };
-        // 留兩次給下一批（國道、省道各一），剩下的才拿來補查
-        final cost = _estimateRequests(only.values);
-        if (_requestsInLastMinute(now) + cost > TdxClient.maxPerMinute - 2) return;
-        _requestLog.add((now, cost));
-        _fetching = true;
-        _lastEarly = now;
-        _fetch(client, only.values.toList()).whenComplete(() => _fetching = false);
-        return;
-      }
+      if (missing.isEmpty) return;
+      _fetching = true;
+      _lastEarly = now;
+      _fetch(client, missing.values.toList()).whenComplete(() => _fetching = false);
+      return;
     }
 
     _fetching = true;
     _lastAttempt = now;
-    _requestLog.add((now, _estimateRequests(wanted.values)));
     _fetch(client, wanted.values.toList()).whenComplete(() => _fetching = false);
   }
 

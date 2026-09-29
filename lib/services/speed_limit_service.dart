@@ -177,6 +177,7 @@ class SpeedLimitService {
     RoadType roadType = RoadType.none,
     double? headingDeg,
     double speedKmh = 0,
+    double? fastFlowKmh,
   }) {
     if (!_initialized) return null;
 
@@ -197,6 +198,7 @@ class SpeedLimitService {
         lng,
         headingDeg: headingDeg,
         speedKmh: speedKmh,
+        fastFlowKmh: fastFlowKmh,
       );
       if (tracked != null) {
         _currentRoad = tracked.road;

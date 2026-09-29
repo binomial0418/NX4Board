@@ -84,6 +84,32 @@ class RoadTracker {
   /// 一般路口轉彎遠比上下交流道常見，所以跨系統的轉換要求更多證據。
   final double systemChangeFactor;
 
+  /// 從零開始追蹤（App 啟動、GPS 中斷後重設、附近沒有道路）時，快速路系統的
+  /// 初始機率相對於平面道路的倍數。
+  ///
+  /// 沒有歷史時位置分不出高架與正下方的平面道路，而「只能經由匝道轉換」的
+  /// 連續性規則會讓第一次選錯的結果一直延續：台61 梧棲港埠路（與上方高架相距
+  /// 14～25 公尺）實測時速 50、σ 15 m 時 20 次有 13 次被困在高架上，最長 197 秒，
+  /// 速限、測速照相與閘道路況都跟著錯。啟動多半發生在平面道路上，所以偏向平面。
+  final double startFastPrior;
+
+  /// 車流佐證：TDX 顯示所在快速路車流順暢，車速卻一直遠低於車流，
+  /// 就不太可能在這條快速路上——高架下的平面道路位置分不出來時，這是能分辨的證據。
+  ///
+  /// 台61 梧棲港埠路與上方高架相距 9～25 公尺：GPS 往高架那側偏幾秒，
+  /// 平面道路的機率就被壓到刪除門檻以下，之後 GPS 回到平面也回不來，
+  /// 只能等偏離超過 [jumpDistanceM]。車速 50 對兩條路都不算超速，原本的車速證據
+  /// 幫不上忙；車流 90 而自己一直 50，才是反證。塞車時車流本身就慢，不會觸發。
+  ///
+  /// 成立條件：車流 ≥ [flowMinKmh]，且最近 [flowWindow] 個定位點的平均車速
+  /// 低於車流的 [flowRatio]。成立時快速路主線的觀測機率乘 [flowPenalty]，
+  /// 並允許以 [flowJump] 轉回不相連的平面道路。
+  final double flowMinKmh;
+  final double flowRatio;
+  final int flowWindow;
+  final double flowPenalty;
+  final double flowJump;
+
   /// 預設值來自 test/elevated_eval_test.dart 的參數掃描，
   /// 在高架情境與隨機市區路線驗證集之間取平衡。
   RoadTracker({
@@ -97,6 +123,12 @@ class RoadTracker {
     this.speedScaleKmh = 15.0,
     this.speedMaxPenalty = 2.3, // ×0.1
     this.speedEvidenceMinKmh = 20.0,
+    this.startFastPrior = 0.1,
+    this.flowMinKmh = 70,
+    this.flowRatio = 0.6,
+    this.flowWindow = 20,
+    this.flowPenalty = 0.3,
+    this.flowJump = 0.05,
   });
 
   /// 系統判定信心度低於此值視為不確定（實測此區間錯誤率 26~43%）
@@ -109,6 +141,12 @@ class RoadTracker {
     'trunk_link',
   };
 
+  /// 快速路主線（不含匝道：匝道本來就開得慢，車流證據不適用）
+  static bool _isMainline(String identity) {
+    final h = identity.substring(identity.lastIndexOf('|') + 1);
+    return h == 'motorway' || h == 'trunk';
+  }
+
   static bool _isFastSystem(String identity) =>
       _fastSystem.contains(identity.substring(identity.lastIndexOf('|') + 1));
 
@@ -117,6 +155,9 @@ class RoadTracker {
 
   /// 上一個定位點，用來判斷這一步的移動路徑是否經過交會點
   double? _prevLat, _prevLon;
+
+  /// 最近 [flowWindow] 個定位點的車速，車流佐證用
+  final List<double> _recentSpeeds = [];
 
   /// 最近一次的觀測結果，供 [alternative] 查詢
   Map<String, _Observation> _lastObs = const {};
@@ -130,6 +171,7 @@ class RoadTracker {
     _lastObs = const {};
     _prevLat = null;
     _prevLon = null;
+    _recentSpeeds.clear();
   }
 
   /// 道路識別：同一條路在不同 tile、不同 layer 會被切成多段，
@@ -137,13 +179,24 @@ class RoadTracker {
   static String identityOf(OsmRoad r) => '${r.ref ?? ''}|${r.name ?? ''}|${r.highway}';
 
   /// 處理一個定位點，回傳目前最可能所在的道路；不在任何道路上回傳 null。
+  ///
+  /// [fastFlowKmh] 是目前所在快速路路段的 TDX 即時車流（見 TrafficService.currentFlowKmh），
+  /// 沒有資料時為 null，此時行為與原本相同。
   TrackedRoad? update(
     List<OsmRoad> roads,
     double lat,
     double lon, {
     double? headingDeg,
     double speedKmh = 0,
+    double? fastFlowKmh,
   }) {
+    _recentSpeeds.add(speedKmh);
+    if (_recentSpeeds.length > flowWindow) _recentSpeeds.removeAt(0);
+    final flowMismatch = fastFlowKmh != null &&
+        fastFlowKmh >= flowMinKmh &&
+        _recentSpeeds.length >= flowWindow &&
+        _recentSpeeds.reduce((a, b) => a + b) / _recentSpeeds.length < fastFlowKmh * flowRatio;
+
     final heading =
         (headingDeg != null && headingDeg >= 0 && speedKmh >= headingMinSpeedKmh)
             ? headingDeg
@@ -168,7 +221,7 @@ class RoadTracker {
       final id = entry.key;
       double prior;
       if (_belief.isEmpty) {
-        prior = 1.0;
+        prior = _isFastSystem(id) ? startFastPrior : 1.0;
       } else {
         prior = 0;
         _belief.forEach((prevId, p) {
@@ -184,12 +237,18 @@ class RoadTracker {
             // 前一條路還能好好解釋目前位置就不准跳；不在候選中則視為無限遠
             final prevObs = obs[prevId];
             final prevDist = prevObs?.distance ?? double.infinity;
-            t = prevDist > jumpDistanceM ? pJump : 0.0;
+            double jump = prevDist > jumpDistanceM ? pJump : 0.0;
+            // 車流反證：允許從快速路轉回正下方不相連的平面道路
+            if (flowMismatch && _isFastSystem(prevId) && !_isFastSystem(id)) {
+              jump = math.max(jump, flowJump);
+            }
+            t = jump;
           }
           prior += p * t;
         });
       }
-      final p = prior * entry.value.likelihood;
+      var p = prior * entry.value.likelihood;
+      if (flowMismatch && _isMainline(id)) p *= flowPenalty;
       posterior[id] = p;
       total += p;
     }
