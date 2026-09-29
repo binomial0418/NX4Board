@@ -31,7 +31,7 @@ LV_FONT_DECLARE(nx4_font_num_46);
 LV_FONT_DECLARE(nx4_font_num_48);
 LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
-LV_FONT_DECLARE(nx4_font_tc_44);
+LV_FONT_DECLARE(nx4_font_tc_48);
 // 右側指示燈用的圖示字型。取自 Material Design Icons 的五個車用符號，
 // 碼位已在產生時重映到私有區 U+E000-E004，避免 4-byte UTF-8。
 LV_FONT_DECLARE(nx4_font_icons_64);
@@ -272,25 +272,24 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ICON_Y 63
 
 // ── 前方路況提示條 ──────────────────────────────────────────────────────
-// 夾在指示燈列與時速之間，兩行：第一行 44px 放重點（「前方2.4公里緩慢」
-// 「台61南下 前方2公里壅塞」），第二行 32px 放長度與時速。
+// 夾在指示燈列與時速之間，兩行、同樣 48px：第一行是「哪條路／哪裡」，
+// 第二行是狀況與數字，例如「國3甲北上」／「前方9.9公里緩慢 時速65」、
+// 「前方9.9公里緩慢」／「長9.9公里 時速59」。
 //
-// 顯示時時速整組下移 SPEED_SHIFT，讓出空間。時速 310s 字型筆畫在
-// SPEED_Y + 4 .. SPEED_Y + 223，轉速筆畫頂端在 RPM_Y + 2 = 474：
-//   平常時速與轉速之間 71px；下移 48 之後剩 23px
-//   提示條可用範圍 = 指示燈列底 120 到時速筆畫頂端 180 + 48 + 4 = 232，共 112px
-//
-// 寬度以 Noto Sans TC 字寬實算：第一行最長「國3甲北上 前方9.9公里緩慢」
-// 在 44px 約 575px、加內距 607，中央區 612..1266 共 654 放得下；
-// 置中後左緣若壓到卡片（< CARDS_RIGHT）就往右推。
-#define SPEED_SHIFT 48
+// 字級由高度決定（寬度即使 52px 也放得下）。48px 字型行高 57，
+// 提示條會用到的中文、數字與小數點，筆畫在行頂下 2.3 .. 47.0：
+//   兩行行距 JAM_LINE_PITCH 51（筆畫間留約 6）、上下內距約 6，提示條高 108
+//   時速下移 54 → 提示條可用範圍 = 指示燈列底 120 到時速筆畫頂端 180+54+4 = 238，
+//   共 118，上下各留 5；時速筆畫底 180+54+223 = 457，與轉速筆畫頂端 474 之間剩 17
+// 寬度最長是第二行「北上時速105 南下時速100」，48px 加內距 587，中央區 654 放得下。
+#define SPEED_SHIFT 54
 #define JAM_AREA_TOP (ICON_Y + ICON_H)
 #define JAM_AREA_BOTTOM (SPEED_Y + SPEED_SHIFT + 4)
 #define JAM_PAD_X 16
-#define JAM_PAD_Y 3
-#define JAM_LINE_GAP 0
-#define H_BANNER 53  // nx4_font_tc_44 的 line_height
-#define F_BANNER &nx4_font_tc_44
+#define JAM_TEXT_TOP 4        // 第一行 label 在提示條內的 y（筆畫頂再低 2.3）
+#define JAM_LINE_PITCH 51
+#define JAM_H 108
+#define F_BANNER &nx4_font_tc_48
 // 提示條底色：壅塞／緩慢紅、閘道暢通綠
 #define C_BANNER_OK 0x15803D
 
@@ -337,8 +336,8 @@ static lv_obj_t *s_icon_door;
 static lv_obj_t *s_icon_lock;
 static lv_obj_t *s_icon_trunk;
 static lv_obj_t *s_jam;     // 前方路況提示條（容器，底色在這）
-static lv_obj_t *s_jam_l1;  // 第一行：重點
-static lv_obj_t *s_jam_l2;  // 第二行：長度與時速
+static lv_obj_t *s_jam_l1;  // 第一行：哪條路／哪裡
+static lv_obj_t *s_jam_l2;  // 第二行：狀況與數字
 // 時速目前的 y。提示條顯示時下移 SPEED_SHIFT
 static lv_coord_t s_speed_y = SPEED_Y;
 static char s_current_ssid[36];
@@ -669,7 +668,7 @@ static void build_jam_banner(void) {
   lv_obj_set_style_radius(s_jam, 8, 0);
   lv_obj_set_style_pad_all(s_jam, 0, 0);
   s_jam_l1 = make_label(s_jam, "", F_BANNER, C_TEXT);
-  s_jam_l2 = make_label(s_jam, "", F_TITLE, C_TEXT);
+  s_jam_l2 = make_label(s_jam, "", F_BANNER, C_TEXT);
   lv_obj_add_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -698,14 +697,13 @@ static void show_jam(const char *l1, const char *l2, uint32_t bg) {
   const lv_coord_t w1 = lv_obj_get_width(s_jam_l1);
   const lv_coord_t w2 = lv_obj_get_width(s_jam_l2);
   const lv_coord_t w = (w1 > w2 ? w1 : w2) + 2 * JAM_PAD_X;
-  const lv_coord_t h = 2 * JAM_PAD_Y + H_BANNER + JAM_LINE_GAP + H_TITLE;
-  lv_obj_set_size(s_jam, w, h);
-  lv_obj_set_pos(s_jam_l1, (w - w1) / 2, JAM_PAD_Y);
-  lv_obj_set_pos(s_jam_l2, (w - w2) / 2, JAM_PAD_Y + H_BANNER + JAM_LINE_GAP);
+  lv_obj_set_size(s_jam, w, JAM_H);
+  lv_obj_set_pos(s_jam_l1, (w - w1) / 2, JAM_TEXT_TOP);
+  lv_obj_set_pos(s_jam_l2, (w - w2) / 2, JAM_TEXT_TOP + JAM_LINE_PITCH);
 
   lv_coord_t x = STACK_CX - w / 2;
   if (x < CARDS_RIGHT + 4) x = CARDS_RIGHT + 4;
-  const lv_coord_t y = JAM_AREA_TOP + (JAM_AREA_BOTTOM - JAM_AREA_TOP - h) / 2;
+  const lv_coord_t y = JAM_AREA_TOP + (JAM_AREA_BOTTOM - JAM_AREA_TOP - JAM_H) / 2;
   lv_obj_set_pos(s_jam, x, y);
   lv_obj_clear_flag(s_jam, LV_OBJ_FLAG_HIDDEN);
   set_speed_shift(true);
@@ -741,9 +739,15 @@ static void format_road(char *out, size_t n, char sys, const char *ref) {
   lv_snprintf(out, n, "%s%s", sys == 'F' ? "國" : "台", ref);
 }
 
+/// 兩行的寫法：
+///   閘道前方壅塞 「國3甲北上」／「前方9.9公里緩慢 時速65」
+///   閘道即壅塞   「台61南下」／「即壅塞 時速18」
+///   閘道暢通     「台61北上」／「暢通 時速100」；雙向「國3雙向暢通」／「北上時速105 南下時速100」
+///   本線壅塞     「前方9.9公里緩慢」／「長9.9公里 時速59」
+///   車陣中       「壅塞中」／「剩1.1公里 時速15」
 static void set_jam(const nx4_dash_data_t *d) {
-  char l1[80];
-  char l2[64];
+  char l1[64];
+  char l2[80];
 
   if (d->jam_active && d->jam_len > 0) {
     const char *what = d->jam_level >= 3 ? "壅塞" : "緩慢";
@@ -753,24 +757,23 @@ static void set_jam(const nx4_dash_data_t *d) {
       // 閘道前預知：還沒上主線，距離從匯入點起算
       char road[24];
       format_road(road, sizeof(road), d->via_sys, d->via_ref);
+      lv_snprintf(l1, sizeof(l1), "%s%s", road, via_dir_text(d->via_dir));
       if (d->jam_dist < 300) {
-        lv_snprintf(l1, sizeof(l1), "%s%s即%s", road, via_dir_text(d->via_dir), what);
+        lv_snprintf(l2, sizeof(l2), "即%s 時速%d", what, d->jam_speed);
       } else {
         char dist[16];
         format_distance(dist, sizeof(dist), d->jam_dist);
-        lv_snprintf(l1, sizeof(l1), "%s%s 前方%s%s", road, via_dir_text(d->via_dir), dist,
-                    what);
+        lv_snprintf(l2, sizeof(l2), "前方%s%s 時速%d", dist, what, d->jam_speed);
       }
-      lv_snprintf(l2, sizeof(l2), "長%s  時速%d", len, d->jam_speed);
     } else if (d->jam_dist < 100) {
       // 已經在車陣裡，距離沒有意義，改說還剩多長
       lv_snprintf(l1, sizeof(l1), "%s中", what);
-      lv_snprintf(l2, sizeof(l2), "剩%s  時速%d", len, d->jam_speed);
+      lv_snprintf(l2, sizeof(l2), "剩%s 時速%d", len, d->jam_speed);
     } else {
       char dist[16];
       format_distance(dist, sizeof(dist), d->jam_dist);
       lv_snprintf(l1, sizeof(l1), "前方%s%s", dist, what);
-      lv_snprintf(l2, sizeof(l2), "長%s  時速%d", len, d->jam_speed);
+      lv_snprintf(l2, sizeof(l2), "長%s 時速%d", len, d->jam_speed);
     }
     show_jam(l1, l2, C_RED);
     return;
@@ -779,16 +782,14 @@ static void set_jam(const nx4_dash_data_t *d) {
   if (d->ramp_active && d->ramp_n > 0) {
     // 閘道前預知（平面接近閘道或主線接近系統交流道）、上去之後沒有壅塞：
     // 一律顯示。車多（速限六～八成）也算暢通，只有緩慢／壅塞才走上面的紅底。
-    // 第二行帶上是哪條路與車速，只有一個方向時（台88 往西只接國1 北上）寫出方向。
     char road[24];
     format_road(road, sizeof(road), d->ramp_sys, d->ramp_ref);
     if (d->ramp_n == 1) {
-      lv_snprintf(l1, sizeof(l1), "閘道暢通");
-      lv_snprintf(l2, sizeof(l2), "%s%s  時速%d", road, via_dir_text(d->ramp_dir[0]),
-                  d->ramp_speed[0]);
+      lv_snprintf(l1, sizeof(l1), "%s%s", road, via_dir_text(d->ramp_dir[0]));
+      lv_snprintf(l2, sizeof(l2), "暢通 時速%d", d->ramp_speed[0]);
     } else {
-      lv_snprintf(l1, sizeof(l1), "閘道雙向暢通");
-      lv_snprintf(l2, sizeof(l2), "%s  %s時速%d  %s時速%d", road, via_dir_text(d->ramp_dir[0]),
+      lv_snprintf(l1, sizeof(l1), "%s雙向暢通", road);
+      lv_snprintf(l2, sizeof(l2), "%s時速%d %s時速%d", via_dir_text(d->ramp_dir[0]),
                   d->ramp_speed[0], via_dir_text(d->ramp_dir[1]), d->ramp_speed[1]);
     }
     show_jam(l1, l2, C_BANNER_OK);

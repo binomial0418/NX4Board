@@ -19,7 +19,7 @@ idf_component_register(
         "nx4_font_num_96s.c"
         "nx4_font_tc_26.c"
         "nx4_font_tc_32.c"
-        "nx4_font_tc_44.c"
+        "nx4_font_tc_48.c"
     INCLUDE_DIRS "."
     REQUIRES nx4_config nx4_lcd nx4_touch nx4_audio nx4_obd
              esp_driver_i2c esp_driver_ppa esp_driver_uart esp_wifi esp_netif esp_http_server
