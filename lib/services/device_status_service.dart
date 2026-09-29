@@ -81,6 +81,17 @@ class DeviceStatusService {
         'ThermalStatus: $_thermalStatus → ${thermalMode.name}');
   }
 
+  /// 設定本 App 視窗亮度（0–1）；傳 null 交還系統亮度。
+  /// 只影響本視窗，切到其他 App 或 Activity 結束後自然失效。
+  Future<void> setWindowBrightness(double? value) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('setWindowBrightness', value ?? -1.0);
+    } catch (e) {
+      debugPrint('[DeviceStatus] 無法設定視窗亮度: $e');
+    }
+  }
+
   void dispose() {
     _pollTimer?.cancel();
     _initialized = false;

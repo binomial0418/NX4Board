@@ -18,6 +18,7 @@ import android.location.GnssStatus
 import android.location.LocationManager
 import android.os.*
 import android.provider.MediaStore
+import android.view.WindowManager
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -218,6 +219,17 @@ class MainActivity : FlutterActivity() {
                 }
                 "getGpsSatelliteCount" -> {
                     result.success(satelliteCount)
+                }
+                "setWindowBrightness" -> {
+                    // 只改本 App 視窗的亮度，不動系統設定、不需權限；
+                    // 負值 = BRIGHTNESS_OVERRIDE_NONE，交還系統亮度。
+                    val value = (call.arguments as? Number)?.toFloat() ?: -1f
+                    val lp = window.attributes
+                    lp.screenBrightness =
+                        if (value < 0f) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                        else value.coerceIn(0f, 1f)
+                    window.attributes = lp
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }

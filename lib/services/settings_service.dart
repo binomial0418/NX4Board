@@ -80,8 +80,15 @@ class SettingsService {
 
   double get ttsVolume => _prefs?.getDouble('tts_volume') ?? 1.0;
 
+  /// 最後一次是否處於黑屏模式。App 重啟或插電喚醒時照這個值還原。
+  bool get blackoutMode => _prefs?.getBool('blackout_mode') ?? false;
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+  }
+
+  Future<void> setBlackoutMode(bool value) async {
+    await _prefs?.setBool('blackout_mode', value);
   }
 
   Future<void> setWsIp(String ip) async {

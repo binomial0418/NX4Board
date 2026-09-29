@@ -47,7 +47,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // --- 動畫 ---
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -94,6 +94,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   // 即可判斷是否需重啟，不在 DashboardScreen 重複維護 ThermalMode 狀態
   int _currentGpsDistanceFilter = 5;
 
+  // --- 黑屏模式 ---
+  // 儀表已由 ESP32 面板顯示時，手機畫面只是熱源。黑屏時整棵儀表 widget
+  // 樹移出畫面、脈衝動畫停止，引擎不再排任何 frame；GPS、OBD、WS 推送
+  // 都掛在本 State 上，不受影響。螢幕常亮（wakelock）刻意保留：App 維持
+  // 前景，不必依賴背景定位與廠牌的背景限制。
+  //
+  // 必須永遠叫得回來：輕觸任何位置、返回鍵都會退出；剛進入或 App 回到
+  // 前景時先以原亮度顯示提示 [_blackoutHintDuration]，之後才把視窗調暗。
+  //
+  // 使用者進入/退出時存進 SettingsService.blackoutMode；熄火睡眠不改它，
+  // App 重啟與插電喚醒都照最後狀態呈現。
+  bool _blackout = false;
+  bool _blackoutHint = false;
+  Timer? _blackoutHintTimer;
+  static const Duration _blackoutHintDuration = Duration(seconds: 5);
+  static const double _blackoutBrightness = 0.01;
+
   // --- AppProvider 參考（dispose 時不可依賴 BuildContext）---
   late AppProvider _appProvider;
 
@@ -108,6 +125,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    WidgetsBinding.instance.addObserver(this);
+    // 還原上次的黑屏狀態。第一個 frame 就是黑的，不先閃一次儀表。
+    if (SettingsService().blackoutMode) {
+      _blackout = true;
+      _pulseController.stop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _blackout) _showBlackoutHint();
+      });
+    }
     _screenRecorder = ScreenRecorderService();
     _appProvider = context.read<AppProvider>();
     _initializeWidgets();
@@ -385,6 +411,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     WakelockPlus.enable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
+    // 插電喚醒時照上次的黑屏狀態呈現
+    if (SettingsService().blackoutMode) _enterBlackout();
+
     // 啟動/恢復 GPS（若串流已終止則重建，使用當前散熱等級對應的 distanceFilter）
     if (_positionSubscription == null) {
       _startLocationTracking(distanceFilter: _thermalDistanceFilter);
@@ -423,6 +452,68 @@ class _DashboardScreenState extends State<DashboardScreen>
     });
   }
 
+  // ──────────────────────────────────────────────
+  // 黑屏模式
+  // ──────────────────────────────────────────────
+  void _enterBlackout() {
+    SettingsService().setBlackoutMode(true);
+    if (_blackout) return;
+    _pulseController.stop();
+    setState(() => _blackout = true);
+    _showBlackoutHint();
+  }
+
+  void _exitBlackout() {
+    SettingsService().setBlackoutMode(false);
+    if (!_blackout) return;
+    _blackoutHintTimer?.cancel();
+    _blackoutHintTimer = null;
+    DeviceStatusService().setWindowBrightness(null);
+    _pulseController.repeat(reverse: true);
+    setState(() {
+      _blackout = false;
+      _blackoutHint = false;
+    });
+  }
+
+  /// 以原亮度顯示提示，時間到才調暗。進入黑屏與每次回到前景都會呼叫，
+  /// 讓關過螢幕、切過 App 的使用者看得到怎麼返回。
+  void _showBlackoutHint() {
+    DeviceStatusService().setWindowBrightness(null);
+    setState(() => _blackoutHint = true);
+    _blackoutHintTimer?.cancel();
+    _blackoutHintTimer = Timer(_blackoutHintDuration, () {
+      if (!mounted || !_blackout) return;
+      setState(() => _blackoutHint = false);
+      DeviceStatusService().setWindowBrightness(_blackoutBrightness);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _blackout && mounted) {
+      _showBlackoutHint();
+    }
+  }
+
+  Widget _buildBlackout() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _exitBlackout,
+      child: SizedBox.expand(
+        child: _blackoutHint
+            ? const Center(
+                child: Text(
+                  '黑屏中，背景服務持續運作\n輕觸螢幕任意處返回',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white54, fontSize: 20),
+                ),
+              )
+            : null,
+      ),
+    );
+  }
+
   void _startSleepCountdown() {
     _sleepCountdownTimer?.cancel();
     int countdown = 10;
@@ -436,7 +527,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _enterSleepMode() async {
-
     // 關閉螢幕常亮與沉浸模式
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(
@@ -997,6 +1087,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     _esp32Subscription?.cancel();
     _esp32ReconnectTimer?.cancel();
     _recordingStateTimer?.cancel();
+    _blackoutHintTimer?.cancel();
+    DeviceStatusService().setWindowBrightness(null);
+    WidgetsBinding.instance.removeObserver(this);
     // 移除 OBD 數據監聽器
     ObdSppService().removeListener(_handleUiUpdate);
     // 移除 AppProvider 數據監聽器
@@ -1051,192 +1144,217 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     return WithForegroundTask(
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          children: [
-            // 原生儀表板
-            const Positioned.fill(child: NativeDashboard()),
+      child: PopScope(
+        // 黑屏時返回鍵只退出黑屏，不離開 App
+        canPop: !_blackout,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _exitBlackout();
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: _blackout
+              ? _buildBlackout()
+              : Stack(
+                  children: [
+                    // 原生儀表板
+                    const Positioned.fill(child: NativeDashboard()),
 
-            // 狀態指示區塊（右側）
-            Positioned(
-              bottom: 24,
-              right: 16,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  // 錄影指示燈 (整合至右下角並縮小)
-                  if (_screenRecorder.recordingState ==
-                      RecordingState.recording)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
+                    // 狀態指示區塊（右側）
+                    Positioned(
+                      bottom: 24,
+                      right: 16,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // 錄影指示燈 (整合至右下角並縮小)
+                          if (_screenRecorder.recordingState ==
+                              RecordingState.recording)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.red,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'REC ${_screenRecorder.remainingSeconds}s',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'REC ${_screenRecorder.remainingSeconds}s',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                          // OBD BLE 連線狀態
+                          Consumer<AppProvider>(
+                            builder: (context, provider, child) {
+                              bool isObdConn = provider.obdConnectionState ==
+                                  ObdConnectionState.connected;
+                              return _StatusBadge(
+                                isActive: isObdConn,
+                                activeLabel: 'ECU ',
+                                inactiveLabel: 'ECU ',
+                                activeColor: Colors.deepPurpleAccent,
+                                inactiveColor: Colors.redAccent,
+                                pulseAnimation: _pulseAnimation,
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          // WiFi 連線狀態 (link)
+                          Consumer<AppProvider>(
+                            builder: (context, provider, child) {
+                              return _StatusBadge(
+                                isActive: provider.isWifiConnected,
+                                activeLabel: 'Sync',
+                                inactiveLabel: 'Sync',
+                                activeColor: Colors.greenAccent,
+                                inactiveColor: Colors.redAccent,
+                                pulseAnimation: _pulseAnimation,
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          // 測速點偵測狀態
+                          Consumer<AppProvider>(
+                            builder: (context, provider, child) {
+                              bool ocrEnabled = SettingsService().enableOcr;
+                              bool isPowerOk = _isCharging ?? true;
+
+                              String label = ocrEnabled ? '測速 ' : '測速 ';
+                              Color color =
+                                  ocrEnabled ? Colors.greenAccent : Colors.grey;
+
+                              if (provider.isSimulating) {
+                                label = '模擬中';
+                                color = Colors.orangeAccent;
+                              } else if (ocrEnabled && !isPowerOk) {
+                                label = '暫停';
+                                color = Colors.amber.withValues(alpha: 0.6);
+                              }
+
+                              return GestureDetector(
+                                onLongPress: () {
+                                  if (ocrEnabled) {
+                                    provider.simulateSpeedCameraPath();
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                '請先在設定中開啟「速限辨識」才能執行模擬測試')));
+                                  }
+                                },
+                                child: _StatusBadge(
+                                  isActive: ocrEnabled &&
+                                      (isPowerOk || provider.isSimulating),
+                                  activeLabel: label,
+                                  inactiveLabel: label,
+                                  activeColor: color,
+                                  inactiveColor: Colors.grey,
+                                  pulseAnimation: _pulseAnimation,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                  // OBD BLE 連線狀態
-                  Consumer<AppProvider>(
-                    builder: (context, provider, child) {
-                      bool isObdConn = provider.obdConnectionState ==
-                          ObdConnectionState.connected;
-                      return _StatusBadge(
-                        isActive: isObdConn,
-                        activeLabel: 'ECU ',
-                        inactiveLabel: 'ECU ',
-                        activeColor: Colors.deepPurpleAccent,
-                        inactiveColor: Colors.redAccent,
-                        pulseAnimation: _pulseAnimation,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  // WiFi 連線狀態 (link)
-                  Consumer<AppProvider>(
-                    builder: (context, provider, child) {
-                      return _StatusBadge(
-                        isActive: provider.isWifiConnected,
-                        activeLabel: 'Sync',
-                        inactiveLabel: 'Sync',
-                        activeColor: Colors.greenAccent,
-                        inactiveColor: Colors.redAccent,
-                        pulseAnimation: _pulseAnimation,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  // 測速點偵測狀態
-                  Consumer<AppProvider>(
-                    builder: (context, provider, child) {
-                      bool ocrEnabled = SettingsService().enableOcr;
-                      bool isPowerOk = _isCharging ?? true;
 
-                      String label = ocrEnabled ? '測速 ' : '測速 ';
-                      Color color =
-                          ocrEnabled ? Colors.greenAccent : Colors.grey;
+                    // 功能按鈕區塊（右上角垂直排列）
+                    Positioned(
+                      top: 16,
+                      right: 16,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 關閉程式按鈕
+                          Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              icon: const Icon(Icons.power_settings_new),
+                              color: Colors.redAccent.withValues(alpha: 0.8),
+                              iconSize: 32,
+                              splashRadius: 28,
+                              onPressed: () {
+                                SystemNavigator.pop();
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // 設定按鈕
+                          Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              icon: const Icon(Icons.settings),
+                              color: Colors.white70,
+                              iconSize: 32,
+                              splashRadius: 28,
+                              onPressed: () async {
+                                // 在 async gap 前先取好 provider，避免跨 async 使用 BuildContext
+                                final provider = context.read<AppProvider>();
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) =>
+                                          const SettingsScreen()),
+                                );
+                                // Settings changed, reconnect WebSocket if needed
+                                _channel?.sink.close();
+                                if (!mounted) return;
+                                setState(() => _isWsConnected = false);
+                                _connectWebSocket();
 
-                      if (provider.isSimulating) {
-                        label = '模擬中';
-                        color = Colors.orangeAccent;
-                      } else if (ocrEnabled && !isPowerOk) {
-                        label = '暫停';
-                        color = Colors.amber.withValues(alpha: 0.6);
-                      }
+                                // 第二通道 (ESP32 儀表) 亦依新設定重連
+                                _disconnectEsp32();
+                                _connectEsp32();
 
-                      return GestureDetector(
-                        onLongPress: () {
-                          if (ocrEnabled) {
-                            provider.simulateSpeedCameraPath();
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('請先在設定中開啟「速限辨識」才能執行模擬測試')));
-                          }
-                        },
-                        child: _StatusBadge(
-                          isActive: ocrEnabled &&
-                              (isPowerOk || provider.isSimulating),
-                          activeLabel: label,
-                          inactiveLabel: label,
-                          activeColor: color,
-                          inactiveColor: Colors.grey,
-                          pulseAnimation: _pulseAnimation,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
+                                // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
+                                if (provider.currentPosition != null) {
+                                  provider.updatePosition(
+                                      provider.currentPosition!);
+                                }
 
-            // 功能按鈕區塊（右上角垂直排列）
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 關閉程式按鈕
-                  Material(
-                    color: Colors.transparent,
-                    child: IconButton(
-                      icon: const Icon(Icons.power_settings_new),
-                      color: Colors.redAccent.withValues(alpha: 0.8),
-                      iconSize: 32,
-                      splashRadius: 28,
-                      onPressed: () {
-                        SystemNavigator.pop();
-                      },
+                                // 設定變更後立即觸發一次 UI 同步
+                                _handleUiUpdate();
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // 黑屏按鈕：停止繪製儀表以降溫，輕觸螢幕返回
+                          Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              icon: const Icon(Icons.dark_mode),
+                              color: Colors.white70,
+                              iconSize: 32,
+                              splashRadius: 28,
+                              tooltip: '黑屏',
+                              onPressed: _enterBlackout,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  // 設定按鈕
-                  Material(
-                    color: Colors.transparent,
-                    child: IconButton(
-                      icon: const Icon(Icons.settings),
-                      color: Colors.white70,
-                      iconSize: 32,
-                      splashRadius: 28,
-                      onPressed: () async {
-                        // 在 async gap 前先取好 provider，避免跨 async 使用 BuildContext
-                        final provider = context.read<AppProvider>();
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => const SettingsScreen()),
-                        );
-                        // Settings changed, reconnect WebSocket if needed
-                        _channel?.sink.close();
-                        if (!mounted) return;
-                        setState(() => _isWsConnected = false);
-                        _connectWebSocket();
-
-                        // 第二通道 (ESP32 儀表) 亦依新設定重連
-                        _disconnectEsp32();
-                        _connectEsp32();
-
-                        // 強制觸發一次 Provider 更新，確保速限顯示依開關狀態立即消失/出現
-                        if (provider.currentPosition != null) {
-                          provider.updatePosition(provider.currentPosition!);
-                        }
-
-                        // 設定變更後立即觸發一次 UI 同步
-                        _handleUiUpdate();
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+                  ],
+                ),
         ),
       ),
     );
