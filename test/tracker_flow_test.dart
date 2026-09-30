@@ -86,4 +86,28 @@ void main() {
       expect(confOn, lessThanOrEqualTo(confOff + n ~/ 100), reason: t.label);
     }
   });
+
+  // 手機回報的定位精度（accuracyM）：訊號差時用較大的 σ，更依賴連續性。
+  // 軌跡沒有真實的回報精度，這裡假設手機回報 20 m（σ 15 m 的軌跡）。
+  test('定位精度：側車道改善、上高架不明顯變差', () async {
+    for (final t in ev.Trace.load('test/fixtures/wuqi_traces.json.gz').where((t) => t.label.contains('15m'))) {
+      final conf = <double?, double>{};
+      for (final acc in [null, 20.0]) {
+        final tracker = RoadTracker();
+        int n = 0, bad = 0;
+        for (final p in t.points) {
+          final roads = await tiles.tileAt(p.lat, p.lon);
+          if (roads == null) continue;
+          final m = tracker.update(roads, p.lat, p.lon, headingDeg: p.heading, speedKmh: p.speedKmh, accuracyM: acc);
+          n++;
+          if (m != null && _fast.contains(m.road.highway) != p.truthIsFast) bad++;
+        }
+        conf[acc] = bad * 100 / n;
+      }
+      // ignore: avoid_print
+      print('  ${t.label.padRight(18)} 精度 20 m：高速/平面誤判 ${conf[null]!.toStringAsFixed(1)}% → ${conf[20.0]!.toStringAsFixed(1)}%');
+      if (t.label.contains('W3')) expect(conf[20.0]!, lessThan(conf[null]!), reason: t.label);
+      expect(conf[20.0]!, lessThanOrEqualTo(conf[null]! + 1.0), reason: t.label);
+    }
+  });
 }

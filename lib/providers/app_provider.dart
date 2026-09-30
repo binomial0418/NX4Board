@@ -484,6 +484,8 @@ class AppProvider extends ChangeNotifier {
       // 高架正下方的平面道路位置分不出來，快速路車流順暢而自己一直很慢就是反證
       // （見 RoadTracker.flowMinKmh）。取上一次定位時查到的車流，不多發請求。
       fastFlowKmh: TrafficService().currentFlowKmh,
+      // 手機回報的定位精度；訊號差時追蹤器改用較大的誤差，見 RoadTracker.maxSigmaM
+      accuracyM: position.accuracy > 0 ? position.accuracy : null,
     );
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;

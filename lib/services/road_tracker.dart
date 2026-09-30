@@ -39,6 +39,18 @@ class RoadTracker {
   /// 刻意比實際 GPS 誤差大：GPS 誤差有時間相關性，把每點當獨立觀測會過度自信。
   final double sigmaM;
 
+  /// 手機回報的定位精度（Android Location.getAccuracy，約 68% 信賴半徑）大於 [sigmaM] 時
+  /// 改用它，上限 [maxSigmaM]。高架下、大樓間訊號差時手機會回報較大的誤差，
+  /// 這時位置本來就不可信，應該更依賴連續性與車速、車流等證據，
+  /// 而不是讓偏移幾秒的定位把道路拉走。下限維持 [sigmaM]：空曠處手機常回報
+  /// 3～5 m，比實際（含路寬、時間相關性）樂觀。
+  ///
+  /// σ 越大追蹤器越黏在原路上，上高架也會晚一點相信，所以上限不能太高。
+  /// 以 σ 15 m 的軌跡、假設手機回報 20 m 實測（test/tracker_flow_test.dart）：
+  /// 港埠路（含車流佐證）誤判 85 → 41 秒、梧棲側車道 W3 7.3% → 4.3%，
+  /// 代價是 W1 上高架 8.3% → 8.9%、延遲多 1 秒；回報 25 m 時 W1 升到 10.2%。
+  final double maxSigmaM;
+
   /// 靜止時 heading 不可靠
   static const double headingMinSpeedKmh = 15.0;
 
@@ -114,6 +126,7 @@ class RoadTracker {
   /// 在高架情境與隨機市區路線驗證集之間取平衡。
   RoadTracker({
     this.sigmaM = 12.0,
+    this.maxSigmaM = 20.0,
     this.pConnected = 0.03,
     this.pJump = 0.0002,
     this.jumpDistanceM = 45.0,
@@ -182,6 +195,7 @@ class RoadTracker {
   ///
   /// [fastFlowKmh] 是目前所在快速路路段的 TDX 即時車流（見 TrafficService.currentFlowKmh），
   /// 沒有資料時為 null，此時行為與原本相同。
+  /// [accuracyM] 是手機回報的定位精度，見 [maxSigmaM]；沒有時用 [sigmaM]。
   TrackedRoad? update(
     List<OsmRoad> roads,
     double lat,
@@ -189,7 +203,11 @@ class RoadTracker {
     double? headingDeg,
     double speedKmh = 0,
     double? fastFlowKmh,
+    double? accuracyM,
   }) {
+    final sigma = (accuracyM != null && accuracyM > sigmaM)
+        ? math.min(accuracyM, maxSigmaM)
+        : sigmaM;
     _recentSpeeds.add(speedKmh);
     if (_recentSpeeds.length > flowWindow) _recentSpeeds.removeAt(0);
     final flowMismatch = fastFlowKmh != null &&
@@ -202,7 +220,7 @@ class RoadTracker {
             ? headingDeg
             : null;
 
-    final obs = _observe(roads, lat, lon, heading, speedKmh);
+    final obs = _observe(roads, lat, lon, heading, speedKmh, sigma);
     final fromLat = _prevLat ?? lat;
     final fromLon = _prevLon ?? lon;
     _prevLat = lat;
@@ -256,7 +274,8 @@ class RoadTracker {
     if (total <= 0 || total.isNaN) {
       // 所有候選都不可能從前一狀態到達（例如長時間中斷後），重新開始
       reset();
-      return update(roads, lat, lon, headingDeg: headingDeg, speedKmh: speedKmh);
+      return update(roads, lat, lon,
+          headingDeg: headingDeg, speedKmh: speedKmh, fastFlowKmh: fastFlowKmh, accuracyM: accuracyM);
     }
 
     String? bestId;
@@ -336,6 +355,7 @@ class RoadTracker {
     double lon,
     double? heading,
     double speedKmh,
+    double sigma,
   ) {
     final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180.0);
     final out = <String, _Observation>{};
@@ -358,7 +378,7 @@ class RoadTracker {
           final d = _pointSegmentDistance(ax, ay, bx, by);
           if (d > candidateRadiusM) continue;
 
-          double cost = d * d / (2 * sigmaM * sigmaM) + speedPenalty;
+          double cost = d * d / (2 * sigma * sigma) + speedPenalty;
           if (heading != null) {
             final bearing = (math.atan2(bx - ax, by - ay) * 180 / math.pi + 360) % 360;
             double diff = (bearing - heading).abs() % 360;
