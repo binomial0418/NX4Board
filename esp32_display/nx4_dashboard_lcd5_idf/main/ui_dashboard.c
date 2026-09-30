@@ -299,6 +299,7 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ALERT_FUEL_MAX 15   // 油量 <= 15 %
 #define ALERT_TIRE_MIN 30   // 胎壓 <= 30 psi
 #define ALERT_COOLANT 110   // 水溫 >= 110 °C
+#define ALERT_OVERSPEED_KMH 10 // 時速超過速限這麼多才轉紅（原本 5，常態小幅超速太常變色）
 #define WARN_TIRE_HIGH 40   // 胎壓 > 40 psi 以琥珀色文字提示（次級）
 
 // ── 物件參考（建立一次，之後只更新數值）──────────────────────────────
@@ -852,6 +853,8 @@ static void set_camera_mode(bool active, nx4_cam_kind_t kind, int camera_limit,
   if (active) {
     lv_label_set_text(s_limit_title, kind == NX4_CAM_RED_LIGHT  ? "闖紅燈照相"
                                      : kind == NX4_CAM_OVERPASS ? "天橋偷拍"
+                                     : kind == NX4_CAM_ZONE_END ? "區間終點"
+                                     : kind == NX4_CAM_ZONE_START ? "區間起點"
                                                                 : "測速照相");
     lv_obj_set_style_text_color(s_limit_title, lv_color_hex(0xFFFFFF), 0);
     if (camera_limit > 0) {
@@ -1053,8 +1056,9 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
         s_speed_shown = -1;
       }
     } else {
-      // 超速時（有速限資料且超出 5 km/h）時速轉紅
-      bool over = data->speed_limit > 0 && speed > data->speed_limit + 5;
+      // 超速時（有速限資料且超出 ALERT_OVERSPEED_KMH）時速轉紅
+      bool over = data->speed_limit > 0 &&
+                  speed > data->speed_limit + ALERT_OVERSPEED_KMH;
       lv_obj_set_style_text_color(s_speed_value,
                                   lv_color_hex(over ? C_ALERT : C_TEXT), 0);
       if (force || p->reversing) {

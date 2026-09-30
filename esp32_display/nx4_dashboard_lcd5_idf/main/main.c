@@ -21,6 +21,7 @@
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
 //   "camera": {"active": true, "limit": 90, "kind": "speed", "passed": 3},
+//              kind: speed / redLight / overpass / zoneStart / zoneEnd
 //   "lights": {"low": true, "high": false, "position": true, "rear_fog": false},
 //   "doors": {"open": false, "unlocked": false, "trunk": false},
 //   "traffic": {"active": true, "alerts": 2, "sys": "P", "ref": "61", "km": 152.3,
@@ -323,6 +324,8 @@ static void handleDashPayload(const char *payload, size_t length) {
         g_dash.camera_kind = !kind                           ? NX4_CAM_SPEED
                            : strcmp(kind, "redLight") == 0 ? NX4_CAM_RED_LIGHT
                            : strcmp(kind, "overpass") == 0 ? NX4_CAM_OVERPASS
+                           : strcmp(kind, "zoneEnd") == 0  ? NX4_CAM_ZONE_END
+                           : strcmp(kind, "zoneStart") == 0 ? NX4_CAM_ZONE_START
                                                            : NX4_CAM_SPEED;
         g_dash.camera_passed = j_int(camera, "passed", -1);
     }
@@ -493,6 +496,8 @@ static void serviceVoice(void) {
         switch (g_dash.camera_kind) {
         case NX4_CAM_RED_LIGHT: nx4_tts_say("red_light"); break;
         case NX4_CAM_OVERPASS:  nx4_tts_say("overpass"); break;
+        case NX4_CAM_ZONE_END:  nx4_tts_say("zone_end"); break;
+        case NX4_CAM_ZONE_START: nx4_tts_say("zone_start"); break;
         default:                nx4_tts_camera_alert(g_dash.camera_limit); break;
         }
     }

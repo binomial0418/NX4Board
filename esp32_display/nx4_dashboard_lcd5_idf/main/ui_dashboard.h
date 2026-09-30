@@ -26,9 +26,11 @@ extern "C" {
 
 // 相機類型（App 送的 camera.kind）。決定語音與速限卡片的標題。
 typedef enum {
-  NX4_CAM_SPEED = 0,   // 測速照相（含區間測速）
+  NX4_CAM_SPEED = 0,   // 測速照相
   NX4_CAM_RED_LIGHT,   // 闖紅燈照相：沒有速限，念「前有闖紅燈照相」
   NX4_CAM_OVERPASS,    // 國道天橋上的移動式測速：念「注意天橋偷拍」
+  NX4_CAM_ZONE_END,    // 區間測速終點：念「區間測速終點」，速限數字由卡片顯示
+  NX4_CAM_ZONE_START,  // 區間測速起點：念「進入區間測速路段」，速限數字由卡片顯示
 } nx4_cam_kind_t;
 
 typedef struct {
