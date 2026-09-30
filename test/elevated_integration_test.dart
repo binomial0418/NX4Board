@@ -112,7 +112,11 @@ Future<_Replay> _replay(ev.Trace trace, OsmTileService tiles, {required bool use
     // 相機正確與否：人在高速路系統應報台74 相機，在平面應報平面相機
     final expected = p.truthIsFast ? _camera74 : _cameraSurface;
     final reported = cam?['name'] as String?;
-    final inRange = cam != null || _withinKm(p, expected, 0.9);
+    // 該提示的範圍：CameraRules 的提示距離（依類型與車速）
+    final alertM = CameraRules.alertDistanceM(expected.typeCode, p.speedKmh,
+            fastRoad: expected.roadType != RoadType.none) ??
+        0;
+    final inRange = cam != null || _withinKm(p, expected, alertM / 1000);
     if (reported != null && reported != expected.address) {
       r.wrongCamera++;
       if (useTracker && !svc.isLevelUncertain) r.wrongCameraWhileConfident++;
@@ -126,13 +130,11 @@ Future<_Replay> _replay(ev.Trace trace, OsmTileService tiles, {required bool use
 bool _withinKm(ev.TracePoint p, SpeedCamera c, double km) =>
     CameraAlgorithm.haversine(p.lat, p.lon, c.latitude, c.longitude) <= km;
 
-/// 相機在行進方向前方（與 CameraService 的幾何過濾一致），
+/// 相機在行進方向前方錐內、且超過 20 m（與 CameraService 一致），
 /// 已經通過的相機不回報是正確行為，不算漏報
 bool _ahead(ev.TracePoint p, SpeedCamera c) {
   final bearing = CameraAlgorithm.calculateBearing(p.lat, p.lon, c.latitude, c.longitude);
-  var diff = (bearing - p.heading).abs();
-  if (diff > 180) diff = 360 - diff;
-  return diff <= 80;
+  return CameraAlgorithm.angleDiff(bearing, p.heading) <= 20 && !_withinKm(p, c, 0.02);
 }
 
 void main() {
@@ -168,7 +170,8 @@ void main() {
   test('S2 行駛在高架正下方', () async {
     final (old, now) = await compare('S2');
     expect(now.wrongCameraWhileConfident, 0, reason: '有把握在環中路時，不應回報上方台74 的相機');
-    expect(now.wrongCamera, lessThan(old.wrongCamera));
+    // 20° 前方錐讓舊做法也不再報錯（原本 83 次），這裡只要求不退步
+    expect(now.wrongCamera, lessThanOrEqualTo(old.wrongCamera));
     expect(now.missedCamera, lessThanOrEqualTo(old.missedCamera));
     expect(now.systemWrong / now.points, lessThan(0.02));
     expect(now.limitCorrect / now.limitTotal, greaterThan(0.95));

@@ -33,3 +33,6 @@ tools/edog_convert.py
 
 # DX-GP22 GNSS 模組廠商資料包（規格書、工具程式），不提交
 esp32_display/DX-GP22-A*/
+
+# refdata 內的二進位參考檔，不提交
+refdata/FW*.bin

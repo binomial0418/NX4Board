@@ -1,9 +1,11 @@
+// 比較用：main 分支（改用 CameraRules 前）的 CameraService 原樣複製，外加可選的平行道路過濾。
+// 只給 test/camera_compare_test.dart 用。
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:csv/csv.dart';
 import 'package:geolocator/geolocator.dart';
-import 'road_type_service.dart' show RoadType;
+import 'package:nx4board/services/road_type_service.dart' show RoadType;
 
 /// overpass：國道天橋上的移動式測速點（圖資的國道移動式中，位於跨越
 /// 國道的天橋旁的那些；其餘移動式點不收，見 tools/edog_convert.py）
@@ -21,13 +23,6 @@ class SpeedCamera {
   /// 受測車行方位角（0-359）。有值時以它比對行進方向，不看 [direct] 文字。
   final double? heading;
 
-  /// 類型碼（圖資第 3 碼，見 [CameraRules.typeOf]），決定提示距離。
-  /// 政府資料沒有，依 [kind] 補一個對應的碼。
-  final int typeCode;
-
-  /// 圖資第 12 欄：方向容許角代碼（'1'..'7' 放寬前方錐角），'0' 為預設
-  final String angleTol;
-
   SpeedCamera({
     required this.address,
     required this.longitude,
@@ -37,13 +32,10 @@ class SpeedCamera {
     this.roadType = RoadType.none,
     this.kind = CameraKind.speed,
     this.heading,
-    int? typeCode,
-    this.angleTol = '0',
-  }) : typeCode = typeCode ?? CameraRules.defaultTypeFor(kind);
+  });
 
   /// tools/edog_convert.py 輸出的格式：
-  /// Latitude(0), Longitude(1), Heading(2), Limit(3), Kind(4), RoadType(5), ZoneLengthM(6),
-  /// Code(7), AngleTol(8)。後兩欄是後來加的，舊檔沒有時依 kind 補預設。
+  /// Latitude(0), Longitude(1), Heading(2), Limit(3), Kind(4), RoadType(5), ZoneLengthM(6)
   factory SpeedCamera.fromEdogCsv(List<dynamic> row) {
     final kind = switch (row[4].toString()) {
       'redlight' => CameraKind.redLight,
@@ -67,8 +59,6 @@ class SpeedCamera {
       direct: '',
       kind: kind,
       roadType: roadType,
-      typeCode: row.length > 7 ? CameraRules.typeOf(row[7].toString()) : null,
-      angleTol: row.length > 8 && row[8].toString().isNotEmpty ? row[8].toString() : '0',
     );
   }
 
@@ -125,20 +115,13 @@ class CameraService {
   final List<Position> _trajectory = [];
   static const int _maxTrajectorySize = 5;
 
-  /// 搜尋範圍：20～2000 m 的點
-  static const double _searchBoxDeg = 0.02;
-  static const double _maxSearchM = 2000;
-
-  /// 20 m 內視為已經通過
-  static const double _passedM = 20;
-
-  /// 車速到這個值以上才用 GNSS 晶片的航向（都卜勒測得，比軌跡連線穩）；
-  /// 低速時它會亂跳，改用軌跡推算
-  static const double _gnssHeadingMinKmh = 10;
-
-  /// 平面相機離目前道路超過這個距離，就是在別條路上。相機座標與道路線形的誤差
-  /// 加上路寬約 10～20 m；平行道路多半相隔 40 m 以上（中位 97 m）。
-  static const double _offRoadM = 30;
+  // 搜尋半徑依道路類型動態調整：
+  //   省道/市區：1.0km（50 km/h → 72 秒預警）
+  //   快速道路/國道：2.0km（100 km/h → 72 秒預警）
+  static const double _radiusNormal = 1.0;
+  static const double _radiusHighSpeed = 2.0;
+  // 闖紅燈照相與車速無關，只在接近路口時提示；半徑太大會蓋掉後方的測速照相
+  static const double _radiusRedLight = 0.3;
 
   /// 相機圖資（tools/edog_convert.py 產生，不進 git）。沒有時退回政府資料。
   static const String _edogAsset = 'assets/private/edog_cameras.csv';
@@ -149,14 +132,6 @@ class CameraService {
   /// 沿用它才不會讓方向過濾失效——否則下閘道停紅燈時，身後高架上的
   /// 相機會重新被當成「前方」。
   double? _lastHeading;
-
-  /// 上一個定位點的航向，用來判斷是否正在轉彎（航向變化 ≥15° 時錐角收窄）
-  double? _prevFixHeading;
-
-  /// 正在提示的相機與它上次的距離：提示中的相機錐角放寬，GPS 晃一下不會斷掉
-  String? _alertKey;
-  double _alertLastM = 0;
-  Map<String, dynamic>? _lastResult;
 
   /// 在國道／快速道路上時，速限比所在道路低這麼多的相機視為高架下的平面道路
   static const int _underpassLimitGap = 20;
@@ -208,9 +183,6 @@ class CameraService {
     _cameras = cameras;
     _trajectory.clear();
     _lastHeading = null;
-    _prevFixHeading = null;
-    _alertKey = null;
-    _lastResult = null;
     _isInitialized = true;
   }
 
@@ -221,226 +193,155 @@ class CameraService {
     }
   }
 
-  /// 偵測需要提示的測速照相，沒有就回傳 null。
-  ///
-  /// 核心判斷（規則在 [CameraRules]）：
-  ///   1. 20 m < 距離 < 2 km
-  ///   2. 相機在前方錐內：|方位(車→相機) − 航向| ≤ 20°（轉彎時 10°；圖資第 12 欄
-  ///      可放寬到 30～90°；正在提示的那支再放寬 20°）
-  ///   3. 相機受測方向與「車→相機方位」相差 ≤ 20°（第 12 欄可放寬到 45°）
-  ///   4. 取最近一支，距離在該類型的提示距離內才提示（[CameraRules.alertDistanceM]；
-  ///      國道／快速道路的固定測速例外，保留 1 km）
-  /// 航向優先用 GNSS 晶片給的 `Position.heading`（≥10 km/h），低速時用軌跡推算。
-  ///
-  /// 以下是依道路追蹤多加的關卡，只會排掉「追蹤器確認在別條路上」的相機：
-  ///
-  /// [currentRoadType] 有把握在國道／快速道路上時不看平面相機。國道與快速道路不分：
-  /// 轉檔依地標距離分類，快速道路靠近國道交流道的相機常被算成國道（台72/74/88），
-  /// 只看同類會漏掉它們（模擬：國道類相機漏 8%）。
+  /// 偵測附近測速照相
+  /// [currentRoadType] 用於過濾同道路類型的相機
+  /// 並動態調整搜尋半徑（國道/快速道路 2km，其他 1km）
   ///
   /// [surfaceConfirmed] 為 true 代表道路追蹤有把握目前在平面道路上，
   /// 此時排除國道/快速道路的相機——行駛在高架正下方時，上方高架的相機
-  /// 水平距離很近、方向也相同，錐角分不開。
+  /// 水平距離很近，不排除就會誤報。
   ///
   /// [roadLimit] 是有把握在國道／快速道路上、且速限來自實測（OSM 標註）時
   /// 的所在道路速限。速限低了 [_underpassLimitGap] 以上的相機必定屬於別條路
-  /// ——典型是西濱高架（90）正下方的平面道路（70）。速限是推定值時不套用。
-  ///
-  /// [distanceToCurrentRoadM] 回傳某個位置離「目前所在道路」多遠（公尺），
-  /// 無法判斷時回傳 null。有提供時，平面相機離目前道路超過 [_offRoadM] 就不提示。
-  /// 模擬（全台平面相機抽樣）：20° 錐角單獨擋掉平行道路誤報約 8 成，
-  /// 加上這道再從剩下的 21% 降到約 1%，提示距離與漏報不變。
+  /// ——典型是西濱高架（90）正下方的平面道路（70）：兩者距離不到 30m、
+  /// 方向相同，位置與方向都分不開，而圖資的路型分類也常把這種相機算成
+  /// 快速道路。速限是推定值時不套用，推錯會漏報真正的相機。
   Map<String, dynamic>? checkNearbyCamera({
     RoadType currentRoadType = RoadType.none,
     bool surfaceConfirmed = false,
     int? roadLimit,
     double? Function(double lat, double lon)? distanceToCurrentRoadM,
   }) {
-    if (_trajectory.isEmpty) return null;
+    if (_trajectory.length < 2) return null;
+
     final first = _trajectory.first;
     final last = _trajectory.last;
-    final double speedKmh = max(0.0, last.speed * 3.6);
-    final double moveM = CameraAlgorithm.haversine(
-            first.latitude, first.longitude, last.latitude, last.longitude) *
-        1000;
 
-    // 航向：GNSS 晶片的都卜勒航向 > 軌跡連線 > 沿用上一次
-    final bool stationary = moveM < 5 && speedKmh < _gnssHeadingMinKmh;
-    if (speedKmh >= _gnssHeadingMinKmh && last.heading >= 0) {
-      _lastHeading = last.heading % 360;
-    } else if (moveM >= 5) {
+    final double moveDist = CameraAlgorithm.haversine(
+      first.latitude, first.longitude, last.latitude, last.longitude
+    );
+
+    // Threshold 5m to avoid drift noise；算不出來就沿用上一次的方向
+    if (moveDist >= 0.005) {
       _lastHeading = CameraAlgorithm.calculateBearing(
-          first.latitude, first.longitude, last.latitude, last.longitude);
+        first.latitude, first.longitude, last.latitude, last.longitude
+      );
     }
     final double? userHeading = _lastHeading;
-    if (userHeading == null) return null;
 
-    // 停住不動：不更新，提示狀態維持原樣（停紅燈時不會忽亮忽滅）
-    if (stationary && _lastResult != null) return _lastResult;
+    SpeedCamera? nearestCam;
+    final double searchRadiusKm = (currentRoadType != RoadType.none)
+        ? _radiusHighSpeed
+        : _radiusNormal;
+    double minOverallDist = searchRadiusKm;
+    double? finalAngleDiff;
 
-    final bool turning = _prevFixHeading != null &&
-        CameraAlgorithm.angleDiff(userHeading, _prevFixHeading!) >= 15;
-    _prevFixHeading = userHeading;
+    // 邊界框預篩：半徑 / 111km per degree，國道/快速道路加倍
+    final double bboxDeg = searchRadiusKm / 111.0;
+    final refLat = last.latitude;
+    final refLon = last.longitude;
 
-    SpeedCamera? nearest;
-    double nearestM = double.infinity;
-    double? nearestOff;
-    for (final cam in _cameras) {
-      if ((cam.latitude - last.latitude).abs() > _searchBoxDeg ||
-          (cam.longitude - last.longitude).abs() > _searchBoxDeg) { continue; }
-      final double d = CameraAlgorithm.haversine(
-              last.latitude, last.longitude, cam.latitude, cam.longitude) *
-          1000;
-      if (d <= _passedM || d >= _maxSearchM || d >= nearestM) continue;
-
-      // 我們加的道路關卡（確認在高速路系統就排除平面相機；確認在平面排除高速路相機）
-      if (currentRoadType != RoadType.none && cam.roadType == RoadType.none) continue;
+    for (var cam in _cameras) {
+      // 非對稱過濾策略：
+      //   確認在高速路（highway/expressway）→ 只掃同類，排除平面誤報
+      //   路型為 none（含剛上匝道的切換過渡期）→ 全掃，避免入口處漏報
+      //   確認在平面道路 → 排除高速路相機
+      if (currentRoadType != RoadType.none && cam.roadType != currentRoadType) continue;
       if (surfaceConfirmed && cam.roadType != RoadType.none) continue;
       if (roadLimit != null && cam.limit != null &&
           cam.limit! <= roadLimit - _underpassLimitGap) { continue; }
 
-      // 前方錐
-      final double bearing = CameraAlgorithm.calculateBearing(
-          last.latitude, last.longitude, cam.latitude, cam.longitude);
-      final double off = CameraAlgorithm.angleDiff(bearing, userHeading);
-      final String key = '${cam.latitude}_${cam.longitude}';
-      double cone = CameraRules.coneDeg(cam.angleTol, turning: turning);
-      if (key == _alertKey) cone += _alertLastM < 20 ? 35 : 20;
-      if (off > cone) continue;
+      if ((cam.latitude - refLat).abs() > bboxDeg ||
+          (cam.longitude - refLon).abs() > bboxDeg) { continue; }
 
-      // 受測方向：有方位角的圖資比對「車→相機方位」；政府資料只有文字方向，比對航向
-      if (cam.heading != null) {
-        if (CameraAlgorithm.angleDiff(cam.heading!, bearing) >
-            CameraRules.headingTolDeg(cam.angleTol)) { continue; }
-      } else if (CameraAlgorithm.matchDirection(cam.direct, userHeading) == false) {
-        continue;
+      // 1. Calculate min distance in whole trajectory (in case we just passed it)
+      double minTrajectoryDist = double.infinity;
+      for (var p in _trajectory) {
+        double d = CameraAlgorithm.haversine(p.latitude, p.longitude, cam.latitude, cam.longitude);
+        if (d < minTrajectoryDist) minTrajectoryDist = d;
       }
 
-      // 平行道路：相機不在目前這條路上就不提示
+      if (minTrajectoryDist > minOverallDist) continue;
+      if (cam.kind == CameraKind.redLight && minTrajectoryDist > _radiusRedLight) continue;
+
+      // 2. Angle and Direction checks if we have movement
+      bool passCheck = true;
+      double? currentAngleDiff;
+
+      if (userHeading != null) {
+        final bearingToCam = CameraAlgorithm.calculateBearing(
+          last.latitude, last.longitude, cam.latitude, cam.longitude
+        );
+
+        currentAngleDiff = (bearingToCam - userHeading).abs();
+        if (currentAngleDiff > 180) currentAngleDiff = 360 - currentAngleDiff;
+
+        // 已通過判斷：照相機在身後（>90°）且距最新位置 <150m → 視為剛通過，直接略過
+        final distFromLast = CameraAlgorithm.haversine(
+          last.latitude, last.longitude, cam.latitude, cam.longitude
+        );
+        if (currentAngleDiff > 90 && distFromLast < 0.15) continue;
+
+        // 幾何過濾：照相機必須在行進方向前方 80° 以內
+        if (currentAngleDiff > 80) {
+          passCheck = false;
+        }
+
+        // 語意過濾：照相機 direct 欄位與行進方向不符則排除
+        if (passCheck) {
+          final dirMatch = cam.heading != null
+              ? CameraAlgorithm.matchHeading(cam.heading!, userHeading)
+              : CameraAlgorithm.matchDirection(cam.direct, userHeading);
+          if (dirMatch == false) passCheck = false;
+        }
+      }
+
+      if (!passCheck) continue;
       if (cam.roadType == RoadType.none && distanceToCurrentRoadM != null) {
-        final dr = distanceToCurrentRoadM(cam.latitude, cam.longitude);
-        if (dr != null && dr > _offRoadM) continue;
+        final d = distanceToCurrentRoadM(cam.latitude, cam.longitude);
+        if (d != null && d > 30) continue;
       }
 
-      nearest = cam;
-      nearestM = d;
-      nearestOff = off;
+      if (minTrajectoryDist < minOverallDist) {
+        minOverallDist = minTrajectoryDist;
+        nearestCam = cam;
+        finalAngleDiff = currentAngleDiff;
+      }
     }
 
-    // 取最近一支，再看它是否進入該類型的提示距離
-    final double? alertM =
-        nearest == null
-            ? null
-            : CameraRules.alertDistanceM(nearest.typeCode, speedKmh,
-                fastRoad: nearest.roadType != RoadType.none);
-    if (nearest == null || alertM == null || nearestM > alertM) {
-      _alertKey = null;
-      _lastResult = null;
-      return null;
-    }
-    _alertKey = '${nearest.latitude}_${nearest.longitude}';
-    _alertLastM = nearestM;
-
-    final String label = switch (nearest.kind) {
-      CameraKind.redLight => '前有闖紅燈照相',
-      CameraKind.zoneStart => '進入區間測速路段',
-      CameraKind.zoneEnd => '區間測速終點',
-      CameraKind.overpass => '注意天橋偷拍',
-      CameraKind.speed => '前有測速照相',
-    };
-    final String msg = [
-      label,
-      if (nearest.limit != null) '速限 ${nearest.limit}',
-      if (nearest.direct.isNotEmpty) nearest.direct,
-    ].join('，');
-
-    return _lastResult = {
-      "name": nearest.address,
-      "address": nearest.address,
-      "limit": nearest.limit,
-      "dist_m": nearestM.round(),
-      "alert_m": alertM.round(),
-      "lat": nearest.latitude,
-      "lon": nearest.longitude,
-      "direct": nearest.direct,
-      "is_zone": nearest.isZone,
-      "heading": nearest.heading,
-      "road_type": nearest.roadType.name,
-      "kind": nearest.kind.name,
-      "message": msg,
-      "debug_heading": userHeading,
-      "debug_angle": nearestOff,
-    };
-  }
-}
-
-/// 相機提示規則。類型碼是圖資第 3 碼；兩字元以 16 進位解（A3 → 0xA3），單字元 = 字元 − '0'
-/// （1 → 1、E → 0x15、G → 0x17）。
-class CameraRules {
-  static int typeOf(String code) {
-    final c = code.trim().toUpperCase();
-    int hex(int ch) => (ch >= 0x41 && ch <= 0x46) ? ch - 0x37 : ch - 0x30;
-    if (c.length == 2) {
-      final lo = hex(c.codeUnitAt(1));
-      return (hex(c.codeUnitAt(0)) * 16 + (lo >= 0 && lo <= 15 ? lo : 0)) & 0xff;
-    }
-    if (c.length == 1) return (c.codeUnitAt(0) - 0x30) & 0xff;
-    return 0;
-  }
-
-  /// 政府資料沒有類型碼，依種類補上對應的類型
-  static int defaultTypeFor(CameraKind kind) => switch (kind) {
-        CameraKind.speed => 0x01,
-        CameraKind.redLight => 0xA4,
-        CameraKind.zoneStart => 0x06,
-        CameraKind.zoneEnd => 0x07,
-        CameraKind.overpass => 0xA3,
+    if (nearestCam != null) {
+      final String label = switch (nearestCam.kind) {
+        CameraKind.redLight => '前有闖紅燈照相',
+        CameraKind.zoneStart => '進入區間測速路段',
+        CameraKind.zoneEnd => '區間測速終點',
+        CameraKind.overpass => '注意天橋偷拍',
+        CameraKind.speed => '前有測速照相',
       };
+      final String msg = [
+        label,
+        if (nearestCam.limit != null) '速限 ${nearestCam.limit}',
+        if (nearestCam.direct.isNotEmpty) nearestCam.direct,
+      ].join('，');
 
-  /// 車速分段型（固定測速、闖紅燈、科技執法…）：<70 km/h 300 m，否則 500 m
-  static const Set<int> _speedScaled = {
-    0x01, 0x09, 0x12, 0x13, 0x14, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1D, 0x1E, 0x21, 0x23, 0x24,
-    0xA2, 0xA3, 0xA4, 0xA5, 0xA7, 0xA8, 0xA9, 0xAC, 0xAD, 0xAE, 0xAF,
-    0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB9,
-    0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xCA, 0xCB, 0xCC, 0xCD,
-  };
-
-  /// 區間測速起點：330 m
-  static const Set<int> _zoneStart = {0x06, 0x15, 0x22, 0x6A, 0x6B, 0x6C, 0xE1};
-
-  /// 國道／快速道路固定測速的提示距離：1 km（100 km/h 約 35 秒；500 m 只剩 18 秒）
-  static const double fastRoadAlertM = 1000;
-
-  /// 提示距離（公尺，直線距離）；null = 這一類不提示。
-  /// [fastRoad]：相機在國道／快速道路上時，車速分段型改用 [fastRoadAlertM]。
-  static double? alertDistanceM(int type, double speedKmh, {bool fastRoad = false}) {
-    // 0：0/0/0 固定點對得到政府資料，照固定測速處理
-    if (type == 0x00 || _speedScaled.contains(type)) {
-      if (fastRoad) return fastRoadAlertM;
-      return speedKmh < 70 ? 300 : 500;
+      return {
+        "name": nearestCam.address,
+        "address": nearestCam.address,
+        "limit": nearestCam.limit,
+        "dist_m": (minOverallDist * 1000).round(),
+        "lat": nearestCam.latitude,
+        "lon": nearestCam.longitude,
+        "direct": nearestCam.direct,
+        "is_zone": nearestCam.isZone,
+        "heading": nearestCam.heading,
+        "road_type": nearestCam.roadType.name,
+        "kind": nearestCam.kind.name,
+        "message": msg,
+        "debug_heading": userHeading,
+        "debug_angle": finalAngleDiff,
+      };
     }
-    if (_zoneStart.contains(type)) return 330;
-    return switch (type) {
-      0x07 => 40, // 區間終點
-      0x7A => 60, // 區間相關（7A）
-      0x6D => 170,
-      0xA6 => speedKmh > 70 ? null : 300,
-      _ => 120, // 其他（含 F 區間終點）
-    };
-  }
 
-  /// 前方錐半角：第 12 欄 '1'..'7' → 30..90°；否則直行 20°、轉彎 10°
-  static double coneDeg(String tol, {required bool turning}) {
-    final n = int.tryParse(tol) ?? 0;
-    if (n >= 1 && n <= 7) return 20.0 + 10 * n;
-    return turning ? 10 : 20;
-  }
-
-  /// 受測方向容許角：第 12 欄 '2'..'7' → 20..45°，否則 20°
-  static double headingTolDeg(String tol) {
-    final n = int.tryParse(tol) ?? 0;
-    if (n >= 2 && n <= 7) return 10.0 + 5 * n;
-    return 20;
+    return null;
   }
 }
 
@@ -469,12 +370,6 @@ class CameraAlgorithm {
 
     final bearingRad = atan2(x, y);
     return (bearingRad * 180 / pi + 360) % 360;
-  }
-
-  /// 兩個方位角的夾角（0～180）
-  static double angleDiff(double a, double b) {
-    final d = (a - b).abs() % 360;
-    return d > 180 ? 360 - d : d;
   }
 
   static String bearingToDirection(double bearing) {

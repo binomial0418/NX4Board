@@ -91,4 +91,29 @@ void main() {
       }
     }
   });
+
+  // 實際誤報：中央路一段往北，被西邊港埠路一段的限速 60 相機觸發（相距約 150 m）
+  test('相機到目前道路的距離分得出平行道路', () async {
+    final tiles = OsmTileService();
+    await tiles.initFromFile('assets/speed_tiles.bin');
+    const userLat = 24.245637667473503, userLon = 120.53764866495439;
+    const camLat = 24.24927, camLon = 120.53611; // 港埠路一段的 OSM 節點
+    for (final d in [-0.02, 0.0, 0.02]) {
+      for (final e in [-0.02, 0.0, 0.02]) {
+        await tiles.tileAt(camLat + d, camLon + e);
+      }
+    }
+    final roads = tiles.cachedRoadsAround(camLat, camLon);
+
+    final user = RoadMatcher.rank(roads, userLat, userLon, null).first.road;
+    expect(user.name, startsWith('中央路'));
+    expect(RoadMatcher.distanceToRoute(
+            roads, RoadMatcher.straightContinuations(roads, user.routeKey!), camLat, camLon),
+        greaterThan(30));
+
+    final own = RoadMatcher.rank(roads, camLat, camLon, null).first.road;
+    expect(own.name, startsWith('港埠路'));
+    expect(RoadMatcher.distanceToRoute(roads, {own.routeKey!}, camLat, camLon),
+        lessThan(10));
+  });
 }
