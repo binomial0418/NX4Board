@@ -56,6 +56,8 @@ typedef struct {
   int tire_rr;
   bool camera_active;  // 前方有測速照相
   int camera_limit;    // 該測速照相的速限 km/h
+  // 重疊道路沒把握時相機所在層：level_upper / level_lower / lane_upper / lane_lower，空字串為無
+  char camera_layer[16];
   nx4_cam_kind_t camera_kind;  // 相機類型
   int camera_passed;   // 通過相機累計次數（-1 = App 沒送），變大時念「通過」
   bool low_beam;       // 近燈（大燈）開啟

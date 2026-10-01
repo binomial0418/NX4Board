@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../models/osm_road.dart';
+import 'road_matcher.dart';
 import 'speed_limit_service.dart';
 
 /// 頭頂天空的狀態（由衛星訊號判斷，見 SkyService）。
@@ -16,6 +17,19 @@ enum SkyView {
 
   /// 頭頂開闊
   open,
+}
+
+/// 高架重疊：目前位置附近同時有高架（OSM bridge 或 layer > 0）與同向的地面道路，
+/// 不論是否屬於快速道路系統（台61／港埠路、陸橋與底下的側車道都算）。
+class LevelOverlap {
+  /// 在高架那一層的機率（兩層候選的後驗機率各自加總後正規化）
+  final double elevatedProbability;
+
+  /// 兩層各自最可能的道路
+  final TrackedRoad elevated;
+  final TrackedRoad ground;
+
+  const LevelOverlap(this.elevatedProbability, this.elevated, this.ground);
 }
 
 /// 追蹤結果
@@ -348,6 +362,40 @@ class RoadTracker {
     final best = obs[bestId]!;
     if (best.distance > maxDistanceM) return null;
     return TrackedRoad(best.road, bestP, best.distance);
+  }
+
+  /// 目前位置的高架重疊狀態；附近只有單一層時為 null。
+  ///
+  /// 兩層都要有候選在 [overlapM] 內，而且走向相近（≤ 30°，雙向等價）：
+  /// 從高架正下方橫越的路口只是一瞬間的交叉，不算重疊。
+  LevelOverlap? levelOverlap(double lat, double lon) {
+    String? bestE, bestG;
+    double pE = 0, pG = 0, maxE = -1, maxG = -1;
+    final bearings = <String, double>{};
+    _lastObs.forEach((id, o) {
+      if (o.distance > overlapM) return;
+      final p = _belief[id] ?? 0;
+      if (isElevated(o.road)) {
+        pE += p;
+        if (p > maxE) { maxE = p; bestE = id; }
+      } else {
+        pG += p;
+        if (p > maxG) { maxG = p; bestG = id; }
+      }
+    });
+    if (bestE == null || bestG == null) return null;
+    for (final id in [bestE!, bestG!]) {
+      final n = RoadMatcher.nearestOnRoad(_lastObs[id]!.road, lat, lon);
+      if (n == null) return null;
+      bearings[id] = n.bearing;
+    }
+    var diff = (bearings[bestE]! - bearings[bestG]!).abs() % 180;
+    if (diff > 90) diff = 180 - diff;
+    if (diff > 30) return null;
+    final total = pE + pG;
+    final e = _lastObs[bestE]!, g = _lastObs[bestG]!;
+    return LevelOverlap(total > 0 ? pE / total : 0.5, TrackedRoad(e.road, maxE, e.distance),
+        TrackedRoad(g.road, maxG, g.distance));
   }
 
   /// 最近一次 [update] 實際套用的天空證據（不在重疊路段時為 unknown），供紀錄與除錯

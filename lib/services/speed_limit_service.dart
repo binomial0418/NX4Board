@@ -37,6 +37,37 @@ enum LimitSource {
 /// 「另一可能的速限」是哪一種：高架與正下方平面道路，或同一條路的快慢車道
 enum AlternativeKind { level, lane }
 
+/// 目前位置的道路重疊狀態（單一道路時 [SpeedLimitService.overlap] 為 null）。
+///
+/// 「上層」在高架重疊是高架、在快慢車道是快車道；「下層」是地面道路／慢車道。
+class RoadOverlap {
+  final AlternativeKind kind;
+  final OsmRoad upperRoad, lowerRoad;
+  final int? upperLimit, lowerLimit;
+
+  /// 在上層的機率；快慢車道為 null——兩條線只差約 10 m，GPS 分不出來
+  final double? upperProbability;
+
+  const RoadOverlap(this.kind, this.upperRoad, this.lowerRoad, this.upperLimit,
+      this.lowerLimit, this.upperProbability);
+
+  /// 有把握在哪一層（≥ 90%）
+  bool get resolved =>
+      upperProbability != null && (upperProbability! >= 0.9 || upperProbability! <= 0.1);
+
+  /// 有把握時是否在上層；沒把握為 null
+  bool? get onUpper => resolved ? upperProbability! >= 0.5 : null;
+
+  /// 傾向（≥ [SpeedLimitService.leanThreshold]）哪一層；分不出為 null
+  bool? get leanUpper {
+    final p = upperProbability;
+    if (p == null) return null;
+    if (p >= SpeedLimitService.leanThreshold) return true;
+    if (p <= 1 - SpeedLimitService.leanThreshold) return false;
+    return null;
+  }
+}
+
 class SpeedLimitService {
   static final SpeedLimitService _instance = SpeedLimitService._internal();
   factory SpeedLimitService() => _instance;
@@ -125,6 +156,13 @@ class SpeedLimitService {
   AlternativeKind? _alternativeKind;
   AlternativeKind? get alternativeKind => _alternativeKind;
 
+  /// 目前位置的道路重疊狀態；單一道路為 null。測速照相依它決定提示方式。
+  RoadOverlap? _overlap;
+  RoadOverlap? get overlap => _overlap;
+
+  /// 高架重疊時，追蹤器傾向的是不是目前主速限那一層（雙速限紅線用）
+  bool _levelLean = false;
+
   /// 快慢車道：兩條 OSM 中心線相距在此以內才算（全台同名、同向、不同速限的平行路段
   /// 共 319 對，中心線間距 p25 10.2 m、中位 18.4 m；緊鄰、只隔分隔島的快慢車道
   /// 約 8~12 m，再寬的多半是隔綠帶的側車道，GPS 分得開，照最近那條即可）
@@ -138,6 +176,7 @@ class SpeedLimitService {
   bool get alternativeLean {
     // 快慢車道相距約 10 m，比 GPS 誤差還小，不標傾向
     if (_alternativeLimit == null || _alternativeKind != AlternativeKind.level) return false;
+    if (_overlap != null) return _levelLean;
     final p = _tracker.fastSystemProbability;
     return (_tracker.onFastSystem ? p : 1 - p) >= leanThreshold;
   }
@@ -240,6 +279,13 @@ class SpeedLimitService {
         _matchDistanceM = tracked.distance;
         _updateSystemState(tracked.road, lat, lng);
         final limit = _resolveLimit(tracked.road, lat, lng);
+        _overlap = null;
+        _levelLean = false;
+        final level = _tracker.levelOverlap(lat, lng);
+        if (level != null) {
+          _applyLevelOverlap(tracked.road, level, lat, lng);
+          return limit;
+        }
         if (_alternativeLimit != null || limit == null) return limit;
         return _checkLanePair(tracked.road, limit, lat, lng, tiles.cachedRoadsAround(lat, lng));
       }
@@ -284,6 +330,35 @@ class SpeedLimitService {
     _alternativeKind = AlternativeKind.level;
   }
 
+  /// 高架重疊（[RoadTracker.levelOverlap]）：記下重疊狀態；沒把握且兩層速限不同時，
+  /// 另一層的速限當作另一可能（取代只看「快速道路系統 vs 一般道路」的舊判斷，
+  /// 陸橋與 OSM 標成一般道路的快速道路段也涵蓋）。
+  void _applyLevelOverlap(OsmRoad road, LevelOverlap level, double lat, double lng) {
+    final upperLimit = _limitFor(level.elevated.road, lat, lng).$1;
+    final lowerLimit = _limitFor(level.ground.road, lat, lng).$1;
+    final ov = RoadOverlap(AlternativeKind.level, level.elevated.road, level.ground.road,
+        upperLimit, lowerLimit, level.elevatedProbability);
+    _overlap = ov;
+    final onUpperRoad = RoadTracker.isElevated(road);
+    if (ov.resolved) {
+      // 有把握：只留目前這一層
+      if (_alternativeKind == AlternativeKind.level) {
+        _alternativeRoad = null;
+        _alternativeLimit = null;
+        _alternativeKind = null;
+      }
+      return;
+    }
+    final otherRoad = onUpperRoad ? level.ground.road : level.elevated.road;
+    final otherLimit = onUpperRoad ? lowerLimit : upperLimit;
+    final ownLimit = onUpperRoad ? upperLimit : lowerLimit;
+    if (otherLimit == null || ownLimit == null || otherLimit == ownLimit) return;
+    _alternativeRoad = otherRoad;
+    _alternativeLimit = otherLimit;
+    _alternativeKind = AlternativeKind.level;
+    _levelLean = ov.leanUpper == onUpperRoad;
+  }
+
   /// 快慢車道：同一條路被 OSM 畫成兩條同向的平行線、各標不同速限（臺灣大道八段
   /// 快車道 70、慢車道 40，相距約 10 m）。追蹤器以「編號＋路名＋等級」認路，兩條是
   /// 同一條路，只會依當下離哪條線近在兩個速限間跳。偵測到時主速限固定用較高的那個
@@ -314,6 +389,8 @@ class SpeedLimitService {
       final hi = own > otherLimit ? own : otherLimit;
       _alternativeLimit = own > otherLimit ? otherLimit : own;
       _alternativeKind = AlternativeKind.lane;
+      _overlap = RoadOverlap(AlternativeKind.lane, own > otherLimit ? road : other,
+          own > otherLimit ? other : road, hi, _alternativeLimit, null);
       _currentLimit = hi;
       return hi;
     }
@@ -321,6 +398,8 @@ class SpeedLimitService {
   }
 
   void _clearSystemState() {
+    _overlap = null;
+    _levelLean = false;
     _levelUncertain = false;
     _trackedRoadType = null;
     _surfaceConfirmed = false;

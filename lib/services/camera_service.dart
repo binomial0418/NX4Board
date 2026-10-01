@@ -246,6 +246,8 @@ class CameraService {
   /// 的所在道路速限。速限低了 [_underpassLimitGap] 以上的相機必定屬於別條路
   /// ——典型是西濱高架（90）正下方的平面道路（70）。速限是推定值時不套用。
   ///
+  /// [skipCamera] 由呼叫端額外排除相機（重疊道路有把握在哪一層時排除另一層）。
+  ///
   /// [distanceToCurrentRoadM] 回傳某個位置離「目前所在道路」多遠（公尺），
   /// 無法判斷時回傳 null。有提供時，平面相機離目前道路超過 [_offRoadM] 就不提示。
   /// 模擬（全台平面相機抽樣）：20° 錐角單獨擋掉平行道路誤報約 8 成，
@@ -255,6 +257,7 @@ class CameraService {
     bool surfaceConfirmed = false,
     int? roadLimit,
     double? Function(double lat, double lon)? distanceToCurrentRoadM,
+    bool Function(SpeedCamera cam)? skipCamera,
   }) {
     if (_trajectory.isEmpty) return null;
     final first = _trajectory.first;
@@ -321,6 +324,10 @@ class CameraService {
         final dr = distanceToCurrentRoadM(cam.latitude, cam.longitude);
         if (dr != null && dr > _offRoadM) continue;
       }
+
+      // 呼叫端的額外排除（重疊道路有把握在哪一層時，排除另一層的相機）。
+      // 要在挑最近一支之前做，否則另一層較近的相機會擋掉本層前方的相機
+      if (skipCamera != null && skipCamera(cam)) continue;
 
       nearest = cam;
       nearestM = d;

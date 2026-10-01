@@ -778,6 +778,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _isEsp32Connected = false);
   }
 
+  static String _cameraLayerTag(Map<String, dynamic>? camInfo) {
+    final String? label = camInfo?['layer_label'];
+    return switch (label) {
+      '高架上' => 'level_upper',
+      '高架下' => 'level_lower',
+      '快車道' => 'lane_upper',
+      '慢車道' => 'lane_lower',
+      _ => '',
+    };
+  }
+
   /// 星期中文字（ESP32 端字型僅收錄「週一二三四五六日」）
   static String _weekdayZh(DateTime t) {
     const names = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
@@ -845,6 +856,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         "kind": camInfo?['kind'] ?? 'speed',
         // 通過相機的累計次數，數字變大時板子念「通過」
         "passed": provider.cameraPassedCount,
+        // 重疊道路沒把握時相機所在層：level_upper / level_lower / lane_upper / lane_lower，
+        // 板子據此在語音前加「高架上／高架下／快車道／慢車道」；空字串＝單一道路或分不出
+        "layer": _cameraLayerTag(camInfo),
       },
       "lights": {
         "low": provider.isLowBeamOn,
