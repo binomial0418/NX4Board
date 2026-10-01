@@ -4,6 +4,8 @@ import '../models/osm_road.dart';
 import '../models/speed_sign.dart';
 import 'csv_parser.dart';
 import 'osm_tile_service.dart';
+import 'camera_service.dart' show CameraAlgorithm;
+import 'road_matcher.dart';
 import 'road_tracker.dart';
 import 'road_type_service.dart' show RoadType;
 
@@ -32,6 +34,9 @@ enum LimitSource {
 ///   3. 該路是省道（有 ref）→ 找同一條省道上的公路局牌面
 ///   4. 否則依道路分級推定
 ///   5. 圖資未載入或不在任何道路上 → 退回舊有的路型判定
+/// 「另一可能的速限」是哪一種：高架與正下方平面道路，或同一條路的快慢車道
+enum AlternativeKind { level, lane }
+
 class SpeedLimitService {
   static final SpeedLimitService _instance = SpeedLimitService._internal();
   factory SpeedLimitService() => _instance;
@@ -115,6 +120,29 @@ class SpeedLimitService {
   int? _alternativeLimit;
   OsmRoad? get alternativeRoad => _alternativeRoad;
   int? get alternativeLimit => _alternativeLimit;
+
+  /// [alternativeLimit] 的來源：高架上下（[alternativeRoad] 有值）或快慢車道
+  AlternativeKind? _alternativeKind;
+  AlternativeKind? get alternativeKind => _alternativeKind;
+
+  /// 快慢車道：兩條 OSM 中心線相距在此以內才算（全台同名、同向、不同速限的平行路段
+  /// 共 319 對，中心線間距 p25 10.2 m、中位 18.4 m；緊鄰、只隔分隔島的快慢車道
+  /// 約 8~12 m，再寬的多半是隔綠帶的側車道，GPS 分得開，照最近那條即可）
+  static const double laneMaxSeparationM = 15;
+
+  /// 快慢車道：車子離兩條中心線都在此以內
+  static const double laneMaxDistanceM = 20;
+
+  /// 有另一可能的速限時，追蹤器是否仍傾向目前這一條：主要判斷所屬系統（高架或平面）
+  /// 的機率 ≥ [leanThreshold]。面板雙速限時在它下方畫紅線。
+  bool get alternativeLean {
+    // 快慢車道相距約 10 m，比 GPS 誤差還小，不標傾向
+    if (_alternativeLimit == null || _alternativeKind != AlternativeKind.level) return false;
+    final p = _tracker.fastSystemProbability;
+    return (_tracker.onFastSystem ? p : 1 - p) >= leanThreshold;
+  }
+
+  static const double leanThreshold = 0.7;
   String get alternativeRoadName => _alternativeRoad?.displayName ?? '';
 
   /// 高架與平面的判定是否不確定，且兩者速限不同（此時 [alternativeRoad] 有值）
@@ -206,7 +234,9 @@ class SpeedLimitService {
         _currentRoad = tracked.road;
         _matchDistanceM = tracked.distance;
         _updateSystemState(tracked.road, lat, lng);
-        return _resolveLimit(tracked.road, lat, lng);
+        final limit = _resolveLimit(tracked.road, lat, lng);
+        if (_alternativeLimit != null || limit == null) return limit;
+        return _checkLanePair(tracked.road, limit, lat, lng, tiles.cachedRoadsAround(lat, lng));
       }
 
       // tile 已載入但不在任何道路 40 公尺內
@@ -227,6 +257,7 @@ class SpeedLimitService {
   void _updateSystemState(OsmRoad road, double lat, double lng) {
     _alternativeRoad = null;
     _alternativeLimit = null;
+    _alternativeKind = null;
 
     _levelUncertain = !_tracker.isSystemConfident;
     if (!_levelUncertain) {
@@ -245,6 +276,43 @@ class SpeedLimitService {
     if (altLimit == null || altLimit == _limitFor(road, lat, lng).$1) return;
     _alternativeRoad = alt.road;
     _alternativeLimit = altLimit;
+    _alternativeKind = AlternativeKind.level;
+  }
+
+  /// 快慢車道：同一條路被 OSM 畫成兩條同向的平行線、各標不同速限（臺灣大道八段
+  /// 快車道 70、慢車道 40，相距約 10 m）。追蹤器以「編號＋路名＋等級」認路，兩條是
+  /// 同一條路，只會依當下離哪條線近在兩個速限間跳。偵測到時主速限固定用較高的那個
+  /// （快車道），較低的當作另一可能，面板顯示雙速限。回傳主速限。
+  int _checkLanePair(OsmRoad road, int limit, double lat, double lng, List<OsmRoad> roads) {
+    final name = road.name;
+    final own = parseMaxspeed(road.maxspeed);
+    if (name == null || own == null) return limit;
+    final here = RoadMatcher.nearestOnRoad(road, lat, lng);
+    if (here == null || here.dist > laneMaxDistanceM) return limit;
+    for (final other in roads) {
+      if (identical(other, road) || other.name != name) continue;
+      final otherLimit = parseMaxspeed(other.maxspeed);
+      if (otherLimit == null || otherLimit == own) continue;
+      final o = RoadMatcher.nearestOnRoad(other, lat, lng);
+      if (o == null || o.dist > laneMaxDistanceM) continue;
+      var diff = (o.bearing - here.bearing).abs() % 360;
+      if (diff > 180) diff = 360 - diff;
+      if (diff > 20) continue; // 同向
+      // 兩條中心線在這裡的間距，且另一條要在「側邊」：同一條路速限變化處前後兩段
+      // 頭尾相接、也同名同向不同速限，但它們是一前一後，不是並排
+      final sep = RoadMatcher.nearestOnRoad(other, here.footLat, here.footLon);
+      if (sep == null || sep.dist < 3 || sep.dist > laneMaxSeparationM) continue;
+      final side = CameraAlgorithm.calculateBearing(
+          here.footLat, here.footLon, sep.footLat, sep.footLon);
+      final off = CameraAlgorithm.angleDiff(side, here.bearing);
+      if (off < 60 || off > 120) continue;
+      final hi = own > otherLimit ? own : otherLimit;
+      _alternativeLimit = own > otherLimit ? otherLimit : own;
+      _alternativeKind = AlternativeKind.lane;
+      _currentLimit = hi;
+      return hi;
+    }
+    return limit;
   }
 
   void _clearSystemState() {
@@ -253,6 +321,7 @@ class SpeedLimitService {
     _surfaceConfirmed = false;
     _alternativeRoad = null;
     _alternativeLimit = null;
+    _alternativeKind = null;
   }
 
   /// OSM 道路分級對應到既有的路型：國道系統 → highway，快速道路系統 → expressway

@@ -45,6 +45,8 @@ typedef struct {
   int limit_alt;
   // 另一條路在上面（高架）還是下面，決定箭頭方向
   bool limit_alt_above;
+  // 追蹤器仍傾向 speed_limit 那一條（主要判斷 ≥ 70%），雙速限時在它下方畫紅線
+  bool limit_lean;
   int odo;          // 里程 km
   float turbo;      // 渦輪增壓 Bar，NX4_NO_VALUE_F 表示尚未取得（0.0 是合法讀數）
   int throttle;     // 相對節氣門開度 %（PID 0145），-1 表示尚未取得
