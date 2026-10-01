@@ -3,6 +3,21 @@ import 'dart:math' as math;
 import '../models/osm_road.dart';
 import 'speed_limit_service.dart';
 
+/// 頭頂天空的狀態（由衛星訊號判斷，見 SkyService）。
+///
+/// 高架橋面會擋住頭頂（高仰角）的衛星：開在橋下時它們整批消失，在橋上則一定
+/// 看得到。只在高架與地面道路重疊的地方當證據用，見 [RoadTracker.update]。
+enum SkyView {
+  /// 資料不足或介於中間，不當證據
+  unknown,
+
+  /// 頭頂被擋（連續數秒沒有高仰角強訊號衛星）
+  blocked,
+
+  /// 頭頂開闊
+  open,
+}
+
 /// 追蹤結果
 class TrackedRoad {
   final OsmRoad road;
@@ -122,6 +137,18 @@ class RoadTracker {
   final double flowPenalty;
   final double flowJump;
 
+  /// 頭頂天空證據（[SkyView]）。只在「重疊路段」用：目前位置 [overlapM] 內同時有
+  /// 高架（OSM bridge 或 layer > 0）與地面道路候選。
+  ///   - 頭頂被擋：高架候選的觀測機率乘 [skyPenalty]，並允許以 [skyJump] 從高架
+  ///     轉到不相連的地面道路
+  ///   - 頭頂開闊：只有地面道路真的在橋面下方（離高架中心線 [underM] 內）才算數——
+  ///     高架旁邊的側車道頭頂也是開闊的。成立時地面候選乘 [skyPenalty]，並允許
+  ///     以 [skyJump] 從地面轉上高架
+  final double overlapM;
+  final double underM;
+  final double skyPenalty;
+  final double skyJump;
+
   /// 預設值來自 test/elevated_eval_test.dart 的參數掃描，
   /// 在高架情境與隨機市區路線驗證集之間取平衡。
   RoadTracker({
@@ -142,6 +169,10 @@ class RoadTracker {
     this.flowWindow = 20,
     this.flowPenalty = 0.3,
     this.flowJump = 0.05,
+    this.overlapM = 25,
+    this.underM = 12,
+    this.skyPenalty = 0.2,
+    this.skyJump = 0.05,
   });
 
   /// 系統判定信心度低於此值視為不確定（實測此區間錯誤率 26~43%）
@@ -158,6 +189,14 @@ class RoadTracker {
   static bool _isMainline(String identity) {
     final h = identity.substring(identity.lastIndexOf('|') + 1);
     return h == 'motorway' || h == 'trunk';
+  }
+
+  /// 高架路段：OSM 標了 bridge（非 no）或 layer > 0
+  static bool isElevated(OsmRoad r) {
+    final b = r.bridge;
+    if (b != null && b.isNotEmpty && b != 'no') return true;
+    final layer = int.tryParse(r.layer ?? '');
+    return layer != null && layer > 0;
   }
 
   static bool _isFastSystem(String identity) =>
@@ -196,6 +235,7 @@ class RoadTracker {
   /// [fastFlowKmh] 是目前所在快速路路段的 TDX 即時車流（見 TrafficService.currentFlowKmh），
   /// 沒有資料時為 null，此時行為與原本相同。
   /// [accuracyM] 是手機回報的定位精度，見 [maxSigmaM]；沒有時用 [sigmaM]。
+  /// [sky] 是頭頂天空狀態，見 [skyPenalty]；unknown 時不影響。
   TrackedRoad? update(
     List<OsmRoad> roads,
     double lat,
@@ -204,6 +244,7 @@ class RoadTracker {
     double speedKmh = 0,
     double? fastFlowKmh,
     double? accuracyM,
+    SkyView sky = SkyView.unknown,
   }) {
     final sigma = (accuracyM != null && accuracyM > sigmaM)
         ? math.min(accuracyM, maxSigmaM)
@@ -232,6 +273,9 @@ class RoadTracker {
     }
 
     final topo = _topologyFor(roads);
+    // 天空證據要「該是高架」與「該是地面」的候選各自是誰
+    final (skyAgainst, skyToward) = _skyEvidence(obs, sky, lat, lon);
+    _lastSkyApplied = skyAgainst.isNotEmpty ? sky : SkyView.unknown;
     final posterior = <String, double>{};
     double total = 0;
 
@@ -260,6 +304,10 @@ class RoadTracker {
             if (flowMismatch && _isFastSystem(prevId) && !_isFastSystem(id)) {
               jump = math.max(jump, flowJump);
             }
+            // 天空反證：允許從被否定的那一層轉到重疊的另一層
+            if (skyAgainst.contains(prevId) && skyToward.contains(id)) {
+              jump = math.max(jump, skyJump);
+            }
             t = jump;
           }
           prior += p * t;
@@ -267,6 +315,7 @@ class RoadTracker {
       }
       var p = prior * entry.value.likelihood;
       if (flowMismatch && _isMainline(id)) p *= flowPenalty;
+      if (skyAgainst.contains(id)) p *= skyPenalty;
       posterior[id] = p;
       total += p;
     }
@@ -275,7 +324,11 @@ class RoadTracker {
       // 所有候選都不可能從前一狀態到達（例如長時間中斷後），重新開始
       reset();
       return update(roads, lat, lon,
-          headingDeg: headingDeg, speedKmh: speedKmh, fastFlowKmh: fastFlowKmh, accuracyM: accuracyM);
+          headingDeg: headingDeg,
+          speedKmh: speedKmh,
+          fastFlowKmh: fastFlowKmh,
+          accuracyM: accuracyM,
+          sky: sky);
     }
 
     String? bestId;
@@ -295,6 +348,78 @@ class RoadTracker {
     final best = obs[bestId]!;
     if (best.distance > maxDistanceM) return null;
     return TrackedRoad(best.road, bestP, best.distance);
+  }
+
+  /// 最近一次 [update] 實際套用的天空證據（不在重疊路段時為 unknown），供紀錄與除錯
+  SkyView get lastSkyApplied => _lastSkyApplied;
+  SkyView _lastSkyApplied = SkyView.unknown;
+
+  /// 天空證據：(要否定的候選, 重疊路段另一層的候選)，以道路識別表示。
+  /// 不在重疊路段或沒有證據時兩者皆空。
+  (Set<String>, Set<String>) _skyEvidence(
+      Map<String, _Observation> obs, SkyView sky, double lat, double lon) {
+    const none = (<String>{}, <String>{});
+    if (sky == SkyView.unknown) return none;
+    final elevated = <String, _Observation>{};
+    final ground = <String, _Observation>{};
+    obs.forEach((id, o) {
+      if (o.distance > overlapM) return;
+      (isElevated(o.road) ? elevated : ground)[id] = o;
+    });
+    if (elevated.isEmpty || ground.isEmpty) return none;
+    if (sky == SkyView.blocked) return (elevated.keys.toSet(), ground.keys.toSet());
+    // 頭頂開闊：只否定真的在橋面下方的地面道路
+    final out = <String>{};
+    ground.forEach((id, g) {
+      final foot = _nearestPoint(g.road, lat, lon);
+      if (foot == null) return;
+      for (final e in elevated.values) {
+        if (_distanceTo(e.road, foot.$1, foot.$2) <= underM) {
+          out.add(id);
+          return;
+        }
+      }
+    });
+    return out.isEmpty ? none : (out, elevated.keys.toSet());
+  }
+
+  /// [road] 上離 (lat, lon) 最近的點
+  static (double, double)? _nearestPoint(OsmRoad road, double lat, double lon) {
+    final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180.0);
+    double best = double.infinity;
+    (double, double)? out;
+    for (final line in road.lines) {
+      for (int i = 0; i + 3 < line.length; i += 2) {
+        final ax = (line[i] - lon) * mPerDegLon, ay = (line[i + 1] - lat) * _mPerDegLat;
+        final bx = (line[i + 2] - lon) * mPerDegLon, by = (line[i + 3] - lat) * _mPerDegLat;
+        final dx = bx - ax, dy = by - ay;
+        final lenSq = dx * dx + dy * dy;
+        var t = lenSq == 0 ? 0.0 : -(ax * dx + ay * dy) / lenSq;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        final px = ax + t * dx, py = ay + t * dy;
+        final d = px * px + py * py;
+        if (d < best) {
+          best = d;
+          out = (lat + py / _mPerDegLat, lon + px / mPerDegLon);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// (lat, lon) 到 [road] 的距離（公尺）
+  static double _distanceTo(OsmRoad road, double lat, double lon) {
+    final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180.0);
+    double best = double.infinity;
+    for (final line in road.lines) {
+      for (int i = 0; i + 3 < line.length; i += 2) {
+        final d = _pointSegmentDistance((line[i] - lon) * mPerDegLon, (line[i + 1] - lat) * _mPerDegLat,
+            (line[i + 2] - lon) * mPerDegLon, (line[i + 3] - lat) * _mPerDegLat);
+        if (d < best) best = d;
+      }
+    }
+    return best;
   }
 
   /// 目前位於快速路系統（國道、快速道路及其匝道）的總機率。

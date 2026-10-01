@@ -11,6 +11,7 @@ import '../services/speed_limit_service.dart';
 import '../services/traffic_service.dart';
 import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
+import '../services/sky_service.dart';
 import '../services/current_road_distance.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -239,6 +240,9 @@ class AppProvider extends ChangeNotifier {
 
       // Initialize Device Status Service (電池溫度等)
       await DeviceStatusService().init();
+
+      // 頭頂天空衛星摘要（高架上下判斷的證據）
+      SkyService().start();
 
       // Poll OBD state to update UI globally
       _obdStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
@@ -490,7 +494,10 @@ class AppProvider extends ChangeNotifier {
       fastFlowKmh: TrafficService().currentFlowKmh,
       // 手機回報的定位精度；訊號差時追蹤器改用較大的誤差，見 RoadTracker.maxSigmaM
       accuracyM: position.accuracy > 0 ? position.accuracy : null,
+      // 頭頂被橋面擋住＝在高架下；開闊且地面道路在橋面正下方＝在高架上（見 SkyService）
+      sky: SkyService().view,
     );
+    SkyService().logFix(position);
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
     } else if (!speedLimitService.lastDetectedFromSign) {

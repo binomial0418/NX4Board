@@ -167,6 +167,9 @@ class SpeedLimitService {
     }
   }
 
+  /// 最近一次實際套用的天空證據（不在高架重疊路段時為 unknown），見 [RoadTracker.update]
+  SkyView get lastSkyApplied => _tracker.lastSkyApplied;
+
   /// 偵測目前路段速限。
   ///
   /// [headingDeg] 與 [speedKmh] 用於排除平行道路；靜止時 heading 不可靠，
@@ -179,6 +182,7 @@ class SpeedLimitService {
     double speedKmh = 0,
     double? fastFlowKmh,
     double? accuracyM,
+    SkyView sky = SkyView.unknown,
   }) {
     if (!_initialized) return null;
 
@@ -201,6 +205,7 @@ class SpeedLimitService {
         speedKmh: speedKmh,
         fastFlowKmh: fastFlowKmh,
         accuracyM: accuracyM,
+        sky: sky,
       );
       if (tracked != null) {
         _currentRoad = tracked.road;

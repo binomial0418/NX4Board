@@ -42,6 +42,8 @@ class MainActivity : FlutterActivity() {
     private val VOLUME_EVENT_CHANNEL = "com.duckegg.nx4board/volumeEvents"
     private val DEVICE_INFO_CHANNEL  = "com.duckegg.nx4board/device_info"
     private val SCREEN_RECORD_CHANNEL = "com.duckegg.nx4board/screenrecord"
+    private val GNSS_SKY_CHANNEL = "com.duckegg.nx4board/gnss_sky"
+    private var gnssSky: GnssSkyMonitor? = null
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     private var audioManager: AudioManager? = null
@@ -233,6 +235,12 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+
+        // ── 頭頂天空衛星摘要（高架上下判斷，見 GnssSkyMonitor）───────────────
+        gnssSky = GnssSkyMonitor(applicationContext).also {
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, GNSS_SKY_CHANNEL)
+                .setStreamHandler(it)
         }
 
         // Initialize GNSS Callback
@@ -583,6 +591,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        gnssSky?.dispose()
         disconnect()
         volumeCheckTimer?.cancel()
         volumeCheckTimer = null
