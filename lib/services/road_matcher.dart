@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../models/osm_road.dart';
 
@@ -53,6 +54,79 @@ class RoadMatcher {
     final px = ax + t * dx;
     final py = ay + t * dy;
     return math.sqrt(px * px + py * py);
+  }
+
+  /// (lat, lon) 到 [roads] 中道路鍵屬於 [routeKeys]（見 [OsmRoad.routeKey]）的
+  /// 最近路段距離（公尺）；都沒有時回傳 [double.infinity]。
+  static double distanceToRoute(
+      List<OsmRoad> roads, Set<String> routeKeys, double lat, double lon) {
+    final mPerDegLon = _mPerDegLat * math.cos(lat * math.pi / 180);
+    double best = double.infinity;
+    for (final road in roads) {
+      if (!routeKeys.contains(road.routeKey)) continue;
+      for (final line in road.lines) {
+        for (int i = 0; i + 3 < line.length; i += 2) {
+          final d = pointSegmentDistance(
+            (line[i] - lon) * mPerDegLon,
+            (line[i + 1] - lat) * _mPerDegLat,
+            (line[i + 2] - lon) * mPerDegLon,
+            (line[i + 3] - lat) * _mPerDegLat,
+          );
+          if (d < best) best = d;
+        }
+      }
+    }
+    return best;
+  }
+
+  /// [routeKey] 加上在它的端點「直行接續」的道路鍵（夾角 ≤ [maxTurnDeg]），
+  /// 往外 [hops] 層。路口換路名（中央路一段直行變中棲路）時，前方相機仍算在
+  /// 這條路上；只看同一個道路鍵的話，換名後的直行位置有九成會被誤擋。
+  static Set<String> straightContinuations(List<OsmRoad> roads, String routeKey,
+      {int hops = 2, double maxTurnDeg = 30}) {
+    // 頂點（1e-5° 整數座標）→ 從這裡出發的 (道路鍵, 方位)
+    final starts = <int, List<(String, double)>>{};
+    // 道路鍵 → 折線端點 (頂點, 駛離方位)
+    final ends = <String, List<(int, double)>>{};
+    int vkey(Float64List l, int i) =>
+        (l[i] * 1e5).round() * 100000000 + (l[i + 1] * 1e5).round();
+    double brg(Float64List l, int from, int to) {
+      final dx = (l[to] - l[from]) * math.cos(l[from + 1] * math.pi / 180);
+      final dy = l[to + 1] - l[from + 1];
+      return (math.atan2(dx, dy) * 180 / math.pi + 360) % 360;
+    }
+
+    for (final road in roads) {
+      final k = road.routeKey;
+      if (k == null) continue;
+      for (final l in road.lines) {
+        if (l.length < 4) continue;
+        final last = l.length - 2;
+        (starts[vkey(l, 0)] ??= []).add((k, brg(l, 0, 2)));
+        (starts[vkey(l, last)] ??= []).add((k, brg(l, last, last - 2)));
+        (ends[k] ??= [])
+          ..add((vkey(l, last), brg(l, last - 2, last)))
+          ..add((vkey(l, 0), brg(l, 2, 0)));
+      }
+    }
+
+    final out = {routeKey};
+    var front = {routeKey};
+    for (int h = 0; h < hops && front.isNotEmpty; h++) {
+      final next = <String>{};
+      for (final k in front) {
+        for (final (v, b) in ends[k] ?? const <(int, double)>[]) {
+          for (final (k2, b2) in starts[v] ?? const <(String, double)>[]) {
+            var d = (b - b2).abs() % 360;
+            if (d > 180) d = 360 - d;
+            if (d <= maxTurnDeg && !out.contains(k2)) next.add(k2);
+          }
+        }
+      }
+      out.addAll(next);
+      front = next;
+    }
+    return out;
   }
 
   /// 路段方位角與行進方向的夾角超過容許值時回傳懲罰距離。

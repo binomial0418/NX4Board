@@ -11,6 +11,7 @@ import '../services/speed_limit_service.dart';
 import '../services/traffic_service.dart';
 import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
+import '../services/current_road_distance.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:intl/intl.dart';
@@ -424,6 +425,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// Update current position and find nearby speed signs
+  /// 平行道路判斷（相機到目前道路的距離），見 [CurrentRoadDistance]
+  final CurrentRoadDistance _currentRoadDistance = CurrentRoadDistance();
+
   void updatePosition(Position position) {
     _currentPosition = position;
     final now = DateTime.now();
@@ -544,14 +548,11 @@ class AppProvider extends ChangeNotifier {
       roadLimit: onHighSpeedRoad && slService.source == LimitSource.osm
           ? _roadSpeedLimit
           : null,
+      distanceToCurrentRoadM: _currentRoadDistance.forTracker(slService),
     );
 
-    // 提示距離門檻：
-    //   區間測速        → 100m
-    //   平面道路固定測速  → 500m
-    //   國道/快速道路    → 1000m
-    // 搜尋半徑（1～2km）比門檻大，相機在半徑內但還沒到門檻時不算提示中——
-    // 否則畫面與 ESP 會在兩公里外就亮起，比語音早了一大截。
+    // checkNearbyCamera 只回傳已進入提示距離的相機（距離依類型與車速，
+    // 見 CameraRules.alertDistanceM），回傳即提示。
     // 上一支提示中的相機不見了（或換成另一支）→ 判斷是不是剛通過
     final String? currentCamId =
         camInfo == null ? null : '${camInfo['lat']}_${camInfo['lon']}';
@@ -567,18 +568,9 @@ class AppProvider extends ChangeNotifier {
       _alertedCameraInfo = null;
     }
 
-    bool alerting = false;
-    if (camInfo != null) {
-      final String camId = '${camInfo['lat']}_${camInfo['lon']}';
-      final int distM = camInfo['dist_m'] ?? 9999;
-      final bool isZone = camInfo['is_zone'] == true;
-      final bool isNormalRoad = effectiveRoadType == RoadType.none;
-      final int alertThresholdM = isZone ? 100 : (isNormalRoad ? 500 : 1000);
-      if (distM <= alertThresholdM) _alertedCameraId = camId;
-      alerting = _alertedCameraId == camId;
-    }
+    if (camInfo != null) _alertedCameraId = currentCamId;
 
-    if (camInfo != null && alerting) {
+    if (camInfo != null) {
       _alertedCameraInfo = camInfo;
       _nearestCameraInfo = camInfo;
       if (camInfo['limit'] != null) {
@@ -603,7 +595,7 @@ class AppProvider extends ChangeNotifier {
         TtsService().speakSpeedingAlert(camInfo);
       }
     } else {
-      if (camInfo == null) _alertedCameraId = null;
+      _alertedCameraId = null;
       if (_zoneCameraActiveUntil != null &&
           DateTime.now().isBefore(_zoneCameraActiveUntil!) &&
           _stillInZone(camService.lastHeading, slService.surfaceConfirmed)) {

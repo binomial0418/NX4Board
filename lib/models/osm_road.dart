@@ -30,6 +30,18 @@ class OsmRoad {
     required this.lines,
   });
 
+  static final RegExp _sectionSuffix = RegExp(r'[一二三四五六七八九十]+段$');
+
+  /// 「同一條路」的鍵：去掉「X段」的路名加上 ref。中央路一段接中央路二段算同一條路。
+  /// 沒有路名也沒有 ref 的道路回傳 null——無從判斷是不是同一條路。
+  String? get routeKey {
+    final base = name?.replaceAll(_sectionSuffix, '');
+    final hasName = base != null && base.isNotEmpty;
+    final hasRef = ref != null && ref!.isNotEmpty;
+    if (!hasName && !hasRef) return null;
+    return '${hasName ? base : ''}|${hasRef ? ref : ''}';
+  }
+
   /// 解碼 SLT2 圖資中一個已解壓的 tile，格式見 `tools/pack_tiles.py`：
   /// 字串表、道路屬性、折線數、點數，最後是經度與緯度各一串 zigzag 差值。
   static List<OsmRoad> decodeTile(List<int> bytes) {
