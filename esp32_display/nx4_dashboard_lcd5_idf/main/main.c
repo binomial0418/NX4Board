@@ -68,6 +68,7 @@
 #endif
 #include "nx4_tts.h"
 #include "nx4_obd.h"
+#include "esp_random.h"
 
 // ── 螢幕旋轉 ────────────────────────────────────────────────────────────
 // 面板實體 720x1280（直向），LVGL 畫的是 1280x720（橫向）。
@@ -264,6 +265,30 @@ static bool j_has(const cJSON *o, const char *k) {
     return cJSON_GetObjectItemCaseSensitive(o, k) != NULL;
 }
 
+/// 開機語音：每次上電只念一次，等到第一筆車輛資料進來才念——
+/// WebSocket 模式是第一包 esp32_dash，直連 OBD 是解出第一個 OBD 數值。
+/// 聽到它就代表資料通了，而不只是板子開機。
+static bool g_boot_said = false;
+
+/// 開機語音隨機挑一句：私有音檔（boot_p*，沒編進來就跳過）＋合成句 boot_1~3
+static const char *pickBootClip(void) {
+    static const char *const kBoot[] = {"boot_p1", "boot_p2", "boot_1", "boot_2", "boot_3"};
+    const char *have[sizeof(kBoot) / sizeof(kBoot[0])];
+    int n = 0;
+    for (size_t i = 0; i < sizeof(kBoot) / sizeof(kBoot[0]); i++) {
+        if (nx4_tts_has_clip(kBoot[i])) have[n++] = kBoot[i];
+    }
+    return n ? have[esp_random() % n] : "boot_1";
+}
+
+static void sayBootOnce(const char *why) {
+    if (g_boot_said) return;
+    g_boot_said = true;
+    const char *clip = pickBootClip();
+    printf("[語音] 開機語音 %s（%s）\n", clip, why);
+    nx4_tts_say(clip);
+}
+
 static void handleDashPayload(const char *payload, size_t length) {
     // 連線後的第一筆原樣印出，直接看得到手機到底送了什麼
     if (g_log_next_payload) {
@@ -296,6 +321,7 @@ static void handleDashPayload(const char *payload, size_t length) {
         cJSON_Delete(doc);
         return;
     }
+    if (!g_obd_direct) sayBootOnce("收到第一筆 WebSocket 資料");
 
     // ── GPS / 手機端算出來的欄位：兩個模式都採用 ─────────────────────
     // 板子上沒有 GPS 元件，速限、替代速限、測速照相都要靠手機的定位與圖資，
@@ -552,6 +578,11 @@ static void obd_apply(void) {
     nx4_obd_data_t o;
     nx4_obd_snapshot(&o);
 
+    if (o.has_speed || o.has_rpm || o.has_coolant || o.has_soc || o.has_fuel ||
+        o.has_odo || o.has_turbo || o.has_throttle || o.has_tpms || o.has_lights) {
+        sayBootOnce("解出第一筆 OBD 資料");
+    }
+
     if (o.has_speed)    g_dash.speed = o.speed;
     if (o.has_rpm)      g_dash.rpm = o.rpm;
     if (o.has_coolant)  g_dash.coolant = o.coolant;
@@ -586,7 +617,7 @@ static void onSettingsVolume(int volume) {
     nx4_tts_set_volume(volume);
     nx4_nvs_save_volume(volume);
     printf("[語音] 音量 %d%%\n", volume);
-    nx4_tts_say("boot");   // 「系統啟動」，長度適中，拿來當試聽音
+    nx4_tts_say(pickBootClip());   // 試聽音：隨機一句開機語音
 }
 
 /// 更新設定頁上固定 IP 的按鈕與說明。
@@ -829,9 +860,7 @@ void app_main(void) {
         xTaskCreate(serial_inject_task, "serial_inject", 4096, NULL, 3, NULL);
     }
 
-    // 開機提示音。放在最後，這時畫面與網路都已就緒，
-    // 使用者聽到「系統啟動」時看到的也是可用的儀表。
-    nx4_tts_say("boot");
+    // 開機語音不在這裡念：等第一筆車輛資料進來（見 sayBootOnce）。
 
     printf("Setup done\n");
 

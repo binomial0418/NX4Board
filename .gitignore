@@ -33,3 +33,10 @@ tools/edog_convert.py
 
 # DX-GP22 GNSS 模組廠商資料包（規格書、工具程式），不提交
 esp32_display/DX-GP22-A*/
+
+# refdata 內的二進位參考檔，不提交
+refdata/FW*.bin
+
+# 開機語音的私有音檔（第三方版權音效，不提交；沒有時只用合成語音）
+esp32_display/nx4_dashboard_lcd5_idf/tools/private_voice/
+esp32_display/nx4_dashboard_lcd5_idf/components/nx4_audio/nx4_voice_private.c

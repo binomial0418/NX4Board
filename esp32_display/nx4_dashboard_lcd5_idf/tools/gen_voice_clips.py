@@ -10,6 +10,11 @@
 -> C 陣列。約 235 KB，相較之下 esp-tts 光音色庫就要 3.6 MB。
 
     python3 tools/gen_voice_clips.py
+
+開機語音（boot_*）每次上電隨機挑一句。除了下面的合成句，tools/private_voice/
+裡的 WAV（任意取樣率、單或雙聲道）會另外產生 nx4_voice_private.c，兩者都不進
+git——那裡放的是第三方有版權的音效。沒有這個資料夾時寫出空的私有清單，
+CMake 會改用已提交的 nx4_voice_private_stub.c。
 """
 import os
 import struct
@@ -26,7 +31,10 @@ RATE = 16000
 SPEED_LIMITS = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
 
 CLIPS = [
-    ("boot", "系統啟動"),
+    # 開機語音（隨機挑一句，見韌體 pickBootClip）
+    ("boot_1", "覺醒吧，土喪！"),
+    ("boot_2", "引擎點火，全系統連線完畢！"),
+    ("boot_3", "核心連結完成，全速前進！"),
     ("high_beam_on", "遠燈開啟"),
     ("high_beam_off", "遠燈關閉"),
     ("camera", "前有測速照相"),
@@ -105,6 +113,14 @@ def synth(text, wav_path):
         os.unlink(aiff)
 
 
+def convert(src, wav_path):
+    """任意 WAV → 16 kHz 單聲道 16-bit"""
+    subprocess.run(
+        ["afconvert", "-f", "WAVE", "-d", f"LEI16@{RATE}", "-c", "1", src, wav_path],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
 def read_wav(path):
     with wave.open(path) as w:
         assert w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == RATE
@@ -172,6 +188,10 @@ typedef struct {{
 extern const nx4_voice_clip_t nx4_voice_clips[];
 extern const int              nx4_voice_clip_count;
 
+// 私有音檔（tools/private_voice/，不進 git）；沒有時是空清單
+extern const nx4_voice_clip_t nx4_voice_private_clips[];
+extern const int              nx4_voice_private_count;
+
 #ifdef __cplusplus
 }}
 #endif
@@ -191,6 +211,38 @@ extern const int              nx4_voice_clip_count;
                 "(int)(sizeof(nx4_voice_clips) / sizeof(nx4_voice_clips[0]));\n")
 
     print(f"已寫入 {os.path.normpath(out_dir)}/nx4_voice_clips.c 與 include/nx4_voice_clips.h")
+
+    # ── 私有音檔 ─────────────────────────────────────────────────────────
+    priv_dir = os.path.join(here, "private_voice")
+    priv = []
+    if os.path.isdir(priv_dir):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for fn in sorted(os.listdir(priv_dir)):
+                if not fn.lower().endswith(".wav"):
+                    continue
+                name = os.path.splitext(fn)[0]
+                wav = os.path.join(tmpdir, fn)
+                convert(os.path.join(priv_dir, fn), wav)
+                samples = trim(read_wav(wav), thresh=300)
+                data = adpcm_encode(samples)
+                priv.append((name, samples, data))
+                print(f"{name:16s} (私有) {len(samples)/RATE:5.2f}s  {len(data):6d} bytes")
+    priv_c = os.path.join(out_dir, "nx4_voice_private.c")
+    if priv:
+        with open(priv_c, "w", encoding="utf-8") as f:
+            f.write("// 由 tools/gen_voice_clips.py 從 tools/private_voice/ 產生。不進 git。\n")
+            f.write('#include "nx4_voice_clips.h"\n\n')
+            for name, samples, data in priv:
+                f.write(f"static const uint8_t pclip_{name}[] = {{\n{c_array(data)}\n}};\n\n")
+            f.write("const nx4_voice_clip_t nx4_voice_private_clips[] = {\n")
+            for name, samples, _ in priv:
+                f.write(f'    {{ "{name}", pclip_{name}, {len(samples)} }},\n')
+            f.write("};\n\n")
+            f.write(f"const int nx4_voice_private_count = {len(priv)};\n")
+        print(f"已寫入私有音檔 {len(priv)} 段 → nx4_voice_private.c")
+    elif os.path.exists(priv_c):
+        os.unlink(priv_c)
+        print("沒有私有音檔，已移除 nx4_voice_private.c（改用 stub）")
 
 
 if __name__ == "__main__":

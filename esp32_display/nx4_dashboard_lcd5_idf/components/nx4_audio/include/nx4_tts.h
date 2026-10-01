@@ -32,6 +32,9 @@ bool nx4_tts_init(i2c_master_bus_handle_t bus);
 /// 找不到代號只會記一筆警告。
 void nx4_tts_say(const char *clip_name);
 
+/// 這段音檔是否存在（私有音檔可能沒有編進來）
+bool nx4_tts_has_clip(const char *clip_name);
+
 /// 遠燈開啟 / 關閉
 void nx4_tts_high_beam(bool on);
 

@@ -98,7 +98,15 @@ static const nx4_voice_clip_t *find_clip(const char *name) {
     for (int i = 0; i < nx4_voice_clip_count; i++) {
         if (strcmp(nx4_voice_clips[i].name, name) == 0) return &nx4_voice_clips[i];
     }
+    // 私有音檔（tools/private_voice/，可能是空清單）
+    for (int i = 0; i < nx4_voice_private_count; i++) {
+        if (strcmp(nx4_voice_private_clips[i].name, name) == 0) return &nx4_voice_private_clips[i];
+    }
     return NULL;
+}
+
+bool nx4_tts_has_clip(const char *clip_name) {
+    return clip_name && find_clip(clip_name) != NULL;
 }
 
 static void write_silence(int ms) {

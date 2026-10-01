@@ -19,6 +19,10 @@ typedef struct {
 extern const nx4_voice_clip_t nx4_voice_clips[];
 extern const int              nx4_voice_clip_count;
 
+// 私有音檔（tools/private_voice/，不進 git）；沒有時是空清單
+extern const nx4_voice_clip_t nx4_voice_private_clips[];
+extern const int              nx4_voice_private_count;
+
 #ifdef __cplusplus
 }
 #endif

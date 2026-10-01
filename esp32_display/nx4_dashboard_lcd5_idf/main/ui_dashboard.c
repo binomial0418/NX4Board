@@ -24,10 +24,11 @@ LV_FONT_DECLARE(nx4_font_num_310s);
 LV_FONT_DECLARE(nx4_font_num_96s);
 LV_FONT_DECLARE(nx4_font_num_145);
 LV_FONT_DECLARE(nx4_font_num_112);
-LV_FONT_DECLARE(nx4_font_num_96);
+LV_FONT_DECLARE(nx4_font_num_127c);
 LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
-LV_FONT_DECLARE(nx4_font_num_46);
+LV_FONT_DECLARE(nx4_font_num_70c);
+LV_FONT_DECLARE(nx4_font_num_84c);
 LV_FONT_DECLARE(nx4_font_num_48);
 LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
@@ -40,7 +41,10 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define F_SPEED &nx4_font_num_310s
 #define F_RPM &nx4_font_num_96s
 #define F_VALUE &nx4_font_num_112
-#define F_CLOCK &nx4_font_num_96
+// 時鐘用 Saira 的 Condensed（其他數字是 SemiCondensed）：時鐘卡被寬度卡死，
+// 窄一級的字才放得到 127px。
+#define F_CLOCK &nx4_font_num_127c
+#define F_DATE &nx4_font_tc_48
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
 // 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
 // 害水溫、胎壓、油箱都陪著一起縮。各自拆開後，以 fontTools 逐項算出
@@ -55,7 +59,10 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
 #define F_THROTTLE &nx4_font_num_48  // 只有數字、'-'、'%'
-#define F_ODO &nx4_font_num_46
+// 里程依位數換字級（Saira Condensed，理由同 F_CLOCK）：五位數以下 84px，六位數 70px，
+// 兩者都剛好塞滿 ODO_FIELD_W。
+#define F_ODO &nx4_font_num_84c
+#define F_ODO6 &nx4_font_num_70c
 #define F_LIMIT &nx4_font_num_145
 // 卡片抬頭用 32px，比內文標籤大一級。里程與油箱是「行內標籤」不是抬頭，
 // 維持 26px——它們與右側的數值同一列，放大會擠掉數值的位置。
@@ -156,12 +163,13 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 // 垂直上抬 2px，讓 44px 的字與 32px 的標題看起來在同一列。
 #define ALT_Y (TITLE_Y - 2)
 #define F_ALT &lv_font_montserrat_44
-#define DATE_Y 46
-// 時鐘是少數被「寬度」而非高度卡死的：'0' 是最寬的數字（0.662 em），
-// "00:00" 在 110px 下佔 315px，起點 16 → 右緣 331，卡片寬 356 還留 25px。
+// 日期 48px：基線在標籤頂下 43px，數字墨跡約 y=16..50、「週」到 54
+#define DATE_Y 7
+// 時鐘是少數被「寬度」而非高度卡死的："88:88" 在 127px Condensed 下佔 274px，
+// 起點 14 → 右緣 288，卡片寬 300。行高 90 即數字墨跡高，
+// 在日期下緣 +10（64）到卡片底 -10（195）之間置中 → 84
 #define CLOCK_X 14
-// 日期佔到 y=78，時鐘 79 高，在 78..205 之間置中 -> 102
-#define CLOCK_Y 107
+#define CLOCK_Y 84
 #define TIRE_X0 (ACCENT_W + 18)
 #define TIRE_Y0 66
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
@@ -177,14 +185,14 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 // 上緣與列距各退 1~3px 吸收掉。
 #define TIRE_DY 80
 #define ODO_LABEL_Y 42   // 圖示行高 30（原中文標籤 32），下移 1px 維持原本的垂直中心
-#define ODO_VALUE_Y 27
-#define ODO_UNIT_Y 46
-// 里程排成緊湊的一組「里程 XXXXXX K」。數字欄是固定寬度、靠右對齊，
-// 未達六位時前方自然留空，因此位數變動時 K 不會左右跑。
-// 78 = 標籤起點 20 + 「里程」26px 寬 52 + 間距 6；168 = "999999" 在 46px 的寬度。
-#define ODO_VALUE_X 78
-#define ODO_FIELD_W 168
-#define ODO_UNIT_X (ODO_VALUE_X + ODO_FIELD_W + 6)
+// 數字墨跡高 = 行高（84px：60、70px：50），兩種字級中心都在 y=44
+#define ODO_VALUE_Y 14   // 84px：14..74
+#define ODO_VALUE_Y6 19  // 70px：19..69
+// 里程是「圖示 XXXXXX」，不帶單位。數字欄固定寬度、靠右對齊，個位數位置固定。
+// 70 = 圖示起點 20 + 圖示 40 + 間距 10；206 = "88888" 在 84px、"888888" 在 70px
+// 的寬度，右緣 276，卡片寬 284。
+#define ODO_VALUE_X 70
+#define ODO_FIELD_W 206
 #define DIVIDER_Y 101
 // 油箱實際只會是 1-99（外加未取得資料時的 "--"），所以數字欄置中，
 // 一位數與兩位數切換時視覺重心不會跳動。欄位右界留給靠右的 % 單位。
@@ -512,10 +520,10 @@ static void build_column1(void) {
 
   // 時鐘：上方日期 + 下方時間（HH:MM 大字 + :SS 小字）
   lv_obj_t *card = make_card(COL1_X, ROW3_Y, COL_W, CARD_H, C_AMBER);
-  s_date_value = make_label(card, "--/--", F_TITLE, C_LABEL);
+  s_date_value = make_label(card, "--/--", F_DATE, C_LABEL);
   lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, DATE_Y);
 
-  // 只顯示 HH:MM。字型已放大到 86px，是這張卡片寬度容得下的極限。
+  // 只顯示 HH:MM，127px 是這張卡片寬度容得下的極限（見 CLOCK_X）。
   s_clock_value = make_label(card, "--:--", F_CLOCK, C_TEXT);
   lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, CLOCK_X, CLOCK_Y);
 }
@@ -538,13 +546,11 @@ static void build_column2(void) {
 
   lv_obj_t *odo_label = make_label(card, ICO_ODO, F_ICON_LABEL, C_LABEL);
   lv_obj_align(odo_label, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, ODO_LABEL_Y);
-  // 固定寬度 + 靠右對齊 = 前方補空。位數變動時 K 不會跟著移動。
+  // 固定寬度 + 靠右對齊 = 前方補空。位數變動時個位數不會跟著移動。
   s_odo_value = make_label(card, "--", F_ODO, C_TEXT);
   lv_obj_set_width(s_odo_value, ODO_FIELD_W);
   lv_obj_set_style_text_align(s_odo_value, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ODO_VALUE_X, ODO_VALUE_Y);
-  lv_obj_t *odo_unit = make_label(card, "K", &lv_font_montserrat_20, C_UNIT);
-  lv_obj_align(odo_unit, LV_ALIGN_TOP_LEFT, ODO_UNIT_X, ODO_UNIT_Y);
 
   lv_obj_t *divider = lv_obj_create(card);
   lv_obj_set_pos(divider, ACCENT_W + 14, DIVIDER_Y);
@@ -1150,6 +1156,14 @@ rpm_done:;
 
   // 里程 / 油箱
   if (force || data->odo != p->odo) {
+    // 六位數放不下 84px，換小一級；字級沒變就不重設樣式
+    static bool six = false;
+    bool want_six = data->odo >= 100000;
+    if (force || want_six != six) {
+      six = want_six;
+      lv_obj_set_style_text_font(s_odo_value, six ? F_ODO6 : F_ODO, 0);
+      lv_obj_align(s_odo_value, LV_ALIGN_TOP_LEFT, ODO_VALUE_X, six ? ODO_VALUE_Y6 : ODO_VALUE_Y);
+    }
     if (data->odo > 0) {
       lv_label_set_text_fmt(s_odo_value, "%d", data->odo);
     } else {
