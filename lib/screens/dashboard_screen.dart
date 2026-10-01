@@ -827,6 +827,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       "limit_alt": provider.alternativeSpeedLimit ?? 0,
       // 另一條路在上面（高架）還是下面，ESP32 據此顯示上下箭頭
       "limit_alt_above": provider.alternativeRoadLevel > provider.currentRoadLevel,
+      // 雙速限時追蹤器仍傾向 speed_limit 那一條 → 面板在它下方畫紅線
+      "limit_lean": provider.alternativeSpeedLimitLean,
       // 速限是依道路分級推定，而非 OSM 標註或省道牌面實測（目前僅供記錄，畫面不顯示）
       "limit_inferred": provider.isSpeedLimitInferred,
       // 相對節氣門開度 %（PID 0145）。顯示在增壓數值左側，用來判讀增壓是否可信

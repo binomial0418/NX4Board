@@ -16,7 +16,7 @@
 // {
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
-//   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false,
+//   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false, "limit_lean": true,
 //   "odo": 33676, "turbo": 0.15, "throttle": 12, "reversing": false,
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
@@ -330,6 +330,7 @@ static void handleDashPayload(const char *payload, size_t length) {
     // 缺欄位時歸零，避免沿用上一包的舊值（判定恢復有把握後 ALT 才會消失）
     g_dash.limit_alt = j_int(doc, "limit_alt", 0);
     g_dash.limit_alt_above = j_bool(doc, "limit_alt_above", false);
+    g_dash.limit_lean = j_bool(doc, "limit_lean", false);
 
     const char *clock = j_str(doc, "time");
     if (clock && clock[0]) {

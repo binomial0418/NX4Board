@@ -79,6 +79,36 @@ class RoadMatcher {
     return best;
   }
 
+  /// [road] 上離 (lat, lon) 最近的路段：距離（公尺）、該路段方位角、最近點座標。
+  /// 沒有任何路段時回傳 null。
+  static ({double dist, double bearing, double footLat, double footLon})? nearestOnRoad(
+      OsmRoad road, double lat, double lon) {
+    final mPerDegLon = _mPerDegLat * math.cos(lat * math.pi / 180);
+    ({double dist, double bearing, double footLat, double footLon})? best;
+    for (final line in road.lines) {
+      for (int i = 0; i + 3 < line.length; i += 2) {
+        final ax = (line[i] - lon) * mPerDegLon, ay = (line[i + 1] - lat) * _mPerDegLat;
+        final bx = (line[i + 2] - lon) * mPerDegLon, by = (line[i + 3] - lat) * _mPerDegLat;
+        final dx = bx - ax, dy = by - ay;
+        final lenSq = dx * dx + dy * dy;
+        var t = lenSq == 0 ? 0.0 : -(ax * dx + ay * dy) / lenSq;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        final px = ax + t * dx, py = ay + t * dy;
+        final d = math.sqrt(px * px + py * py);
+        if (best == null || d < best.dist) {
+          best = (
+            dist: d,
+            bearing: (math.atan2(dx, dy) * 180 / math.pi + 360) % 360,
+            footLat: lat + py / _mPerDegLat,
+            footLon: lon + px / mPerDegLon,
+          );
+        }
+      }
+    }
+    return best;
+  }
+
   /// [routeKey] 加上在它的端點「直行接續」的道路鍵（夾角 ≤ [maxTurnDeg]），
   /// 往外 [hops] 層。路口換路名（中央路一段直行變中棲路）時，前方相機仍算在
   /// 這條路上；只看同一個道路鍵的話，換名後的直行位置有九成會被誤擋。

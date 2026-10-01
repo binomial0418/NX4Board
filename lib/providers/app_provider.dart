@@ -124,6 +124,7 @@ class AppProvider extends ChangeNotifier {
   int get alternativeRoadLevel => SpeedLimitService().alternativeRoad?.level ?? 0;
   String get alternativeRoadName => SpeedLimitService().alternativeRoadName;
   int? get alternativeSpeedLimit => SpeedLimitService().alternativeLimit;
+  bool get alternativeSpeedLimitLean => SpeedLimitService().alternativeLean;
 
   /// 前方路況；不在 TDX 路段上、沒有憑證或功能關閉時為 null
   TrafficState? get trafficState => TrafficService().state;
