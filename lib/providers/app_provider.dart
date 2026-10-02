@@ -560,7 +560,7 @@ class AppProvider extends ChangeNotifier {
       final other = overlap.onUpper! ? CameraLayer.lower : CameraLayer.upper;
       skipOtherLayer = (cam) =>
           _cameraLayers.classify(overlap, cam.latitude, cam.longitude, cam.heading, cam.limit,
-              redLight: cam.kind == CameraKind.redLight) ==
+              redLight: cam.kind == CameraKind.redLight, typeCode: cam.typeCode) ==
           other;
     }
     var camInfo = camService.checkNearbyCamera(
@@ -656,7 +656,8 @@ class AppProvider extends ChangeNotifier {
         (camInfo['lon'] as num).toDouble(),
         (camInfo['heading'] as num?)?.toDouble(),
         camInfo['limit'] as int?,
-        redLight: kind == CameraKind.redLight.name);
+        redLight: kind == CameraKind.redLight.name,
+        typeCode: camInfo['type_code'] as int?);
     if (kind == CameraKind.zoneStart.name || kind == CameraKind.zoneEnd.name) {
       if (kind == CameraKind.zoneStart.name) {
         _pendingZone = camInfo;

@@ -40,3 +40,6 @@ refdata/FW*.bin
 # 開機語音的私有音檔（第三方版權音效，不提交；沒有時只用合成語音）
 esp32_display/nx4_dashboard_lcd5_idf/tools/private_voice/
 esp32_display/nx4_dashboard_lcd5_idf/components/nx4_audio/nx4_voice_private.c
+
+# refdata 內的參考音檔，不提交
+refdata/voices/

@@ -50,6 +50,10 @@ void main() {
     // 闖紅燈照相一定在地面
     expect(c.classify(ov, 24.250418, 120.536384, 201, null, redLight: true), CameraLayer.lower);
     expect(CameraLayerClassifier.label(ov.kind, CameraLayer.lower), '高架下');
+    // 圖資代碼標記優先：J（高架道路）即使速限對得上地面也算高架；G（平面車道）反之
+    expect(c.classify(ov, 24.250467, 120.536249, 201, ov.lowerLimit, typeCode: 0x1A),
+        CameraLayer.upper);
+    expect(c.classify(ov, 24.250418, 120.536384, 201, 80, typeCode: 0x17), CameraLayer.lower);
   });
 
   test('臺灣大道八段快慢車道：70 歸快車道、40 歸慢車道', () async {

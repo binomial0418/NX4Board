@@ -18,12 +18,15 @@ enum CameraLayer {
 /// 判斷重疊路段的相機在哪一層（[RoadOverlap]）。
 ///
 /// 依序：
-///   1. 相機類型：闖紅燈照相一定在地面——高架上沒有紅綠燈
-///   2. 速限：相機速限只對得上其中一層的速限
-///   3. 座標：明顯靠近其中一層（高架重疊差 ≥ [levelGapM]、快慢車道差 ≥ [laneGapM]）
+///   1. 圖資代碼的位置標記（[_upperCodes]／[_lowerCodes]）：圖資本身就為部分相機
+///      標了「高架道路」「平面車道」「快速車道」等位置，是人工標的，最可信
+///   2. 相機類型：闖紅燈照相一定在地面——高架上沒有紅綠燈
+///   3. 速限：相機速限只對得上其中一層的速限
+///   4. 座標：明顯靠近其中一層（高架重疊差 ≥ [levelGapM]、快慢車道差 ≥ [laneGapM]）
 ///   其他為 unknown。
-/// 全台實測（高架重疊 613 支、快慢車道 41 支）：①＋②＋③可分出約 55%／83%，
-/// 座標與速限都可判斷時兩者一致 90%。
+/// 全台實測高架重疊 613 支：②～④可分出 55%；代碼標記有 323 支，與②～④都有結果時
+/// 一致 94%，再補上 82 支原本分不出的，合計 86%。快慢車道 41 支沒有代碼標記，
+/// ③④分出 83%。
 class CameraLayerClassifier {
   static const double levelGapM = 8;
   static const double laneGapM = 4;
@@ -31,8 +34,28 @@ class CameraLayerClassifier {
 
   final Map<String, CameraLayer> _cache = {};
 
+  /// 圖資代碼（第 3 碼，[CameraRules.typeOf] 的值）標明在高架上的：
+  /// J 高架道路、N 高架高速公路、6B 高架區間、C6 高架道路科技執法、
+  /// AE 高架道路移動式、B3 高架高速公路移動式
+  static const Set<int> _upperCodes = {0x1A, 0x1E, 0x6B, 0xC6, 0xAE, 0xB3};
+
+  /// 標明在地面的：G 平面車道、H 平面高速公路、6A 平面區間、AC 平面車道闖紅燈、
+  /// A8／A9 平面車道路口科技執法、B1 平面車道、AD 平面車道移動式、B2 平面高速公路移動式
+  static const Set<int> _lowerCodes = {0x17, 0x18, 0x6A, 0xAC, 0xA8, 0xA9, 0xB1, 0xAD, 0xB2};
+
+  /// Q 快速車道：快慢車道時屬快車道
+  static const int _fastLaneCode = 0x21;
+
   CameraLayer classify(RoadOverlap ov, double lat, double lon, double? heading, int? limit,
-      {bool redLight = false}) {
+      {bool redLight = false, int? typeCode}) {
+    if (typeCode != null) {
+      if (ov.kind == AlternativeKind.level) {
+        if (_upperCodes.contains(typeCode)) return CameraLayer.upper;
+        if (_lowerCodes.contains(typeCode)) return CameraLayer.lower;
+      } else if (typeCode == _fastLaneCode) {
+        return CameraLayer.upper;
+      }
+    }
     final key = '${ov.kind.name}|${ov.upperRoad.name}|${ov.lowerRoad.name}|${lat}_$lon|$heading|$limit|$redLight';
     final hit = _cache[key];
     if (hit != null) return hit;

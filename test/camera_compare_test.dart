@@ -156,7 +156,7 @@ void main() {
               final other = ov.onUpper! ? CameraLayer.lower : CameraLayer.upper;
               skip = (cam) =>
                   layers.classify(ov, cam.latitude, cam.longitude, cam.heading, cam.limit,
-                      redLight: cam.kind == CameraKind.redLight) ==
+                      redLight: cam.kind == CameraKind.redLight, typeCode: cam.typeCode) ==
                   other;
             }
             final info = c == 'C'

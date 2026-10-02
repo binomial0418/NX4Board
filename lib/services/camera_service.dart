@@ -374,6 +374,7 @@ class CameraService {
       "heading": nearest.heading,
       "road_type": nearest.roadType.name,
       "kind": nearest.kind.name,
+      "type_code": nearest.typeCode,
       "message": msg,
       "debug_heading": userHeading,
       "debug_angle": nearestOff,
