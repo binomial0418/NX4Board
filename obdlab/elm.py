@@ -100,6 +100,25 @@ class Elm:
             print(f"  TX {cmd}  RX {raw!r}")
         return raw
 
+    def monitor(self, cmd: str, seconds: float) -> str:
+        """送一道串流指令（ATMA 之類），收 seconds 秒後送任意字元停止。
+
+        ELM 在監聽時收到任何字元就停下並吐 '>'。回傳期間收到的全部文字。
+        """
+        cmd = cmd.strip().upper().replace(" ", "")
+        self.ser.reset_input_buffer()
+        self.ser.write((cmd + "\r").encode("ascii"))
+        self.ser.flush()
+        buf = bytearray()
+        end = time.time() + seconds
+        while time.time() < end:
+            buf.extend(self.ser.read(256))
+        self.ser.write(b"\r")
+        self.ser.flush()
+        buf.extend(self._read_until_prompt(3.0).encode("ascii"))
+        self.last_cmd = cmd
+        return buf.decode("ascii", errors="replace")
+
     # ── 初始化 ──────────────────────────────────────────────────────────
     def init(self) -> str:
         """跑初始化序列，回傳 ATZ 報出來的版本字串。

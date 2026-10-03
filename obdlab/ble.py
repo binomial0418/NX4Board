@@ -32,11 +32,17 @@ import objc
 from CoreBluetooth import CBCentralManager
 from Foundation import NSData, NSDate, NSObject, NSRunLoop, NSUUID
 
-SERVICE = "18F0"          # Vlink BLE 的序列橋接服務
-CHAR_NOTIFY = "2AF0"      # ELM → 我們
-CHAR_WRITE = "2AF1"       # 我們 → ELM
+# 各家 ELM327 BLE 的序列橋接服務。Vlink 是 18F0（2AF0 收、2AF1 寫），
+# 常見的「OBDII」白牌是 FFF0（FFF1 收、FFF2 寫），也有用 FFE0 的。
+# 特徵值不寫死，從屬性挑：能 notify/indicate 的收，能寫的寫。
+SERVICES = ("18F0", "FFF0", "FFE0")
 
+PROP_WRITE_NO_RESP = 0x04
+PROP_WRITE = 0x08
+PROP_NOTIFY = 0x10
+PROP_INDICATE = 0x20
 WRITE_WITH_RESPONSE = 0
+WRITE_WITHOUT_RESPONSE = 1
 MTU = 20                  # BLE 預設每包上限，指令都很短但還是切一下
 
 
@@ -74,17 +80,22 @@ class _Delegate(NSObject):
     # ── Peripheral ──
     def peripheral_didDiscoverServices_(self, p, e):
         for s in (p.services() or []):
-            if str(s.UUID()).upper() == SERVICE:
+            if str(s.UUID()).upper() in SERVICES:
                 p.discoverCharacteristics_forService_(None, s)
 
     def peripheral_didDiscoverCharacteristicsForService_error_(self, p, s, e):
         for c in (s.characteristics() or []):
-            u = str(c.UUID()).upper()
-            if u == CHAR_NOTIFY:
+            props = c.properties()
+            if props & (PROP_NOTIFY | PROP_INDICATE) \
+                    and self.owner.notify_char is None:
                 self.owner.notify_char = c
                 p.setNotifyValue_forCharacteristic_(True, c)
-            elif u == CHAR_WRITE:
+            if props & (PROP_WRITE | PROP_WRITE_NO_RESP) \
+                    and self.owner.write_char is None:
                 self.owner.write_char = c
+                self.owner.write_type = (WRITE_WITH_RESPONSE
+                                         if props & PROP_WRITE
+                                         else WRITE_WITHOUT_RESPONSE)
         if self.owner.notify_char and self.owner.write_char:
             self.owner.connected = True
 
@@ -111,6 +122,7 @@ class BleElm:
 
         self.notify_char = None
         self.write_char = None
+        self.write_type = WRITE_WITH_RESPONSE
         self.connected = False
         self.fail: str | None = None
 
@@ -155,12 +167,13 @@ class BleElm:
             if req is not None and not req["written"]:
                 req["written"] = True
                 self._rx.clear()
-                payload = (req["cmd"] + "\r").encode("ascii")
-                for i in range(0, len(payload), MTU):
-                    chunk = payload[i:i + MTU]
-                    self._peripheral.writeValue_forCharacteristic_type_(
-                        NSData.dataWithBytes_length_(chunk, len(chunk)),
-                        self.write_char, WRITE_WITH_RESPONSE)
+                self._write((req["cmd"] + "\r").encode("ascii"))
+                req["deadline"] = time.time() + req["timeout"]
+            elif (req is not None and req["stream"] and not req["stopped"]
+                  and time.time() >= req["stream_end"]):
+                # 串流時間到：送一個 CR 讓 ELM 停止監聽並吐 '>'
+                req["stopped"] = True
+                self._write(b"\r")
                 req["deadline"] = time.time() + req["timeout"]
 
         NSRunLoop.currentRunLoop().runUntilDate_(
@@ -168,24 +181,41 @@ class BleElm:
 
         with self._lock:
             req = self._req
-            if req is not None and req["written"]:
+            if req is not None and req["written"] and (
+                    not req["stream"] or req["stopped"]):
                 text = self._rx.decode("ascii", "replace")
                 if ">" in text or time.time() > req["deadline"]:
                     req["resp"] = text
                     self._req = None
                     req["event"].set()
 
+    def _write(self, payload: bytes) -> None:
+        for i in range(0, len(payload), MTU):
+            chunk = payload[i:i + MTU]
+            self._peripheral.writeValue_forCharacteristic_type_(
+                NSData.dataWithBytes_length_(chunk, len(chunk)),
+                self.write_char, self.write_type)
+
     # ── 工作執行緒：送指令並等回應 ────────────────────────────────────
     def send(self, cmd: str, timeout: float = 3.0) -> str:
+        return self._submit(cmd, timeout, stream=0.0)
+
+    def monitor(self, cmd: str, seconds: float) -> str:
+        """送串流指令（ATMA 之類），收 seconds 秒後送 CR 停止。"""
+        return self._submit(cmd, 3.0, stream=seconds)
+
+    def _submit(self, cmd: str, timeout: float, stream: float) -> str:
         cmd = cmd.strip().upper().replace(" ", "")
         ev = threading.Event()
         req = {"cmd": cmd, "timeout": timeout, "event": ev,
-               "written": False, "resp": "", "deadline": 0.0}
+               "written": False, "resp": "", "deadline": 0.0,
+               "stream": stream > 0, "stopped": False,
+               "stream_end": time.time() + stream}
         with self._lock:
             if self._req is not None:
                 raise BleError("已有指令在執行中")
             self._req = req
-        if not ev.wait(timeout + 5.0):
+        if not ev.wait(timeout + stream + 5.0):
             with self._lock:
                 self._req = None
             raise BleError(f"{cmd} 等不到回應")

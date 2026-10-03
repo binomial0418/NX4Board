@@ -4,7 +4,8 @@
 把訊號逆向的回饋迴路從「好幾小時」縮到「幾秒」。
 
 代碼對應表在 **[OBD_CODES.md](OBD_CODES.md)**，待辦與注意事項在
-**[TODO.md](TODO.md)**。
+**[TODO.md](TODO.md)**。Nissan March K13 的評估與研究流程在
+**[K13.md](K13.md)**（`--car k13`）。
 
 ## 為什麼要繞過 App
 
@@ -34,7 +35,9 @@ Mac ──BLE（CoreBluetooth）──► ELM327 傳輸器 ──OBD-II──►
  ├── daemon.py    常駐連線，指令走 Unix socket 進來
  ├── elm.py       ELM327 初始化序列、回應整理
  ├── uds.py       UDS 請求判讀、負回應、Mode 01 逐區塊走訪
- ├── discover.py  模組點名、家族探索、DID 掃描
+ ├── cars.py      車型設定：模組位址、回應位址、廣播假設、資料夾
+ ├── discover.py  模組點名、位址普查、家族探索、DID 掃描
+ ├── listen.py    被動監聽廣播封包（ATMA）
  ├── snapshot.py  快照拍攝與四道過濾的比對
  ├── store.py     JSON 持久化，中斷了不用重來
  └── run.py       指令列入口
@@ -86,8 +89,19 @@ macOS 上的 Python 本來就有。
 | `snap 鑰匙在車內` | 拍一張快照（`--delay 60` 可延遲啟動） |
 | `diff` | 比對已存的快照 |
 | `watch 770\|22BC08 7E0\|22E000` | 即時監看，只印變動 |
+| `census` | 700~7FF 位址普查，記下每個請求位址的回應位址 |
+| `sweep 745 --sid 21` | 掃 KWP 的 `2100`~`21FF` |
+| `listen 5C5 551` | 被動監聽指定 ID；`all` = 車型設定裡全部；不帶 ID 則列出匯流排上的 ID |
 
-共用選項：`--port` 指定序列埠，`--verbose` 印出每一道收發。
+共用選項：
+
+| 選項 | 作用 |
+|---|---|
+| `--car k13` | 車型（預設 `nx4`）。決定模組位址表與資料夾（`data/` 或 `data/k13/`） |
+| `--session C0` | 每個模組查詢前先進入診斷會談（Nissan KWP 需要時用） |
+| `--port` | 走藍牙序列埠；不給就走 BLE |
+| `--ble-name` | BLE 裝置名稱關鍵字，預設 `VLINK` |
+| `--verbose` | 印出每一道收發 |
 
 ## 比對怎麼運作
 

@@ -10,12 +10,17 @@
    410C0B54，就把轉速的低位元組當成 MAP 讀走。要照 PID 的固定長度逐段走。
 3. 識別區（22F1xx）裝的是零件號與版本字串，永遠不變。它一旦在兩次取樣間
    不一樣，就是多幀組裝錯位，整份資料的可信度要打折扣。當成金絲雀用。
+4. 回應位址不一定是請求 +8（Nissan BCM 745→765）。切模組時要一起設
+   接收過濾（ATCRA）與流量控制（ATFCSH），見 select_module()。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+import time
+
+import cars
 from elm import Elm, clean_response
 
 # 標準 Mode 01 PID 的資料長度，用來逐段走訪合併查詢的回應
@@ -30,7 +35,12 @@ NRC = {
     "11": "服務不支援", "12": "子功能不支援", "13": "長度錯誤",
     "22": "條件不符", "31": "要求超出範圍", "33": "安全存取被拒",
     "7E": "此會談不支援", "7F": "此會談不支援服務",
+    "78": "處理中，稍後回應", "80": "目前會談不支援（KWP）",
 }
+
+# 正回應的服務碼 = 請求 + 0x40。這幾個會用到。
+_POSITIVE = {"22": "62", "21": "61", "01": "41", "09": "49",
+             "10": "50", "3E": "7E"}
 
 
 @dataclass
@@ -52,13 +62,8 @@ class Resp:
     @property
     def signature(self) -> str:
         c = self.cmd
-        if c.startswith("22"):
-            return "62" + c[2:]
-        if c.startswith("01"):
-            return "41" + c[2:]
-        if c.startswith("21"):
-            return "61" + c[2:]
-        return ""
+        pos = _POSITIVE.get(c[:2])
+        return pos + c[2:] if pos else ""
 
     @property
     def negative(self) -> tuple[str, str] | None:
@@ -83,10 +88,71 @@ class Resp:
         return f"無回應 {self.raw.strip()!r}"
 
 
-def request(e: Elm, header: str, cmd: str, timeout: float = 2.0) -> Resp:
-    """對某個模組送一道查詢。Header 只在需要時切換，省一道指令。"""
+def select_module(e: Elm, header: str) -> None:
+    """切到某個模組：Header、接收過濾、流量控制一起設，只在需要時送指令。
+
+    回應位址是請求 +8 時交給 ELM 自動處理（Hyundai 一路都是這樣）。
+    不是的話：
+      ATCRA <回應>    只收那個位址，不然回應會被濾掉
+      ATFCSH <請求>   多幀回應的流量控制送回請求位址；預設會送到 回應−8，
+                      Nissan 的 765−8=75D 沒有人收，長回應只剩第一幀
+      ATFCSD300000 + ATFCSM1  啟用上面那組自訂流量控制
+    7DF 是廣播查詢，一律回到自動。
+    """
     e.set_header(header)
+    want = "AUTO"
+    if header != "7DF":
+        resp = cars.current().response_id(header)
+        if int(resp, 16) != int(header, 16) + 8:
+            want = resp
+    have = getattr(e, "rx_filter", "AUTO")
+    if want == have:
+        return
+    if want == "AUTO":
+        e.send("ATCRA")            # 不帶參數 = 清除接收過濾
+        e.send("ATFCSM0")
+    else:
+        e.send(f"ATCRA{want}")
+        e.send(f"ATFCSH{header}")
+        e.send("ATFCSD300000")
+        e.send("ATFCSM1")
+    e.rx_filter = want
+
+
+# 診斷會談。Nissan 這一代講 KWP，BCM／儀表的資料多半要先進 10 C0
+# （CONSULT 用的會談）才讀得到。會談閒置幾秒就自動回預設，所以每次
+# 對某模組送查詢前，若距上次送出超過 SESSION_STALE 秒就重新進入。
+# 進入會談不是寫入，模組逾時後自己會回到預設會談。
+SESSION_STALE = 2.0
+_session: dict[str, object] = {"sub": None, "last": {}}
+
+
+def use_session(sub: str | None) -> None:
+    """設定要用的會談子功能（例如 "C0"），None 表示不進會談。"""
+    _session["sub"] = sub.upper() if sub else None
+    _session["last"] = {}
+
+
+def _ensure_session(e: Elm, header: str) -> None:
+    sub = _session["sub"]
+    if not sub or header == "7DF":
+        return
+    last: dict = _session["last"]  # type: ignore[assignment]
+    if time.time() - last.get(header, 0.0) < SESSION_STALE:
+        return
+    raw = e.send(f"10{sub}", timeout=1.5)
+    hexs = clean_response(raw)
+    if f"50{sub}" not in hexs and getattr(e, "verbose", False):
+        print(f"  {header} 進入會談 10{sub} 失敗：{raw.strip()!r}")
+
+
+def request(e: Elm, header: str, cmd: str, timeout: float = 2.0) -> Resp:
+    """對某個模組送一道查詢。位址相關的設定只在需要時切換，省指令。"""
+    select_module(e, header)
+    _ensure_session(e, header)
     raw = e.send(cmd, timeout=timeout)
+    if _session["sub"] and header != "7DF":
+        _session["last"][header] = time.time()  # type: ignore[index]
     return Resp(header, cmd.upper(), raw, clean_response(raw))
 
 

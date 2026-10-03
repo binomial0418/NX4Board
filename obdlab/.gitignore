@@ -2,3 +2,5 @@
 # dids.json 重建只要跑一次 discover，快照本來就該每次重拍。
 data/*.json
 data/snapshots/
+# 其他車型的資料夾（data/k13/ …），同樣是實驗產物，而且含 VIN
+data/*/
