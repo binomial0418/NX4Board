@@ -120,6 +120,15 @@ class ObdSppService with ChangeNotifier {
   final List<String> _logHistory = [];
   List<String> get logHistory => List.unmodifiable(_logHistory);
 
+  /// 事件紀錄：排除輪詢的 TX/RX/解析結果與 WS 上傳，只留連線、Header 鎖定、
+  /// 探測失敗這類狀態變化。_logHistory 被 300ms 的快輪詢灌滿，1000 行只夠
+  /// 約 50 秒，匯出時早就看不到這趟是怎麼開始的；事件紀錄留得住整趟。
+  final List<String> _eventHistory = [];
+  List<String> get eventHistory => List.unmodifiable(_eventHistory);
+  static const int _eventCap = 3000;
+  static final RegExp _routineLog =
+      RegExp(r'^\[(Parser TX|Parser RX|Parser Result|Parser\]|WS-TX)');
+
   // ── Maintenance Log Stream ───────────────────────────────────────────────
   final _maintenanceLogController = StreamController<String>.broadcast();
   Stream<String> get maintenanceLogStream => _maintenanceLogController.stream;
@@ -140,6 +149,10 @@ class ObdSppService with ChangeNotifier {
     final String fullMsg = '[$timestamp] $msg';
     _logHistory.add(fullMsg);
     if (_logHistory.length > 1000) _logHistory.removeAt(0);
+    if (!_routineLog.hasMatch(msg)) {
+      _eventHistory.add(fullMsg);
+      if (_eventHistory.length > _eventCap) _eventHistory.removeAt(0);
+    }
     _logController.add(fullMsg);
   }
 
@@ -663,10 +676,13 @@ class ObdSppService with ChangeNotifier {
   String _activeHeader = '7DF';
   bool _igmpPollBusy = false;
   int _igmpFailStreak = 0;
-  // 兩個 Header 都試不出來時放棄，避免每 3 秒白跑 6 道指令、
-  // 排擠到 300ms 的時速/轉速快輪詢。重新連線時會重置。
-  bool _igmpGiveUp = false;
+  // 兩個 Header 都試不出來時暫停一段時間再探測，避免每秒白跑一整組 NODATA、
+  // 排擠到 300ms 的時速/轉速快輪詢。不能永久放棄：連線當下車身模組還沒醒
+  // （或匯流排忙）連續失敗 10 次，就會整趟行程都沒有車門、門鎖、倒車與燈號，
+  // 直到重新連線才恢復 —— 10-03/04 實車偶發兩次就是這樣。
+  int _igmpRetryAtMs = 0;
   static const int _igmpMaxProbes = 10;
+  static const int _igmpBackoffMs = 30000;
   
   // ── 檔位探測 (Gear Probe) ────────────────────────────────────────────────
   // 目的是找出這台車回報檔位的來源。候選連續 _kGearMaxMiss 次沒回應就淘汰：
@@ -2170,7 +2186,7 @@ class ObdSppService with ChangeNotifier {
     _igmpHeaderLocked = null;
     _igmpFailStreak = 0;
     _igmpPollBusy = false;
-    _igmpGiveUp = false;
+    _igmpRetryAtMs = 0;
     _fuelBuffer.clear();
   }
 
@@ -2723,7 +2739,6 @@ class ObdSppService with ChangeNotifier {
   Future<void> _pollIgmp() async {
     if (!_isConnected) return;
     if (_busReserved) return; // 掃描或拍快照期間讓出匯流排
-    if (_igmpGiveUp) return;
     if (_igmpPollBusy) return; // 上一輪還沒跑完，跳過避免疊在一起
 
     // 依車速決定實際間隔：車門與門鎖幾乎只在靜止時變動，行進間查得再勤
@@ -2731,6 +2746,7 @@ class ObdSppService with ChangeNotifier {
     // 用「固定每秒一拍 + 跳拍」而不是遞迴重排，是為了避免某一拍提早
     // return 就再也不排程（舊的倒車輪詢就有這個死角）。
     final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs < _igmpRetryAtMs) return; // 探測失敗後的暫停期
     final bool moving = (speed ?? 0) > 5;
     final int minGapMs = moving ? 3000 : 1000;
     if (nowMs - _lastIgmpPollMs < minGapMs) return;
@@ -2791,8 +2807,9 @@ class ObdSppService with ChangeNotifier {
       } else if (_igmpHeaderLocked == null &&
           _igmpFailStreak >= _igmpMaxProbes) {
         _log('[Headlights] 兩個 Header 各試 $_igmpMaxProbes 次都失敗，'
-            '停止大燈輪詢（本車可能不支援 22BC09）。重新連線後會再試');
-        _igmpGiveUp = true;
+            '暫停 ${_igmpBackoffMs ~/ 1000} 秒後再探測');
+        _igmpFailStreak = 0;
+        _igmpRetryAtMs = nowMs + _igmpBackoffMs;
       }
     } finally {
       _igmpPollBusy = false;

@@ -669,8 +669,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // 開頭先放整趟的事件紀錄（連線、Header 鎖定、探測失敗…），
+  // 後面才是最近約 50 秒的完整收發
   Future<void> _exportLogs() => _shareLogFile(
-        _visibleLogs,
+        [
+          '===== 事件紀錄（不含輪詢收發） =====',
+          ...ObdSppService().eventHistory,
+          '',
+          '===== 最近完整紀錄 =====',
+          ..._visibleLogs,
+        ],
         'NX4Board_log',
         'NX4Board Log Export',
       );
