@@ -1161,10 +1161,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     return WithForegroundTask(
       child: PopScope(
-        // 黑屏時返回鍵只退出黑屏，不離開 App
-        canPop: !_blackout,
+        // 返回鍵（含螢幕邊緣滑動）一律不離開儀表：手機架在車上，邊緣常被誤觸，
+        // 曾在行駛中把 App 關掉（2026-10-03）。黑屏時返回只退出黑屏；
+        // 要結束 App 用右上角的電源鍵
+        canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _exitBlackout();
+          if (!didPop && _blackout) _exitBlackout();
         },
         child: Scaffold(
           backgroundColor: Colors.black,
