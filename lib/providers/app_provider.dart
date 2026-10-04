@@ -584,15 +584,20 @@ class AppProvider extends ChangeNotifier {
         camInfo == null ? null : '${camInfo['lat']}_${camInfo['lon']}';
     if (_alertedCameraInfo != null && currentCamId != _alertedCameraId) {
       // 區間起點不念：那是區間的開始，要等區間終點才算通過
-      if (_alertedCameraInfo!['kind'] != CameraKind.zoneStart.name &&
-          _cameraBehindAndClose(_alertedCameraInfo!, position,
-              camService.lastHeading)) {
-        if (TtsService().speakCameraPassed(_alertedCameraInfo!)) {
-          _cameraPassedCount++;
+      if (_alertedCameraInfo!['kind'] != CameraKind.zoneStart.name) {
+        if (_cameraBehindAndClose(_alertedCameraInfo!, position, camService.lastHeading)) {
+          _speakPassed(_alertedCameraInfo!);
+        } else {
+          // 相機在 20 m 內就從清單移除，但國道上 2 秒一筆定位（100 km/h 一步 55 m），
+          // 移除的那一刻常常還在前方 10~20 m。先記著，等真的到了身後再念
+          // （2026-10-03 國3 大甲→龍井：4 支提示中 2 支因此沒念「通過」）
+          _pendingPassed = _alertedCameraInfo;
+          _pendingPassedUntil = DateTime.now().add(_pendingPassedWindow);
         }
       }
       _alertedCameraInfo = null;
     }
+    _checkPendingPassed(position, camService.lastHeading);
 
     if (camInfo != null) _alertedCameraId = currentCamId;
 
@@ -693,6 +698,31 @@ class AppProvider extends ChangeNotifier {
       TtsService().speak('已進入區間測速路段${limit != null ? '，速限 $limit' : ''}');
     }
     _pendingZone = null;
+  }
+
+  /// 從清單移除時還在前方、尚未念「通過」的相機，見 [_checkPendingPassed]
+  Map<String, dynamic>? _pendingPassed;
+  DateTime? _pendingPassedUntil;
+  static const Duration _pendingPassedWindow = Duration(seconds: 20);
+
+  void _speakPassed(Map<String, dynamic> cam) {
+    if (TtsService().speakCameraPassed(cam)) _cameraPassedCount++;
+  }
+
+  /// 待確認的相機到了身後（[_passedMaxDistKm] 內）就念「通過」；逾時或越離越遠就放棄
+  void _checkPendingPassed(Position pos, double? heading) {
+    final cam = _pendingPassed;
+    if (cam == null) return;
+    if (_cameraBehindAndClose(cam, pos, heading)) {
+      _speakPassed(cam);
+      _pendingPassed = null;
+      return;
+    }
+    final d = CameraAlgorithm.haversine(pos.latitude, pos.longitude,
+        (cam['lat'] as num).toDouble(), (cam['lon'] as num).toDouble());
+    if (DateTime.now().isAfter(_pendingPassedUntil!) || d > _passedMaxDistKm * 2) {
+      _pendingPassed = null;
+    }
   }
 
   bool _cameraBehindAndClose(
