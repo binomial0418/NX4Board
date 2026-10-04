@@ -100,8 +100,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   // 都掛在本 State 上，不受影響。螢幕常亮（wakelock）刻意保留：App 維持
   // 前景，不必依賴背景定位與廠牌的背景限制。
   //
-  // 必須永遠叫得回來：輕觸任何位置、返回鍵都會退出；剛進入或 App 回到
-  // 前景時先以原亮度顯示提示 [_blackoutHintDuration]，之後才把視窗調暗。
+  // 必須永遠叫得回來，但不能一碰就回來（車上常誤觸，黑屏就失去意義）：
+  // 輕觸任何位置或按返回鍵只會亮起提示與滑動開關，把開關滑到底才退出。
+  // 剛進入或 App 回到前景時同樣先以原亮度顯示 [_blackoutHintDuration]，
+  // 之後才把視窗調暗；滑動中會重新計時。
   //
   // 使用者進入/退出時存進 SettingsService.blackoutMode；熄火睡眠不改它，
   // App 重啟與插電喚醒都照最後狀態呈現。
@@ -499,15 +501,26 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildBlackout() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _exitBlackout,
+      // 輕觸只叫出滑動開關，不退出黑屏
+      onTap: _showBlackoutHint,
       child: SizedBox.expand(
         child: _blackoutHint
-            ? const Center(
-                child: Text(
-                  '黑屏中，背景服務持續運作\n輕觸螢幕任意處返回',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white54, fontSize: 20),
-                ),
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    '黑屏中，背景服務持續運作\n將下方開關滑到底返回儀表',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontSize: 20),
+                  ),
+                  const SizedBox(height: 32),
+                  _SlideToConfirm(
+                    label: '滑動返回儀表',
+                    onConfirmed: _exitBlackout,
+                    // 滑動中重新計時，避免滑到一半畫面就調暗
+                    onInteraction: _showBlackoutHint,
+                  ),
+                ],
               )
             : null,
       ),
@@ -1166,7 +1179,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         // 要結束 App 用右上角的電源鍵
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop && _blackout) _exitBlackout();
+          // 黑屏時返回鍵只叫出滑動開關，不直接退出（螢幕邊緣誤觸會觸發返回）
+          if (!didPop && _blackout) _showBlackoutHint();
         },
         child: Scaffold(
           backgroundColor: Colors.black,
@@ -1429,3 +1443,107 @@ class _StatusBadge extends StatelessWidget {
     );
   }
 }
+
+/// 滑動開關：把圓鈕拖到軌道最右端才觸發 [onConfirmed]，中途放手會彈回。
+/// 用在黑屏退出，避免車上誤觸一下就切回儀表。
+class _SlideToConfirm extends StatefulWidget {
+  final String label;
+  final VoidCallback onConfirmed;
+  final VoidCallback? onInteraction;
+
+  const _SlideToConfirm({
+    required this.label,
+    required this.onConfirmed,
+    this.onInteraction,
+  });
+
+  @override
+  State<_SlideToConfirm> createState() => _SlideToConfirmState();
+}
+
+class _SlideToConfirmState extends State<_SlideToConfirm>
+    with SingleTickerProviderStateMixin {
+  static const double _width = 520;
+  static const double _height = 88;
+  static const double _knob = 76;
+  static const double _pad = 6;
+  static const double _maxX = _width - _knob - _pad * 2;
+
+  /// 拖到這個比例以上放手才算完成
+  static const double _threshold = 0.92;
+
+  double _x = 0;
+  late final AnimationController _back = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..addListener(() => setState(() => _x = _from * (1 - _back.value)));
+  double _from = 0;
+
+  @override
+  void dispose() {
+    _back.dispose();
+    super.dispose();
+  }
+
+  void _onUpdate(DragUpdateDetails d) {
+    _back.stop();
+    setState(() => _x = (_x + d.delta.dx).clamp(0.0, _maxX));
+    widget.onInteraction?.call();
+  }
+
+  void _onEnd(DragEndDetails _) {
+    if (_x >= _maxX * _threshold) {
+      setState(() => _x = _maxX);
+      widget.onConfirmed();
+      return;
+    }
+    _from = _x;
+    _back.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = _x / _maxX;
+    return Container(
+      width: _width,
+      height: _height,
+      padding: const EdgeInsets.all(_pad),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(_height / 2),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Center(
+            child: Opacity(
+              opacity: (1 - progress * 1.5).clamp(0.0, 1.0),
+              child: Text(
+                '${widget.label}  ›››',
+                style: const TextStyle(color: Colors.white54, fontSize: 22),
+              ),
+            ),
+          ),
+          Positioned(
+            left: _x,
+            child: GestureDetector(
+              onHorizontalDragUpdate: _onUpdate,
+              onHorizontalDragEnd: _onEnd,
+              child: Container(
+                width: _knob,
+                height: _knob,
+                decoration: const BoxDecoration(
+                  color: Colors.white70,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.chevron_right, color: Colors.black87, size: 44),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
