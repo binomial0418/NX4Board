@@ -140,6 +140,12 @@ class CameraService {
   /// 加上路寬約 10～20 m；平行道路多半相隔 40 m 以上（中位 97 m）。
   static const double _offRoadM = 30;
 
+  /// 正在提示的相機，錐角至少放寬到這個值。原本只有 +20°（20 m 內 +35°），
+  /// 換車道或準備轉彎時車頭偏個二、三十度就掉出錐外，下一筆回正又被當成新的
+  /// 提示，板子再念一次（10-04 西濱路二段：航向 201→167° 中斷，226 m 處重念）。
+  /// 真的轉進路口（約 90°）仍會結束提示。
+  static const double _alertedConeDeg = 60;
+
   /// 相機圖資（tools/edog_convert.py 產生，不進 git）。沒有時退回政府資料。
   static const String _edogAsset = 'assets/private/edog_cameras.csv';
 
@@ -308,7 +314,9 @@ class CameraService {
       final double off = CameraAlgorithm.angleDiff(bearing, userHeading);
       final String key = '${cam.latitude}_${cam.longitude}';
       double cone = CameraRules.coneDeg(cam.angleTol, turning: turning);
-      if (key == _alertKey) cone += _alertLastM < 20 ? 35 : 20;
+      if (key == _alertKey) {
+        cone = max(cone + (_alertLastM < 20 ? 35 : 20), _alertedConeDeg);
+      }
       if (off > cone) continue;
 
       // 受測方向：有方位角的圖資比對「車→相機方位」；政府資料只有文字方向，比對航向
