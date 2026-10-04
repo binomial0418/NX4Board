@@ -18,9 +18,15 @@ import 'speed_limit_service.dart';
 /// 衛星總數本身會隨時段與手機位置浮動，不拿來當門檻。
 ///
 /// 判定（每秒一筆，原生端 GnssSkyMonitor 在背景執行緒算好摘要）：
-///   - 頭頂被擋：頭頂該有 ≥ [minHiTotal] 顆、強訊號 0 顆，連續 [persistS] 秒
-///   - 頭頂開闊：頭頂強訊號 ≥ [openHiStrong] 顆，連續 [persistS] 秒
-///   - 其他（含定位衛星不足、資料超過 [staleMs] 沒更新）：unknown
+///   - 頭頂被擋：用於定位的衛星 ≤ [blockedMaxUsed] 且頭頂強訊號 ≤ [blockedMaxHiStrong]
+///     （頭頂該有 ≥ [minHiTotal] 顆），連續 [persistS] 秒
+///   - 頭頂開闊：用於定位的衛星 ≥ [openMinUsed] 且頭頂強訊號 ≥ [openHiStrong]，連續 [persistS] 秒
+///   - 其他、資料超過 [staleMs] 沒更新：unknown
+///
+/// 門檻依 2026-10-03/04 兩天實車（1,440 筆）：高架上用於定位的衛星 p5 17 顆、中位 23；
+/// 已知在台61 下的港埠路 6~8 顆、頭頂強訊號 0~2（其中 1、2 交替出現，原本「連續 3 秒為 0」
+/// 幾乎判不到，還把兩秒的 2 當成開闊、把車推上高架）。一般道路 8~25，只在重疊路段才用，
+/// 所以市區衛星少不會誤判。衛星幾乎全失（< 4 顆）也算被擋——那正是橋下最深處。
 ///
 /// 另外每個定位點記一行到 sky_YYYYMMDD.jsonl（設定頁可匯出），之後用實際行車
 /// 資料調門檻。
@@ -32,6 +38,9 @@ class SkyService {
   static const _channel = EventChannel('com.duckegg.nx4board/gnss_sky');
 
   static const int minHiTotal = 3;
+  static const int blockedMaxUsed = 10;
+  static const int blockedMaxHiStrong = 1;
+  static const int openMinUsed = 15;
   static const int openHiStrong = 2;
   static const int persistS = 3;
   static const int staleMs = 3000;
@@ -65,12 +74,10 @@ class SkyService {
     final used = (e['used'] as num?)?.toInt() ?? 0;
     final hiTotal = (e['hiTotal'] as num?)?.toInt() ?? 0;
     final hiStrong = (e['hiStrong'] as num?)?.toInt() ?? 0;
-    if (used < 4) {
-      _blockedRun = _openRun = 0;
-    } else if (hiTotal >= minHiTotal && hiStrong == 0) {
+    if (hiTotal >= minHiTotal && used <= blockedMaxUsed && hiStrong <= blockedMaxHiStrong) {
       _blockedRun++;
       _openRun = 0;
-    } else if (hiStrong >= openHiStrong) {
+    } else if (used >= openMinUsed && hiStrong >= openHiStrong) {
       _openRun++;
       _blockedRun = 0;
     } else {

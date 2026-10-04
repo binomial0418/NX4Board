@@ -237,6 +237,9 @@ class SpeedLimitService {
   /// 最近一次實際套用的天空證據（不在高架重疊路段時為 unknown），見 [RoadTracker.update]
   SkyView get lastSkyApplied => _tracker.lastSkyApplied;
 
+  /// 定位精度（手機回報）比這個差就不更新追蹤，見 [detectNearbyLimit]
+  static const double maxTrustedAccuracyM = 50;
+
   /// 偵測目前路段速限。
   ///
   /// [headingDeg] 與 [speedKmh] 用於排除平行道路；靜止時 heading 不可靠，
@@ -252,6 +255,13 @@ class SpeedLimitService {
     SkyView sky = SkyView.unknown,
   }) {
     if (!_initialized) return null;
+
+    // 定位精度差到這個程度時，手機給的多半是自己沿原航向推算的位置（2026-10-04 台61 下：
+    // 衛星 4→0 顆，精度 110~150 m，位置是一條等速直線），拿來追蹤只會漂到高架上。
+    // 維持上一次的道路與速限，等衛星回來再更新
+    if (accuracyM != null && accuracyM > maxTrustedAccuracyM && _currentRoad != null) {
+      return _currentLimit;
+    }
 
     final tiles = OsmTileService();
     tiles.prefetchAround(lat, lng);
