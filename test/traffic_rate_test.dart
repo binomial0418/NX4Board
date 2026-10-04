@@ -49,6 +49,12 @@ class _FakeApi implements TdxApi {
     return {};
   }
 
+  @override
+  Future<Map<String, List<CmsMessage>>> cmsMessages(String api, List<String> ids) async {
+    _record(ids.length);
+    return {};
+  }
+
   int maxInWindow(Duration w) {
     int best = 0, j = 0;
     for (int i = 0; i < calls.length; i++) {

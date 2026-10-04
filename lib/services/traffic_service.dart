@@ -117,6 +117,19 @@ class RampPreview {
   });
 }
 
+/// 前方資訊可變標誌（路上的文字看板）上的事件訊息
+class CmsNotice {
+  final String cmsId;
+
+  /// 看板文字（空白已正規化）
+  final String text;
+
+  /// 從目前位置到看板的距離（公尺）
+  final double distanceM;
+
+  const CmsNotice(this.cmsId, this.text, this.distanceM);
+}
+
 class _Live {
   final double? speed;
   final DateTime fetchedAt;
@@ -196,6 +209,21 @@ class TrafficService {
   TdxApi? _client;
 
   final Map<String, _Live> _live = {};
+
+  /// 資訊可變標誌的即時訊息：CMSID → (訊息, 查詢時間)
+  final Map<String, (List<CmsMessage>, DateTime)> _cms = {};
+
+  /// 看板只列前方這麼遠的。比路況的 [scanKm] 短：看板內容多半講的是它附近的事
+  static const double cmsScanKm = 8;
+
+  /// 同一則看板文字在這段時間內只念一次（同一訊息常連續出現在好幾面看板上）
+  static const Duration cmsAnnounceCooldown = Duration(minutes: 30);
+  final Map<String, DateTime> _cmsAnnounced = {};
+
+  CmsNotice? _cmsAhead;
+
+  /// 前方最近一面顯示事件訊息（事故、壅塞、施工、封閉…）的看板；沒有為 null
+  CmsNotice? get cmsAhead => _cmsAhead;
 
   /// 主線：目前所在路段（比對不到時保留 [holdOnLoss]）與前方路段
   SectionPosition? _pos;
@@ -374,6 +402,7 @@ class TrafficService {
     _pos = null;
     _ahead = const [];
     _state = null;
+    _cmsAhead = null;
     _lostSince = null;
   }
 
@@ -493,6 +522,7 @@ class TrafficService {
         congestion: findCongestion(segments, pos.km, pos.section.kmSign),
       );
     }
+    _cmsAhead = _findCmsAhead();
 
     _previews = [
       for (final r in _ramps)
@@ -516,6 +546,45 @@ class TrafficService {
           );
         }(),
     ];
+  }
+
+  /// 前方 [cmsScanKm] 內最近一面顯示事件訊息的看板
+  CmsNotice? _findCmsAhead() {
+    final pos = _pos;
+    if (pos == null) return null;
+    for (final a in _ahead) {
+      if (a.distanceM > cmsScanKm * 1000) break;
+      final current = identical(a.section, pos.section);
+      for (final (id, along) in a.section.cms) {
+        final d = current ? along - pos.alongM : a.distanceM + along;
+        if (d <= 0 || d > cmsScanKm * 1000) continue;
+        final live = _cms[id];
+        if (live == null) continue;
+        for (final m in live.$1) {
+          final text = normalizeCms(m.text);
+          if (isCmsEvent(text, m.type)) return CmsNotice(id, text, d);
+        }
+      }
+    }
+    return null;
+  }
+
+  static String normalizeCms(String text) => text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  static final RegExp _cmsEventWords =
+      RegExp(r'事故|車禍|追撞|壅塞|擁塞|回堵|施工|封閉|封\(|改道|管制|落物|散落|濃霧|淹水|火警|故障車|事件');
+  static final RegExp _cmsNotEvent =
+      RegExp(r'請撥打|專線|0800|補助|備妥|應於後方|開罰|宣導|月車禍死亡|勿疲勞|-99');
+
+  /// 看板訊息是不是事件（事故、壅塞、施工、封閉…），而不是宣導、收費或旅行時間。
+  /// 國道看板有分類：Type 7 是事件／施工，Type 1 旅行時間一律不算；省道看板沒有分類，
+  /// 只靠字詞。實測（2026-10-03）國道 977 則中事件 162 則、省道 1795 則中 465 則，
+  /// 「散落物請撥打 0800…」「○○縣 9 月車禍死亡 4 人」這類宣導另外排除。
+  @visibleForTesting
+  static bool isCmsEvent(String text, int? type) {
+    if (text.isEmpty || type == 1) return false;
+    if (_cmsNotEvent.hasMatch(text)) return false;
+    return type == 7 || _cmsEventWords.hasMatch(text);
   }
 
   /// 前方第一段連續的緩慢／壅塞。路段之間相隔超過 100 公尺（資料缺段）就視為中斷。
@@ -609,7 +678,24 @@ class TrafficService {
         }
       }
 
+      // 前方看板的即時訊息（只查主線前方 cmsScanKm 內的；閘道預知不查）
+      final mainIds = {for (final a in _ahead) if (a.distanceM <= cmsScanKm * 1000) a.section.id};
+      for (final api in const ['F', 'P']) {
+        final ids = [
+          for (final s in sections)
+            if (s.liveApi == api && mainIds.contains(s.id))
+              for (final c in s.cms) c.$1,
+        ];
+        if (ids.isEmpty) continue;
+        final msgs = await client.cmsMessages(api == 'F' ? 'Freeway' : 'Highway', ids);
+        final at = _now();
+        for (final id in ids) {
+          _cms[id] = (msgs[id] ?? const [], at);
+        }
+      }
+
       final now = _now();
+      _cms.removeWhere((_, v) => now.difference(v.$2) > const Duration(minutes: 10));
       // 沒有資料的路段也記下，避免每 20 秒重查一次
       for (final s in sections) {
         _live[s.id] = _Live(speeds[s.id], now);
@@ -656,6 +742,18 @@ class TrafficService {
       return;
     }
 
+    // 前方看板的事件訊息：同一則文字在冷卻時間內只念一次
+    final cms = _cmsAhead;
+    if (cms != null && speedKmh >= 10) {
+      final last = _cmsAnnounced[cms.text];
+      if (last == null || now.difference(last) >= cmsAnnounceCooldown) {
+        _cmsAnnounced[cms.text] = now;
+        _cmsAnnounced.removeWhere((_, t) => now.difference(t) >= cmsAnnounceCooldown);
+        _speak(cmsAnnouncementFor(cms));
+        return;
+      }
+    }
+
     final s = _state;
     final c = s?.congestion;
     if (s == null || c == null || !s.isFastRoad) return;
@@ -666,6 +764,10 @@ class TrafficService {
     _alertCount++;
     _speak(announcementFor(c));
   }
+
+  /// 例：「前方看板：國1 高架北向27-25K壅塞 車速40以下」
+  @visibleForTesting
+  static String cmsAnnouncementFor(CmsNotice n) => '前方看板：${n.text}';
 
   /// 例：「前方1.2公里壅塞，長約3公里，車速25」
   @visibleForTesting
