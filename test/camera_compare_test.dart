@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:nx4board/services/camera_layer.dart';
 import 'package:nx4board/services/camera_service.dart';
 import 'package:nx4board/services/current_road_distance.dart';
 import 'package:nx4board/services/osm_tile_service.dart';
@@ -90,6 +91,7 @@ void main() {
         final newSvc = CameraService()..setCamerasForTest(camsNew);
         final oldSvc = v1.CameraService()..setCamerasForTest(camsOld);
         final roadDist = CurrentRoadDistance();
+        final layers = CameraLayerClassifier();
         String? oldAlertedId;
         var t = DateTime(2026);
         bool alerted = false, passed = false;
@@ -147,12 +149,23 @@ void main() {
             }
           } else {
             newSvc.addPosition(pos);
+            // 與 AppProvider 相同：重疊道路有把握時排除另一層的相機
+            final ov = sl.overlap;
+            bool Function(SpeedCamera)? skip;
+            if (ov != null && ov.resolved) {
+              final other = ov.onUpper! ? CameraLayer.lower : CameraLayer.upper;
+              skip = (cam) =>
+                  layers.classify(ov, cam.latitude, cam.longitude, cam.heading, cam.limit,
+                      redLight: cam.kind == CameraKind.redLight, typeCode: cam.typeCode) ==
+                  other;
+            }
             final info = c == 'C'
                 ? newSvc.checkNearbyCamera(
                     currentRoadType: effective,
                     surfaceConfirmed: sl.surfaceConfirmed,
                     roadLimit: roadLimit,
-                    distanceToCurrentRoadM: distFn)
+                    distanceToCurrentRoadM: distFn,
+                    skipCamera: skip)
                 : newSvc.checkNearbyCamera();
             if (info != null) alertKey = '${info['lat']}_${info['lon']}';
           }

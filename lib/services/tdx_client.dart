@@ -43,9 +43,20 @@ class RateLimiter {
 }
 
 /// [TrafficService] 用到的 TDX 查詢，抽出來讓測試可以換成假的實作
+/// 資訊可變標誌上的一則訊息。[type] 只有國道有：1 旅行時間、6 宣導／收費、7 事件／施工
+class CmsMessage {
+  final String text;
+  final int? type;
+  const CmsMessage(this.text, this.type);
+}
+
 abstract class TdxApi {
   Future<Map<String, double>> sectionSpeeds(String api, List<String> ids);
   Future<Map<String, Map<String, double>>> vdLinkSpeeds(List<String> vdIds);
+
+  /// 資訊可變標誌目前顯示的訊息：CMSID → 訊息（空白看板為空清單）。[api] 為
+  /// 'Freeway' 或 'Highway'。
+  Future<Map<String, List<CmsMessage>>> cmsMessages(String api, List<String> ids);
 }
 
 /// TDX 即時路況 API。只查指定的路段或 VD，一次回應幾百 bytes，
@@ -188,6 +199,26 @@ class TdxClient implements TdxApi {
           if (n > 0) links[f['LinkID'] as String] = sum / n;
         }
         out[vd['VDID'] as String] = links;
+      }
+    }
+    return out;
+  }
+
+  @override
+  Future<Map<String, List<CmsMessage>>> cmsMessages(String api, List<String> ids) async {
+    final out = <String, List<CmsMessage>>{};
+    for (int i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, (i + chunkSize).clamp(0, ids.length));
+      final json = await _get('Live/CMS/$api', {
+        r'$select': 'CMSID,Messages',
+        r'$filter': _orFilter('CMSID', chunk),
+      }) as Map<String, dynamic>;
+      for (final item in (json['CMSLives'] as List? ?? const [])) {
+        final m = item as Map<String, dynamic>;
+        out[m['CMSID'] as String] = [
+          for (final msg in (m['Messages'] as List? ?? const []))
+            CmsMessage(((msg as Map)['Text'] as String? ?? '').trim(), (msg['Type'] as num?)?.toInt()),
+        ];
       }
     }
     return out;

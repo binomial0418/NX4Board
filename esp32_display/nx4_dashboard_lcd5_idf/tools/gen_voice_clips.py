@@ -47,6 +47,13 @@ CLIPS = [
     ("zone_start", "進入區間測速路段"),
 ] + [(f"camera_{n}", f"前有測速照相，速限{n}") for n in SPEED_LIMITS]
 
+# 重疊道路沒把握時，相機帶層級（App 送 camera.layer）：整句預錄，不拼接
+LAYERS = [("level_upper", "高架上"), ("level_lower", "高架下"),
+          ("lane_upper", "快車道"), ("lane_lower", "慢車道")]
+for _tag, _name in LAYERS:
+    CLIPS += [(f"cam_{_tag}", f"{_name}測速照相"), (f"red_{_tag}", f"{_name}闖紅燈照相")]
+    CLIPS += [(f"cam_{_tag}_{n}", f"{_name}測速照相，速限{n}") for n in SPEED_LIMITS]
+
 # ── IMA ADPCM ────────────────────────────────────────────────────────────
 # 韌體端 nx4_voice_decode() 必須與這裡逐位元一致，改一邊就要改另一邊。
 STEP_TAB = [

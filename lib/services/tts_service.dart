@@ -115,10 +115,12 @@ class TtsService {
       msg = "進入區間測速路段";
       if (limit != null) msg += "，速限 $limit";
     } else {
+      // 重疊道路沒把握時，相機帶有層級（「高架下」「快車道」…）
+      final String? layer = camInfo['layer_label'];
       msg = switch (camInfo['kind']) {
-        'redLight' => "前有闖紅燈照相",
+        'redLight' => layer != null ? "$layer闖紅燈照相" : "前有闖紅燈照相",
         'zoneEnd' => "區間測速終點",
-        _ => "前有測速照相",
+        _ => layer != null ? "$layer測速照相" : "前有測速照相",
       };
       if (limit != null) msg += "，速限 $limit";
       final String direct = camInfo['direct'] ?? '';

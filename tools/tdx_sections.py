@@ -14,6 +14,7 @@ App 用折線比對目前所在路段，再依里程列出前方路段，按段�
     Section/Freeway, SectionShape/Freeway      國道 456 段
     Section/Highway, SectionShape/Highway      省道 6831 段（含台61～88 快速公路）
     VD/Highway                                 LinkID → VDID 對照
+    CMS/Freeway, CMS/Highway                   資訊可變標誌（路上的文字看板）位置
 
 台66～88 等東西向快速公路在 Live/Highway 沒有路段車速，每段另外記錄對應的 VD，
 App 端改查 VD 補上。對應有兩個來源，取聯集：
@@ -29,7 +30,8 @@ App 端改查 VD 補上。對應有兩個來源，取聯集：
         {"i": SectionID, "s": "F" 國道 / "P" 省道, "r": 路線編號（對應 OSM ref，如 "1"、"61"、"3甲"）,
          "n": 顯示用路名, "d": 方向（N/NE/…）, "a": 起點里程 km, "b": 終點里程 km,
          "l": 速限（國道才有，其餘 0）, "v": {VDID: [LinkID, ...]}（僅省道，可能為空）,
-         "p": 折線，[lon, lat] 以 1e-5 度為單位的整數，第一點為絕對值、其後為差值}
+         "p": 折線，[lon, lat] 以 1e-5 度為單位的整數，第一點為絕對值、其後為差值,
+         "c": [[CMSID, 沿折線距離 m], ...]（立在這段上的資訊可變標誌，依位置排序；可省略）}
     ]}
 
 折線點序即行車方向（實測 95% 路段頭尾方位與 RoadDirection 相差 60° 內，其餘為彎道），
@@ -57,6 +59,11 @@ SIMPLIFY_M = 3.0
 # VD 幾何配對：到路段折線的距離上限，與偵測方向和折線方位的容許差（8 方位的半格再加一半）
 VD_RADIUS_M = 30.0
 VD_BEARING_TOL = 67.5
+
+# 資訊可變標誌（CMS）掛到路段：離同向路段折線這麼近才算在這條路上。
+# 看板多立在路肩或門架上，離車道中心線十幾公尺；30 m 可避開側車道與對向
+CMS_RADIUS_M = 30
+CMS_BEARING_TOL = 67.5
 COMPASS = {'N': 0, 'NE': 45, 'E': 90, 'SE': 135, 'S': 180, 'SW': 225, 'W': 270, 'NW': 315}
 
 OUT = os.path.join(os.path.dirname(__file__), '..', 'assets', 'tdx_sections.json.gz')
@@ -162,12 +169,13 @@ def simplify(points, tol_m):
     return [p for p, k in zip(points, keep) if k]
 
 
-def project(points, lon, lat):
-    """點到折線的投影：(距離 m, 線段方位, 是否落在端點外)"""
+def project(points, lon, lat, with_along=False):
+    """點到折線的投影：(距離 m, 線段方位, 是否落在端點外[, 沿折線距離 m])"""
     kx = 111320.0 * math.cos(math.radians(lat))
     ky = 110574.0
     best = None
     last = len(points) - 2
+    run = 0.0
     for i in range(len(points) - 1):
         ax, ay = (points[i][0] - lon) * kx, (points[i][1] - lat) * ky
         bx, by = (points[i + 1][0] - lon) * kx, (points[i + 1][1] - lat) * ky
@@ -177,8 +185,10 @@ def project(points, lon, lat):
         d = math.hypot(ax + t * dx, ay + t * dy)
         if best is None or d < best[0]:
             outside = (i == 0 and t == 0.0) or (i == last and t == 1.0)
-            best = (d, (math.degrees(math.atan2(dx, dy)) + 360) % 360, outside)
-    return best
+            best = (d, (math.degrees(math.atan2(dx, dy)) + 360) % 360, outside,
+                    run + t * math.sqrt(length_sq))
+        run += math.sqrt(length_sq)
+    return best if with_along else best[:3]
 
 
 def angle_diff(a, b):
@@ -231,6 +241,8 @@ def main():
          fetch(token, 'SectionShape/Highway', 'SectionShapes')),
     ]
     vds = fetch(token, 'VD/Highway', 'VDs')
+    cmss = [('F', c) for c in fetch(token, 'CMS/Freeway', 'CMSs')] + \
+           [('P', c) for c in fetch(token, 'CMS/Highway', 'CMSs')]
 
     link_to_vd = {}
     vds_by_road = {}
@@ -291,6 +303,64 @@ def main():
                 'p': encode_points(simple),
             })
 
+    # ── 資訊可變標誌掛到路段 ──────────────────────────────────────────────
+    # 依位置與方向：離同向折線 CMS_RADIUS_M 內、最近的路段；方向 '0'（約 85 面國道
+    # 看板，多在匝道或門架中央）不比方向。同一份即時資料（F/P）的路段才配對，
+    # 查即時訊息時才知道該用 Live/CMS/Freeway 還是 Highway。
+    decoded = []
+    for sec in sections:
+        pts, x, y = [], 0, 0
+        for i in range(0, len(sec['p']), 2):
+            x += sec['p'][i]; y += sec['p'][i + 1]
+            pts.append((x / 1e5, y / 1e5))
+        decoded.append(pts)
+    cms_attached = cms_skipped = by_km = 0
+    for api, cms in cmss:
+        lon, lat = cms.get('PositionLon'), cms.get('PositionLat')
+        if lon is None or lat is None:
+            cms_skipped += 1
+            continue
+        want = COMPASS.get(cms.get('RoadDirection', ''))
+        best = None
+        for sec, pts in zip(sections, decoded):
+            if sec['q'] != api:
+                continue
+            xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+            if not (min(xs) - 0.001 <= lon <= max(xs) + 0.001 and min(ys) - 0.001 <= lat <= max(ys) + 0.001):
+                continue
+            d, bearing, outside, along = project(pts, lon, lat, with_along=True)
+            if d > CMS_RADIUS_M or outside:
+                continue
+            if want is not None and angle_diff(want, bearing) > CMS_BEARING_TOL:
+                continue
+            if best is None or d < best[0]:
+                best = (d, sec, along)
+        if best is None and api == 'F':
+            # 國道看板的座標常偏離數百公尺（實測近半數離同向折線 >150 m），但里程與方向
+            # 可靠：同編號、同方向、里程落在起訖之間的路段，沿折線位置依里程內插
+            key = road_key(cms.get('RoadName', ''))
+            km = parse_km(cms.get('LocationMile'))
+            d_ = cms.get('RoadDirection', '')
+            if key is not None and km is not None and d_ in COMPASS:
+                for sec, pts in zip(sections, decoded):
+                    if sec['q'] != api or (sec['s'], sec['r']) != key or sec['d'] != d_:
+                        continue
+                    lo, hi = sorted((sec['a'], sec['b']))
+                    if lo <= km <= hi and sec['a'] != sec['b']:
+                        length = sum(math.hypot((q[0] - p[0]) * 111320 * math.cos(math.radians(p[1])),
+                                                (q[1] - p[1]) * 110574) for p, q in zip(pts, pts[1:]))
+                        best = (0, sec, length * (km - sec['a']) / (sec['b'] - sec['a']))
+                        by_km += 1
+                        break
+        if best is None:
+            cms_skipped += 1
+            continue
+        best[1].setdefault('c', []).append([cms['CMSID'], round(best[2])])
+        cms_attached += 1
+    for sec in sections:
+        if 'c' in sec:
+            sec['c'].sort(key=lambda c: c[1])
+
     payload = {
         'version': 1,
         'updated': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
@@ -308,6 +378,8 @@ def main():
           f'{with_vd} 段有 VD 對照）')
     print(f'  略過 {skipped}')
     print(f'  折線點 {points_before} → {points_after}')
+    print(f'  資訊可變標誌 {cms_attached} 面掛上路段（其中國道 {by_km} 面依里程），'
+          f'{cms_skipped} 面略過')
     print(f'  {args.out}: {os.path.getsize(args.out) / 1024:.0f} KB')
     return 0
 

@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/settings_service.dart';
+import '../services/sky_service.dart';
 import '../services/traffic_service.dart';
 import '../services/obd_spp_service.dart';
 import '../services/tts_service.dart';
@@ -423,8 +424,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 週期中段模擬「高架與平面判別不出來」與「推定速限」，用來驗證 ESP32 的
       // ALT / EST 兩個標記；測速照相警示期間兩者應自動隱藏
       "limit_alt": cycle >= 60 && cycle < 120 ? 60 : 0,
-      // 前半段模擬「另一條在下面」、後半段「在上面」，兩個箭頭都能看到
+      // 前半段模擬「另一條在下面」、後半段「在上面」
       "limit_alt_above": cycle >= 90,
+      // 雙速限前半段有傾向（紅線）、後半段沒有
+      "limit_lean": cycle < 90,
       "limit_inferred": cycle >= 30 && cycle < 120,
       // 用絕對 tick 而非 cycle，否則每跑完一圈里程會倒退
       "odo": 33676 + t ~/ 40,
@@ -1405,6 +1408,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 16),
                   _buildGearProbeCard(),
+                  const SizedBox(height: 16),
+                  _buildSkyLogCard(),
                   const SizedBox(height: 24),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1651,6 +1656,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// 檔位觀察區。獨立於主日誌，專門收 startGearProbe() 的取樣，
   /// 顯示、匯出、清除都在這一張卡片裡完成。
+  /// 高架上下判斷紀錄（衛星摘要＋追蹤結果，每天一個檔）：匯出供分析、清除
+  Widget _buildSkyLogCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('高架上下判斷紀錄',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 4),
+            const Text('每個定位點記錄頭頂衛星訊號與道路判斷，用來調整高架上下的判斷門檻',
+                style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('清除'),
+                  onPressed: () async {
+                    await SkyService().clearLogs();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('已清除高架判斷紀錄')));
+                  },
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.ios_share),
+                  label: const Text('匯出'),
+                  onPressed: () async {
+                    final files = await SkyService().listLogs();
+                    if (!mounted) return;
+                    if (files.isEmpty) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('尚無紀錄')));
+                      return;
+                    }
+                    await Share.shareXFiles([for (final f in files) XFile(f.path)],
+                        subject: 'NX4Board 高架判斷紀錄');
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGearProbeCard() {
     return Card(
       child: Container(

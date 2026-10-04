@@ -16,7 +16,7 @@
 // {
 //   "_type": "esp32_dash",
 //   "speed": 75, "rpm": 1750, "coolant": 88, "soc": 65.5,
-//   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false,
+//   "fuel": 50, "speed_limit": 90, "limit_alt": 60, "limit_alt_above": false, "limit_lean": true,
 //   "odo": 33676, "turbo": 0.15, "throttle": 12, "reversing": false,
 //   "time": "18:04:37", "date": "09/01 週一",
 //   "tires": {"fl": 34, "fr": 34, "rl": 33, "rr": 33},
@@ -330,6 +330,7 @@ static void handleDashPayload(const char *payload, size_t length) {
     // 缺欄位時歸零，避免沿用上一包的舊值（判定恢復有把握後 ALT 才會消失）
     g_dash.limit_alt = j_int(doc, "limit_alt", 0);
     g_dash.limit_alt_above = j_bool(doc, "limit_alt_above", false);
+    g_dash.limit_lean = j_bool(doc, "limit_lean", false);
 
     const char *clock = j_str(doc, "time");
     if (clock && clock[0]) {
@@ -354,6 +355,8 @@ static void handleDashPayload(const char *payload, size_t length) {
                            : strcmp(kind, "zoneStart") == 0 ? NX4_CAM_ZONE_START
                                                            : NX4_CAM_SPEED;
         g_dash.camera_passed = j_int(camera, "passed", -1);
+        const char *layer = j_str(camera, "layer");
+        strlcpy(g_dash.camera_layer, layer ? layer : "", sizeof(g_dash.camera_layer));
     }
 
     // 前方路況（TDX）。traffic 整個缺席是舊版 App，維持不顯示；
@@ -508,6 +511,8 @@ static void onSettingsSource(bool direct, const char *obd_name) {
 ///
 /// 放在主迴圈而不是 WebSocket 的解析裡——直連 OBD 模式下大燈狀態來自 OBD，
 /// 不會隨著 WS 封包進來，擺在解析裡就不會觸發。
+static bool sayLayeredCamera(void);
+
 static void serviceVoice(void) {
     static bool said_high_beam = false;
     static bool said_camera = false;
@@ -519,7 +524,9 @@ static void serviceVoice(void) {
     // 警示期間換成另一種相機（例如紅燈照相後緊接測速）也要再念一次
     if (g_dash.camera_active &&
         (!said_camera || g_dash.camera_kind != said_kind)) {
-        switch (g_dash.camera_kind) {
+        if (sayLayeredCamera()) {
+            // 重疊道路帶層級的整句已念
+        } else switch (g_dash.camera_kind) {
         case NX4_CAM_RED_LIGHT: nx4_tts_say("red_light"); break;
         case NX4_CAM_OVERPASS:  nx4_tts_say("overpass"); break;
         case NX4_CAM_ZONE_END:  nx4_tts_say("zone_end"); break;
@@ -568,6 +575,26 @@ static void serviceVoice(void) {
         nx4_tts_say("door_open");
     }
     prev_speed = speed;
+}
+
+/// 重疊道路沒把握時，相機語音帶層級（「高架下測速照相，速限60」）。
+/// 只處理測速與闖紅燈；找不到對應語音檔（例如非整十速限）退回不帶速限的句子，
+/// 再不行回傳 false，交給一般語音。
+static bool sayLayeredCamera(void) {
+    const char *tag = g_dash.camera_layer;
+    if (!tag[0]) return false;
+    char name[40];
+    if (g_dash.camera_kind == NX4_CAM_RED_LIGHT) {
+        snprintf(name, sizeof(name), "red_%s", tag);
+    } else if (g_dash.camera_kind == NX4_CAM_SPEED) {
+        snprintf(name, sizeof(name), "cam_%s_%d", tag, g_dash.camera_limit);
+        if (!nx4_tts_has_clip(name)) snprintf(name, sizeof(name), "cam_%s", tag);
+    } else {
+        return false;
+    }
+    if (!nx4_tts_has_clip(name)) return false;
+    nx4_tts_say(name);
+    return true;
 }
 
 /// 把 OBD 解析結果搬進畫面資料。只搬「讀到過」的欄位，沒讀到的保留 "--"。

@@ -24,11 +24,14 @@ LV_FONT_DECLARE(nx4_font_num_310s);
 LV_FONT_DECLARE(nx4_font_num_96s);
 LV_FONT_DECLARE(nx4_font_num_145);
 LV_FONT_DECLARE(nx4_font_num_112);
-LV_FONT_DECLARE(nx4_font_num_127c);
+LV_FONT_DECLARE(nx4_font_num_106);
 LV_FONT_DECLARE(nx4_font_num_70);
 LV_FONT_DECLARE(nx4_font_num_64t);
-LV_FONT_DECLARE(nx4_font_num_70c);
-LV_FONT_DECLARE(nx4_font_num_84c);
+LV_FONT_DECLARE(nx4_font_num_58);
+LV_FONT_DECLARE(nx4_font_num_107s);
+LV_FONT_DECLARE(nx4_font_num_93s);
+LV_FONT_DECLARE(nx4_font_num_94);
+LV_FONT_DECLARE(nx4_font_num_82);
 LV_FONT_DECLARE(nx4_font_num_48);
 LV_FONT_DECLARE(nx4_font_tc_26);
 LV_FONT_DECLARE(nx4_font_tc_32);
@@ -41,9 +44,9 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define F_SPEED &nx4_font_num_310s
 #define F_RPM &nx4_font_num_96s
 #define F_VALUE &nx4_font_num_112
-// 時鐘用 Saira 的 Condensed（其他數字是 SemiCondensed）：時鐘卡被寬度卡死，
-// 窄一級的字才放得到 127px。
-#define F_CLOCK &nx4_font_num_127c
+// 時鐘與其他數字同為 Saira SemiCondensed。卡片被寬度卡死，106px 是上限；
+// 窄一級的 Condensed 可放到 127px，但與其他數字混排時字形比例不協調。
+#define F_CLOCK &nx4_font_num_106
 #define F_DATE &nx4_font_tc_48
 // 每張卡片各自的字級，不再共用一個 F_VALUE。
 // 之前全部共用 96px，是被 Hev 電池最寬的 "99.9"（四個字元）綁死的，
@@ -59,10 +62,11 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define F_COOLANT &nx4_font_num_145
 #define F_TURBO &nx4_font_num_64t
 #define F_THROTTLE &nx4_font_num_48  // 只有數字、'-'、'%'
-// 里程依位數換字級（Saira Condensed，理由同 F_CLOCK）：五位數以下 84px，六位數 70px，
-// 兩者都剛好塞滿 ODO_FIELD_W。
-#define F_ODO &nx4_font_num_84c
-#define F_ODO6 &nx4_font_num_70c
+// 里程依位數換字級：五位數以下 70px（與胎壓同一套字型）、六位數 58px，兩者都剛好
+// 塞滿 ODO_FIELD_W。用 SemiCondensed 而不是時鐘的 Condensed：這張卡下半部是油量，
+// 同一張卡混用窄版字會顯得不協調。
+#define F_ODO &nx4_font_num_70
+#define F_ODO6 &nx4_font_num_58
 #define F_LIMIT &nx4_font_num_145
 // 卡片抬頭用 32px，比內文標籤大一級。里程與油箱是「行內標籤」不是抬頭，
 // 維持 26px——它們與右側的數值同一列，放大會擠掉數值的位置。
@@ -156,20 +160,23 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 // 否則分隔線與油箱那一列會疊在一起。
 #define TITLE_Y 12
 
-// 速限卡片右上角的次要速限。字級由標題右緣到卡片右邊界的空檔決定：
-// 卡片 284 - 標題「道路速限」128 - 起點 20 - 右邊界 14 = 122px 可用。
-// 以 lv_font_conv 產生的字寬實測，montserrat_48 的最壞情況「↓120」要
-// 119.3px，只剩 2.7px 就貼上標題；44 的最壞情況 109.4px，留 12.6px。
-// 垂直上抬 2px，讓 44px 的字與 32px 的標題看起來在同一列。
-#define ALT_Y (TITLE_Y - 2)
-#define F_ALT &lv_font_montserrat_44
+// 雙速限（高架／平面、快慢車道兩種可能）：標題照舊，下方左右並排——
+// 左邊較高的速限用 SemiBold、右邊較低的用 Regular，以粗細區分。
+// 兩位數 107/94px，任一邊三位數時整組換 93/82px；兩組最寬都是 235px，
+// 卡片內 20..270 扣掉間距 14 剛好放得下。數字墨跡高 = 行高，底部對齊在 y=189。
+// 追蹤器有傾向（limit_lean）時，傾向的那一個數字下方畫一段紅線。
+#define DUAL_LEFT_X VALUE_X
+#define DUAL_RIGHT_X 270
+#define DUAL_BOTTOM 189
+#define DUAL_MARK_GAP 4
+#define DUAL_MARK_H 4
 // 日期 48px：基線在標籤頂下 43px，數字墨跡約 y=16..50、「週」到 54
 #define DATE_Y 7
-// 時鐘是少數被「寬度」而非高度卡死的："88:88" 在 127px Condensed 下佔 274px，
-// 起點 14 → 右緣 288，卡片寬 300。行高 90 即數字墨跡高，
-// 在日期下緣 +10（64）到卡片底 -10（195）之間置中 → 84
+// 時鐘是少數被「寬度」而非高度卡死的："88:88" 在 106px 下佔 272px，
+// 起點 14 → 右緣 286，卡片寬 300。行高 75 即數字墨跡高，
+// 在日期下緣 +10（64）到卡片底 -10（195）之間置中 → 92
 #define CLOCK_X 14
-#define CLOCK_Y 84
+#define CLOCK_Y 92
 #define TIRE_X0 (ACCENT_W + 18)
 #define TIRE_Y0 66
 // 80px 下 "88" 寬 102。欄距 180：左欄 24..126、右欄 204..306，
@@ -185,14 +192,14 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 // 上緣與列距各退 1~3px 吸收掉。
 #define TIRE_DY 80
 #define ODO_LABEL_Y 42   // 圖示行高 30（原中文標籤 32），下移 1px 維持原本的垂直中心
-// 數字墨跡高 = 行高（84px：60、70px：50），兩種字級中心都在 y=44
-#define ODO_VALUE_Y 14   // 84px：14..74
-#define ODO_VALUE_Y6 19  // 70px：19..69
+// 兩種字級的數字墨跡中心都在 y=44
+#define ODO_VALUE_Y 19   // 70px：墨跡 19..69
+#define ODO_VALUE_Y6 24  // 58px：墨跡 24..64
 // 里程是「圖示 XXXXXX」，不帶單位。數字欄固定寬度、靠右對齊，個位數位置固定。
-// 70 = 圖示起點 20 + 圖示 40 + 間距 10；206 = "88888" 在 84px、"888888" 在 70px
-// 的寬度，右緣 276，卡片寬 284。
+// 70 = 圖示起點 20 + 圖示 40 + 間距 10；207 = "88888" 在 70px（206.6）、"888888" 在
+// 58px（205.5）的寬度，右緣 277，卡片寬 284。
 #define ODO_VALUE_X 70
-#define ODO_FIELD_W 206
+#define ODO_FIELD_W 207
 #define DIVIDER_Y 101
 // 油箱實際只會是 1-99（外加未取得資料時的 "--"），所以數字欄置中，
 // 一位數與兩位數切換時視覺重心不會跳動。欄位右界留給靠右的 % 單位。
@@ -307,7 +314,6 @@ LV_FONT_DECLARE(nx4_font_icons_40);
 #define ALERT_FUEL_MAX 15   // 油量 <= 15 %
 #define ALERT_TIRE_MIN 30   // 胎壓 <= 30 psi
 #define ALERT_COOLANT 110   // 水溫 >= 110 °C
-#define ALERT_OVERSPEED_KMH 10 // 時速超過速限這麼多才轉紅（原本 5，常態小幅超速太常變色）
 #define WARN_TIRE_HIGH 40   // 胎壓 > 40 psi 以琥珀色文字提示（次級）
 
 // ── 物件參考（建立一次，之後只更新數值）──────────────────────────────
@@ -324,7 +330,9 @@ static lv_obj_t *s_fuel_value;
 static lv_obj_t *s_limit_card;
 static lv_obj_t *s_limit_title;
 static lv_obj_t *s_limit_value;
-static lv_obj_t *s_limit_alt;  // 另一可能的速限，前面帶上下箭頭
+static lv_obj_t *s_limit_hi;    // 雙速限：左邊較高的
+static lv_obj_t *s_limit_lo;    // 雙速限：右邊較低的
+static lv_obj_t *s_limit_mark;  // 雙速限：追蹤器傾向那一個下方的紅線
 
 static lv_obj_t *s_speed_value;
 static lv_obj_t *s_rpm_value;
@@ -523,7 +531,7 @@ static void build_column1(void) {
   s_date_value = make_label(card, "--/--", F_DATE, C_LABEL);
   lv_obj_align(s_date_value, LV_ALIGN_TOP_LEFT, ACCENT_W + 14, DATE_Y);
 
-  // 只顯示 HH:MM，127px 是這張卡片寬度容得下的極限（見 CLOCK_X）。
+  // 只顯示 HH:MM，106px 是這張卡片寬度容得下的極限（見 CLOCK_X）。
   s_clock_value = make_label(card, "--:--", F_CLOCK, C_TEXT);
   lv_obj_align(s_clock_value, LV_ALIGN_TOP_LEFT, CLOCK_X, CLOCK_Y);
 }
@@ -583,9 +591,18 @@ static void build_column2(void) {
   // 不必重新產生圖示字型。主速限旁邊放不下箭頭——145px 字型的數字寬 88px，
   // 三位數就佔滿卡片可用寬度——所以只標在這個次要數字上：
   // 「↓60」即代表另一條路在下方，也就是目前判定在高架上。
-  s_limit_alt = make_label(s_limit_card, "", F_ALT, C_UNIT);
-  lv_obj_align(s_limit_alt, LV_ALIGN_TOP_RIGHT, -14, ALT_Y);
-  lv_obj_add_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
+  s_limit_hi = make_label(s_limit_card, "", &nx4_font_num_107s, C_TEXT);
+  s_limit_lo = make_label(s_limit_card, "", &nx4_font_num_94, C_LABEL);
+  lv_obj_add_flag(s_limit_hi, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(s_limit_lo, LV_OBJ_FLAG_HIDDEN);
+  s_limit_mark = lv_obj_create(s_limit_card);
+  lv_obj_clear_flag(s_limit_mark, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(s_limit_mark, lv_color_hex(C_RED), 0);
+  lv_obj_set_style_bg_opa(s_limit_mark, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(s_limit_mark, 0, 0);
+  lv_obj_set_style_radius(s_limit_mark, 0, 0);
+  lv_obj_set_style_pad_all(s_limit_mark, 0, 0);
+  lv_obj_add_flag(s_limit_mark, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ── 中央：時速 / 轉速 / 增壓的垂直堆疊 ──────────────────────────────────
@@ -883,19 +900,47 @@ static void set_camera_mode(bool active, nx4_cam_kind_t kind, int camera_limit,
   }
 }
 
-/// 速限卡片右上角的次要速限（純顯示，不影響任何警示）。
+/// 雙速限（純顯示，不影響任何警示）。
 ///
-/// 高架與正下方的平面道路判別不出來、且兩者速限不同時顯示，
-/// 前面的箭頭指出這個速限屬於上方還是下方的道路。
-/// 測速照相警示期間隱藏，避免與警示數字混淆。
-static void set_limit_extras(int alt_limit, bool alt_above, bool camera_active) {
-  if (camera_active || alt_limit <= 0) {
-    lv_obj_add_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
+/// App 判別不出是哪一條路（高架與正下方平面、快慢車道）、且兩者速限不同時送來
+/// limit_alt：單一大數字換成左右兩個，左邊較高、右邊較低；limit_lean 表示追蹤器
+/// 仍有傾向（主要判斷 ≥ 70%），在 speed_limit 那一個下方畫紅線。
+/// 測速照相警示期間不顯示，卡片交給警示數字。
+static void set_limit_dual(int speed_limit, int alt_limit, bool lean, bool camera_active) {
+  bool dual = !camera_active && alt_limit > 0 && speed_limit > 0 && alt_limit != speed_limit;
+  if (!dual) {
+    lv_obj_add_flag(s_limit_hi, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_limit_lo, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_limit_mark, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_limit_value, LV_OBJ_FLAG_HIDDEN);
     return;
   }
-  lv_label_set_text_fmt(s_limit_alt, "%s%d",
-                        alt_above ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, alt_limit);
-  lv_obj_clear_flag(s_limit_alt, LV_OBJ_FLAG_HIDDEN);
+  int hi = speed_limit > alt_limit ? speed_limit : alt_limit;
+  int lo = speed_limit > alt_limit ? alt_limit : speed_limit;
+  bool three = hi >= 100;
+  const lv_font_t *fh = three ? &nx4_font_num_93s : &nx4_font_num_107s;
+  const lv_font_t *fl = three ? &nx4_font_num_82 : &nx4_font_num_94;
+  lv_obj_set_style_text_font(s_limit_hi, fh, 0);
+  lv_obj_set_style_text_font(s_limit_lo, fl, 0);
+  lv_label_set_text_fmt(s_limit_hi, "%d", hi);
+  lv_label_set_text_fmt(s_limit_lo, "%d", lo);
+  lv_obj_add_flag(s_limit_value, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(s_limit_hi, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(s_limit_lo, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_update_layout(s_limit_hi);
+  lv_obj_update_layout(s_limit_lo);
+  lv_coord_t hw = lv_obj_get_width(s_limit_hi), lw = lv_obj_get_width(s_limit_lo);
+  lv_obj_set_pos(s_limit_hi, DUAL_LEFT_X, DUAL_BOTTOM - lv_font_get_line_height(fh));
+  lv_obj_set_pos(s_limit_lo, DUAL_RIGHT_X - lw, DUAL_BOTTOM - lv_font_get_line_height(fl));
+  if (!lean) {
+    lv_obj_add_flag(s_limit_mark, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  bool mark_hi = speed_limit == hi;
+  lv_obj_set_size(s_limit_mark, mark_hi ? hw : lw, DUAL_MARK_H);
+  lv_obj_set_pos(s_limit_mark, mark_hi ? DUAL_LEFT_X : DUAL_RIGHT_X - lw,
+                 DUAL_BOTTOM + DUAL_MARK_GAP);
+  lv_obj_clear_flag(s_limit_mark, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_dashboard_create(void) {
@@ -1062,11 +1107,8 @@ void ui_dashboard_update(const nx4_dash_data_t *data) {
         s_speed_shown = -1;
       }
     } else {
-      // 超速時（有速限資料且超出 ALERT_OVERSPEED_KMH）時速轉紅
-      bool over = data->speed_limit > 0 &&
-                  speed > data->speed_limit + ALERT_OVERSPEED_KMH;
-      lv_obj_set_style_text_color(s_speed_value,
-                                  lv_color_hex(over ? C_ALERT : C_TEXT), 0);
+      // 時速一律白字（超速不變色；速限有兩種可能時本來就判斷不了是否超速）
+      lv_obj_set_style_text_color(s_speed_value, lv_color_hex(C_TEXT), 0);
       if (force || p->reversing) {
         s_speed_last_ms = 0;
         s_speed_shown = speed + 1; // 迫使 cb 實際寫入
@@ -1156,7 +1198,7 @@ rpm_done:;
 
   // 里程 / 油箱
   if (force || data->odo != p->odo) {
-    // 六位數放不下 84px，換小一級；字級沒變就不重設樣式
+    // 六位數放不下 70px，換小一級；字級沒變就不重設樣式
     static bool six = false;
     bool want_six = data->odo >= 100000;
     if (force || want_six != six) {
@@ -1277,10 +1319,11 @@ turbo_done:;
                     data->speed_limit);
   }
   if (force || data->limit_alt != p->limit_alt ||
-      data->limit_alt_above != p->limit_alt_above ||
+      data->limit_lean != p->limit_lean ||
+      data->speed_limit != p->speed_limit ||
       data->camera_active != p->camera_active) {
-    set_limit_extras(data->limit_alt, data->limit_alt_above,
-                     data->camera_active);
+    set_limit_dual(data->speed_limit, data->limit_alt, data->limit_lean,
+                   data->camera_active);
   }
 
   s_last = *data;
@@ -1325,7 +1368,9 @@ void ui_dashboard_set_stale(bool stale) {
   lv_obj_set_style_text_opa(s_odo_value, opa, 0);
   lv_obj_set_style_text_opa(s_fuel_value, opa, 0);
   lv_obj_set_style_text_opa(s_limit_value, opa, 0);
-  lv_obj_set_style_text_opa(s_limit_alt, opa, 0);
+  lv_obj_set_style_text_opa(s_limit_hi, opa, 0);
+  lv_obj_set_style_text_opa(s_limit_lo, opa, 0);
+  lv_obj_set_style_bg_opa(s_limit_mark, opa, 0);
   lv_obj_set_style_text_opa(s_turbo_value, opa, 0);
   lv_obj_set_style_text_opa(s_throttle_value, opa, 0);
   lv_obj_set_style_opa(s_turbo_bar, opa, 0);
@@ -1346,6 +1391,6 @@ void ui_dashboard_set_stale(bool stale) {
   if (stale && s_cam_active) {
     // 逾時不再顯示過期的測速照相警示，卡片恢復為道路速限
     set_camera_mode(false, NX4_CAM_SPEED, 0, s_last.speed_limit);
-    set_limit_extras(s_last.limit_alt, s_last.limit_alt_above, false);
+    set_limit_dual(s_last.speed_limit, s_last.limit_alt, s_last.limit_lean, false);
   }
 }

@@ -11,6 +11,8 @@ import '../services/speed_limit_service.dart';
 import '../services/traffic_service.dart';
 import '../services/road_type_service.dart';
 import '../services/device_status_service.dart';
+import '../services/sky_service.dart';
+import '../services/camera_layer.dart';
 import '../services/current_road_distance.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -123,6 +125,7 @@ class AppProvider extends ChangeNotifier {
   int get alternativeRoadLevel => SpeedLimitService().alternativeRoad?.level ?? 0;
   String get alternativeRoadName => SpeedLimitService().alternativeRoadName;
   int? get alternativeSpeedLimit => SpeedLimitService().alternativeLimit;
+  bool get alternativeSpeedLimitLean => SpeedLimitService().alternativeLean;
 
   /// 前方路況；不在 TDX 路段上、沒有憑證或功能關閉時為 null
   TrafficState? get trafficState => TrafficService().state;
@@ -239,6 +242,9 @@ class AppProvider extends ChangeNotifier {
 
       // Initialize Device Status Service (電池溫度等)
       await DeviceStatusService().init();
+
+      // 頭頂天空衛星摘要（高架上下判斷的證據）
+      SkyService().start();
 
       // Poll OBD state to update UI globally
       _obdStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
@@ -490,7 +496,10 @@ class AppProvider extends ChangeNotifier {
       fastFlowKmh: TrafficService().currentFlowKmh,
       // 手機回報的定位精度；訊號差時追蹤器改用較大的誤差，見 RoadTracker.maxSigmaM
       accuracyM: position.accuracy > 0 ? position.accuracy : null,
+      // 頭頂被橋面擋住＝在高架下；開闊且地面道路在橋面正下方＝在高架上（見 SkyService）
+      sky: SkyService().view,
     );
+    SkyService().logFix(position);
     if (detectedLimit != null) {
       _roadSpeedLimit = detectedLimit;
     } else if (!speedLimitService.lastDetectedFromSign) {
@@ -542,14 +551,31 @@ class AppProvider extends ChangeNotifier {
     final bool onHighSpeedRoad = trackedType != null &&
         trackedType != RoadType.none &&
         !slService.isLevelUncertain;
-    final camInfo = camService.checkNearbyCamera(
+    // 重疊道路（高架上下、快慢車道）：有把握在哪一層時排除另一層的相機；
+    // 沒把握時兩層的相機都提示，並標出相機在哪一層（見 _labelForOverlap）
+    final overlap = slService.overlap;
+    final overlapUnresolved = overlap != null && !overlap.resolved;
+    bool Function(SpeedCamera)? skipOtherLayer;
+    if (overlap != null && overlap.resolved) {
+      final other = overlap.onUpper! ? CameraLayer.lower : CameraLayer.upper;
+      skipOtherLayer = (cam) =>
+          _cameraLayers.classify(overlap, cam.latitude, cam.longitude, cam.heading, cam.limit,
+              redLight: cam.kind == CameraKind.redLight, typeCode: cam.typeCode) ==
+          other;
+    }
+    var camInfo = camService.checkNearbyCamera(
       currentRoadType: effectiveRoadType,
       surfaceConfirmed: slService.surfaceConfirmed,
       roadLimit: onHighSpeedRoad && slService.source == LimitSource.osm
           ? _roadSpeedLimit
           : null,
       distanceToCurrentRoadM: _currentRoadDistance.forTracker(slService),
+      skipCamera: skipOtherLayer,
     );
+    if (camInfo != null && overlapUnresolved) {
+      camInfo = _labelForOverlap(camInfo, overlap);
+    }
+    _flushPendingZone(overlap);
 
     // checkNearbyCamera 只回傳已進入提示距離的相機（距離依類型與車速，
     // 見 CameraRules.alertDistanceM），回傳即提示。
@@ -591,7 +617,8 @@ class AppProvider extends ChangeNotifier {
       TtsService().speakCameraAlert(camInfo, speedKmh);
 
       // 距離 300m 內且超速 10km/h 以上 → 額外播報超速警示（區間測速不適用）
-      if (!isZone && distM <= 300 && limit != null && speedKmh > limit + 10) {
+      // 重疊道路沒把握時不念：不知道相機速限是不是自己這一層的
+      if (!isZone && !overlapUnresolved && distM <= 300 && limit != null && speedKmh > limit + 10) {
         TtsService().speakSpeedingAlert(camInfo);
       }
     } else {
@@ -608,6 +635,64 @@ class AppProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// 重疊道路的相機層級判斷（快取）
+  final CameraLayerClassifier _cameraLayers = CameraLayerClassifier();
+
+  /// 重疊道路沒把握時被壓下的區間起點，等判斷有把握後再補念
+  Map<String, dynamic>? _pendingZone;
+  CameraLayer _pendingZoneLayer = CameraLayer.unknown;
+  DateTime? _pendingZoneUntil;
+  static const Duration _pendingZoneWindow = Duration(minutes: 2);
+
+  /// 重疊道路沒把握時的相機：標上層級（「高架下測速照相，速限 60」）。
+  /// 區間測速不提示——錯報整段區間的代價太大——先記下，判斷有把握後再補念。
+  Map<String, dynamic>? _labelForOverlap(Map<String, dynamic> camInfo, RoadOverlap ov) {
+    final kind = camInfo['kind'];
+    final layer = _cameraLayers.classify(
+        ov,
+        (camInfo['lat'] as num).toDouble(),
+        (camInfo['lon'] as num).toDouble(),
+        (camInfo['heading'] as num?)?.toDouble(),
+        camInfo['limit'] as int?,
+        redLight: kind == CameraKind.redLight.name,
+        typeCode: camInfo['type_code'] as int?);
+    if (kind == CameraKind.zoneStart.name || kind == CameraKind.zoneEnd.name) {
+      if (kind == CameraKind.zoneStart.name) {
+        _pendingZone = camInfo;
+        _pendingZoneLayer = layer;
+        _pendingZoneUntil = DateTime.now().add(_pendingZoneWindow);
+      }
+      return null;
+    }
+    final label = CameraLayerClassifier.label(ov.kind, layer);
+    if (label == null) return camInfo;
+    final base = kind == CameraKind.redLight.name ? '闖紅燈照相' : '測速照相';
+    final limit = camInfo['limit'];
+    return {
+      ...camInfo,
+      'layer': layer.name,
+      'layer_label': label,
+      'message': '$label$base${limit != null ? '，速限 $limit' : ''}',
+    };
+  }
+
+  /// 被壓下的區間起點：重疊判斷有把握、而且相機就在這一層（或分不出層）時補念
+  void _flushPendingZone(RoadOverlap? ov) {
+    final zone = _pendingZone;
+    if (zone == null) return;
+    if (DateTime.now().isAfter(_pendingZoneUntil!)) {
+      _pendingZone = null;
+      return;
+    }
+    if (ov == null || !ov.resolved) return;
+    final mine = ov.onUpper! ? CameraLayer.upper : CameraLayer.lower;
+    if (_pendingZoneLayer == CameraLayer.unknown || _pendingZoneLayer == mine) {
+      final limit = zone['limit'];
+      TtsService().speak('已進入區間測速路段${limit != null ? '，速限 $limit' : ''}');
+    }
+    _pendingZone = null;
   }
 
   bool _cameraBehindAndClose(

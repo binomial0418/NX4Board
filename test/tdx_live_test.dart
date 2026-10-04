@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nx4board/models/tdx_section.dart';
 import 'package:nx4board/services/tdx_client.dart';
+import 'package:nx4board/services/traffic_service.dart';
 
 TdxClient? _loadClient() {
   final f = File('assets/private/tdx.json');
@@ -75,5 +76,26 @@ void main() {
     print('  台74線 ${secs.length} 段：路段車速 ${direct.length} 段，'
         'VD ${vd.length}/${vdIds.length} 支有資料，補上 $filled 段');
     expect(filled, greaterThan(0));
+  }, skip: skip);
+
+  test('資訊可變標誌即時訊息（國道與台61 前方看板）', () async {
+    for (final (road, api) in const [('國道1號', 'Freeway'), ('台61線', 'Highway')]) {
+      final ids = [
+        for (final s in index.sections)
+          if (s.roadName == road)
+            for (final c in s.cms) c.$1,
+      ].take(20).toList();
+      expect(ids, isNotEmpty, reason: '$road 沒有掛上任何看板');
+      final msgs = await client!.cmsMessages(api, ids);
+      final events = [
+        for (final e in msgs.values.expand((m) => m))
+          if (TrafficService.isCmsEvent(TrafficService.normalizeCms(e.text), e.type))
+            TrafficService.normalizeCms(e.text),
+      ];
+      // ignore: avoid_print
+      print('  $road ${ids.length} 面看板，回傳 ${msgs.length} 面，事件訊息 ${events.length} 則：'
+          '${events.take(3).toList()}');
+      expect(msgs, isNotEmpty);
+    }
   }, skip: skip);
 }

@@ -42,6 +42,8 @@ class MainActivity : FlutterActivity() {
     private val VOLUME_EVENT_CHANNEL = "com.duckegg.nx4board/volumeEvents"
     private val DEVICE_INFO_CHANNEL  = "com.duckegg.nx4board/device_info"
     private val SCREEN_RECORD_CHANNEL = "com.duckegg.nx4board/screenrecord"
+    private val GNSS_SKY_CHANNEL = "com.duckegg.nx4board/gnss_sky"
+    private var gnssSky: GnssSkyMonitor? = null
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     private var audioManager: AudioManager? = null
@@ -233,6 +235,12 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+
+        // ── 頭頂天空衛星摘要（高架上下判斷，見 GnssSkyMonitor）───────────────
+        gnssSky = GnssSkyMonitor(applicationContext).also {
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, GNSS_SKY_CHANNEL)
+                .setStreamHandler(it)
         }
 
         // Initialize GNSS Callback
@@ -583,6 +591,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        gnssSky?.dispose()
         disconnect()
         volumeCheckTimer?.cancel()
         volumeCheckTimer = null
@@ -595,5 +604,24 @@ class MainActivity : FlutterActivity() {
         }
 
         super.onDestroy()
+
+        // 主畫面真的要關閉（電源鍵）時連程序一起結束。否則前景定位服務還活著，
+        // 下次開啟會接回這個舊程序，新的 Flutter 引擎收不到 GPS（2026-10-03 實測：
+        // 誤觸返回關掉畫面後重開，40 分鐘一筆定位都沒有）。設定變更造成的重建不是
+        // isFinishing，不受影響。
+        if (isFinishing && !isChangingConfigurations) {
+            // 先停掉常駐服務：flutter_foreground_task 的服務是 sticky，程序被殺後系統
+            // 1 秒內就會把它（連同定位服務）重啟成一個沒有畫面的程序，等於又回到原狀
+            for (cls in listOf(
+                "com.pravera.flutter_foreground_task.service.ForegroundService",
+                "com.baseflow.geolocator.GeolocatorLocationService",
+            )) {
+                try {
+                    stopService(Intent().setClassName(packageName, cls))
+                } catch (_: Exception) {
+                }
+            }
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
     }
 }

@@ -34,6 +34,9 @@ class TdxSection {
   /// 對應的 VD 與其偵測鏈路；Live/Highway 沒有這段的車速時改查 VD
   final Map<String, List<String>> vdLinks;
 
+  /// 立在這段上的資訊可變標誌（路上的文字看板）：(CMSID, 沿折線距離 m)，依位置排序
+  final List<(String, double)> cms;
+
   /// 扁平的 [lon, lat, lon, lat, ...]
   final Float64List points;
 
@@ -52,6 +55,7 @@ class TdxSection {
     required this.speedLimit,
     required this.vdLinks,
     required this.points,
+    this.cms = const [],
   }) : cumulativeM = _cumulative(points);
 
   /// 里程沿行車方向遞增為 +1，遞減為 -1
@@ -92,6 +96,10 @@ class TdxSection {
       speedLimit: (j['l'] as num?)?.toInt() ?? 0,
       vdLinks: vd,
       points: pts,
+      cms: [
+        for (final c in (j['c'] as List? ?? const []))
+          ((c as List)[0] as String, (c[1] as num).toDouble()),
+      ],
     );
   }
 

@@ -778,6 +778,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _isEsp32Connected = false);
   }
 
+  static String _cameraLayerTag(Map<String, dynamic>? camInfo) {
+    final String? label = camInfo?['layer_label'];
+    return switch (label) {
+      '高架上' => 'level_upper',
+      '高架下' => 'level_lower',
+      '快車道' => 'lane_upper',
+      '慢車道' => 'lane_lower',
+      _ => '',
+    };
+  }
+
   /// 星期中文字（ESP32 端字型僅收錄「週一二三四五六日」）
   static String _weekdayZh(DateTime t) {
     const names = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
@@ -827,6 +838,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       "limit_alt": provider.alternativeSpeedLimit ?? 0,
       // 另一條路在上面（高架）還是下面，ESP32 據此顯示上下箭頭
       "limit_alt_above": provider.alternativeRoadLevel > provider.currentRoadLevel,
+      // 雙速限時追蹤器仍傾向 speed_limit 那一條 → 面板在它下方畫紅線
+      "limit_lean": provider.alternativeSpeedLimitLean,
       // 速限是依道路分級推定，而非 OSM 標註或省道牌面實測（目前僅供記錄，畫面不顯示）
       "limit_inferred": provider.isSpeedLimitInferred,
       // 相對節氣門開度 %（PID 0145）。顯示在增壓數值左側，用來判讀增壓是否可信
@@ -843,6 +856,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         "kind": camInfo?['kind'] ?? 'speed',
         // 通過相機的累計次數，數字變大時板子念「通過」
         "passed": provider.cameraPassedCount,
+        // 重疊道路沒把握時相機所在層：level_upper / level_lower / lane_upper / lane_lower，
+        // 板子據此在語音前加「高架上／高架下／快車道／慢車道」；空字串＝單一道路或分不出
+        "layer": _cameraLayerTag(camInfo),
       },
       "lights": {
         "low": provider.isLowBeamOn,
@@ -1145,10 +1161,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     return WithForegroundTask(
       child: PopScope(
-        // 黑屏時返回鍵只退出黑屏，不離開 App
-        canPop: !_blackout,
+        // 返回鍵（含螢幕邊緣滑動）一律不離開儀表：手機架在車上，邊緣常被誤觸，
+        // 曾在行駛中把 App 關掉（2026-10-03）。黑屏時返回只退出黑屏；
+        // 要結束 App 用右上角的電源鍵
+        canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _exitBlackout();
+          if (!didPop && _blackout) _exitBlackout();
         },
         child: Scaffold(
           backgroundColor: Colors.black,
