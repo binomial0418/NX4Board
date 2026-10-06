@@ -83,6 +83,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   final Map<String, DateTime> _cameraWsSentMap = {};
   static const Duration _cameraWsCooldown = Duration(seconds: 300);
 
+  // --- TDX 路況查詢結果後送 (tid: traffic-info) ---
+  StreamSubscription<Map<String, dynamic>>? _trafficReportSubscription;
+
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
   Timer? _recordingStateTimer;
@@ -158,6 +161,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       }
     });
+    // 每次取得 TDX 路況時後送查詢結果 (tid: traffic-info)
+    _trafficReportSubscription =
+        _appProvider.trafficReportStream.listen(_sendTrafficInfoViaWs);
     // 監聽錄影狀態變化
     _startRecordingStateMonitoring();
   }
@@ -1036,6 +1042,42 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ──────────────────────────────────────────────
+  // 取得 TDX 路況時後送 WS（後端分析用）
+  // ──────────────────────────────────────────────
+  /// 與 camera-info 相同走第一通道，附上查詢當下的位置與車速。
+  /// [report] 的欄位見 TrafficService.fetchReport。
+  void _sendTrafficInfoViaWs(Map<String, dynamic> report) {
+    if (!mounted || !_isWsConnected || _channel == null) return;
+
+    final provider = context.read<AppProvider>();
+    final pos = provider.currentPosition;
+
+    final Map<String, dynamic> trafficData = {
+      "_type": "BVB-7980",
+      "tid": "traffic-info",
+      "tst": DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      if (pos != null) "lat": pos.latitude,
+      if (pos != null) "lon": pos.longitude,
+      if (pos != null) "cog": double.parse(pos.heading.toStringAsFixed(1)),
+      "speed": _currentDisplaySpeed.round(),
+      "speed_limit": provider.roadSpeedLimit,
+      "road": provider.currentRoadName,
+      ...report,
+    };
+
+    final jsonString = jsonEncode(trafficData);
+    try {
+      _channel!.sink.add(jsonString);
+      debugPrint('[WS-TX-traffic] TDX 路況後送: $jsonString');
+      ObdSppService().logWsSend(jsonString, label: '[WS-TX-traffic]');
+    } catch (e) {
+      debugPrint('[WS-TX-traffic] TDX 路況後送錯誤: $e');
+      if (mounted) setState(() => _isWsConnected = false);
+      _scheduleReconnect();
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // 立即傳送一次 OBD 資料至 WS（輪詢回來後呼叫）
   // ──────────────────────────────────────────────
   Future<void> _sendObdDataViaWsOnce() async {
@@ -1117,6 +1159,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _esp32ReconnectTimer?.cancel();
     _recordingStateTimer?.cancel();
     _blackoutHintTimer?.cancel();
+    _trafficReportSubscription?.cancel();
     DeviceStatusService().setWindowBrightness(null);
     WidgetsBinding.instance.removeObserver(this);
     // 移除 OBD 數據監聽器

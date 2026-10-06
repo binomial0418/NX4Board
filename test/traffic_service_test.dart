@@ -1,10 +1,88 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nx4board/models/tdx_section.dart';
 import 'package:nx4board/services/traffic_service.dart';
 
 TrafficSegment _seg(double dist, double len, double? speed, int level) =>
     TrafficSegment('x', dist, len, speed, level);
 
+TdxSection _sec(String id) => TdxSection(
+      id: id,
+      liveApi: 'P',
+      system: 'P',
+      ref: '61',
+      roadName: '西部濱海快速公路',
+      direction: 'S',
+      startKm: 100,
+      endKm: 101.26,
+      speedLimit: 0,
+      vdLinks: const {},
+      points: Float64List.fromList([120.5, 24.2, 120.5, 24.19]),
+    );
+
 void main() {
+  group('fetchReport', () {
+    test('列出查詢路段、車速來源與本線狀態', () {
+      final segs = [
+        const TrafficSegment('a', 0, 500, 85, TrafficLevel.smooth),
+        const TrafficSegment('b', 500, 700, 30, TrafficLevel.jammed),
+      ];
+      final r = TrafficService.fetchReport(
+        sections: [_sec('a'), _sec('b'), _sec('c')],
+        speeds: {'a': 85.04, 'b': 30},
+        fromVd: {'b'},
+        state: TrafficState(
+          roadName: '西部濱海快速公路',
+          system: 'P',
+          ref: '61',
+          direction: 'S',
+          km: 100.04,
+          isFastRoad: true,
+          segments: segs,
+          congestion: TrafficService.findCongestion(segs, 100.04, 1),
+        ),
+        previews: const [],
+        cms: const CmsNotice('CMS-1', '前方事故', 1234.4),
+        elapsedMs: 420,
+      );
+
+      expect(r['ok'], isTrue);
+      expect(r.containsKey('error'), isFalse);
+      final sections = r['sections'] as List;
+      expect(sections[0]['speed'], 85.0);
+      expect(sections[0]['src'], 'live');
+      expect(sections[1]['src'], 'vd');
+      expect(sections[2]['speed'], isNull);
+      expect(sections[2]['src'], isNull);
+      expect(sections[0]['end_km'], 101.3);
+
+      final main = r['main'] as Map;
+      expect(main['km'], 100.0);
+      expect(main['segs'][1], ['b', 500, 700, 30, TrafficLevel.jammed]);
+      expect(main['jam']['dist'], 500);
+      expect(r['ramps'], isEmpty);
+      expect(r['cms'], {'id': 'CMS-1', 'text': '前方事故', 'dist': 1234});
+    });
+
+    test('查詢失敗時 ok 為 false 並帶錯誤', () {
+      final r = TrafficService.fetchReport(
+        sections: [_sec('a')],
+        speeds: const {},
+        fromVd: const {},
+        state: null,
+        previews: const [],
+        cms: null,
+        elapsedMs: 10,
+        error: 'timeout',
+      );
+      expect(r['ok'], isFalse);
+      expect(r['error'], 'timeout');
+      expect(r['main'], isNull);
+      expect(r['cms'], isNull);
+    });
+  });
+
   group('levelFor', () {
     test('國道門檻與 RoadRader 相同量級（速限 100：84/60/40）', () {
       int lv(double s) => TrafficService.levelFor(s, 100, fastRoad: true);

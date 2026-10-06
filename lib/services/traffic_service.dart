@@ -317,6 +317,9 @@ class TrafficService {
   /// 非同步取得車速後通知 UI
   VoidCallback? onChanged;
 
+  /// 每次 TDX 查詢結束（成功或失敗）時呼叫，內容見 [fetchReport]，供後端分析
+  void Function(Map<String, dynamic> report)? onFetched;
+
   /// 路段資料與憑證都已載入
   bool get isAvailable => _matcher != null && _client != null;
 
@@ -651,8 +654,11 @@ class TrafficService {
   }
 
   Future<void> _fetch(TdxApi client, List<TdxSection> sections) async {
+    final started = _now();
+    final speeds = <String, double>{};
+    final fromVd = <String>{};
+    String? error;
     try {
-      final speeds = <String, double>{};
       for (final api in const ['F', 'P']) {
         final ids = sections.where((s) => s.liveApi == api).map((s) => s.id).toList();
         if (ids.isEmpty) continue;
@@ -674,6 +680,7 @@ class TrafficService {
           });
           if (values.isNotEmpty) {
             speeds[s.id] = values.reduce((a, b) => a + b) / values.length;
+            fromVd.add(s.id);
           }
         }
       }
@@ -705,8 +712,106 @@ class TrafficService {
       _rebuildState();
       onChanged?.call();
     } catch (e) {
+      error = e.toString();
       debugPrint('[Traffic] 即時路況查詢失敗: $e');
     }
+
+    final report = onFetched;
+    if (report == null) return;
+    try {
+      report(fetchReport(
+        sections: sections,
+        speeds: speeds,
+        fromVd: fromVd,
+        state: _state,
+        previews: _previews,
+        cms: _cmsAhead,
+        elapsedMs: _now().difference(started).inMilliseconds,
+        error: error,
+      ));
+    } catch (e) {
+      debugPrint('[Traffic] 查詢結果回報失敗: $e');
+    }
+  }
+
+  /// 一次 TDX 查詢的結果，給後端分析用（見 dashboard_screen.dart 的 traffic-info）。
+  ///
+  /// - sections：這次查詢的路段。speed 為 TDX 回傳的旅行速率（無資料為 null），
+  ///   src 為 live（路段車速）或 vd（以 VD 鏈路平均）
+  /// - main：查詢後的本線狀態，segs 每段為 [路段 id, 距離公尺, 長度公尺, 車速（-1 無資料）, 等級]；
+  ///   不在主線上為 null
+  /// - ramps：閘道／交會道路預知，dir 為 N/S/E/W，merge_m 為到匯入點的距離
+  /// - cms：前方最近一面顯示事件訊息的看板；沒有為 null
+  /// - 查詢失敗時 ok 為 false 並帶 error，sections 只列已查到的車速
+  @visibleForTesting
+  static Map<String, dynamic> fetchReport({
+    required List<TdxSection> sections,
+    required Map<String, double> speeds,
+    required Set<String> fromVd,
+    required TrafficState? state,
+    required List<RampPreview> previews,
+    required CmsNotice? cms,
+    required int elapsedMs,
+    String? error,
+  }) {
+    double? r1(double? v) => v == null ? null : double.parse(v.toStringAsFixed(1));
+    List<Object?> seg(TrafficSegment s) =>
+        [s.id, s.distanceM.round(), s.lengthM.round(), s.speed?.round() ?? -1, s.level];
+    Map<String, dynamic>? jam(CongestionAhead? c) => c == null
+        ? null
+        : {
+            "dist": c.distanceM.round(),
+            "len": c.lengthM.round(),
+            "speed": c.speed.round(),
+            "level": c.level,
+            "start_km": r1(c.startKm),
+          };
+
+    return {
+      "ok": error == null,
+      if (error != null) "error": error,
+      "elapsed_ms": elapsedMs,
+      "sections": [
+        for (final s in sections)
+          {
+            "id": s.id,
+            "sys": s.system,
+            "ref": s.ref,
+            "road": s.roadName,
+            "dir": s.direction,
+            "start_km": r1(s.startKm),
+            "end_km": r1(s.endKm),
+            "limit": s.speedLimit,
+            "speed": r1(speeds[s.id]),
+            "src": speeds.containsKey(s.id) ? (fromVd.contains(s.id) ? "vd" : "live") : null,
+          },
+      ],
+      "main": state == null
+          ? null
+          : {
+              "road": state.roadName,
+              "sys": state.system,
+              "ref": state.ref,
+              "dir": state.direction,
+              "km": r1(state.km),
+              "fast": state.isFastRoad,
+              "segs": [for (final s in state.segments) seg(s)],
+              "jam": jam(state.congestion),
+            },
+      "ramps": [
+        for (final p in previews)
+          {
+            "road": p.roadName,
+            "sys": p.system,
+            "ref": p.ref,
+            "dir": p.cardinal,
+            "merge_m": p.mergeDistanceM.round(),
+            "segs": [for (final s in p.segments) seg(s)],
+            "jam": jam(p.congestion),
+          },
+      ],
+      "cms": cms == null ? null : {"id": cms.cmsId, "text": cms.text, "dist": cms.distanceM.round()},
+    };
   }
 
   /// 同一段壅塞（同路名、起點里程相差 [sameCongestionKm] 內）在冷卻時間內只播一次。
