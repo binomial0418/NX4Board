@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nx4board/services/traffic_service.dart';
 
@@ -5,6 +7,71 @@ TrafficSegment _seg(double dist, double len, double? speed, int level) =>
     TrafficSegment('x', dist, len, speed, level);
 
 void main() {
+  group('fetchMessage', () {
+    TrafficState state(List<TrafficSegment> segs) => TrafficState(
+          roadName: '西部濱海快速公路',
+          system: 'P',
+          ref: '61',
+          direction: '1',
+          km: 100.04,
+          isFastRoad: true,
+          segments: segs,
+          congestion: TrafficService.findCongestion(segs, 100.04, 1),
+        );
+
+    test('本線順暢與壅塞', () {
+      final smooth = [const TrafficSegment('a', 0, 500, 85, TrafficLevel.smooth)];
+      expect(
+          TrafficService.fetchMessage(
+              state: state(smooth), cardinal: 'S', previews: const [], cms: null),
+          '台61南下 暢通，車速85');
+      final jam = [
+        const TrafficSegment('a', 0, 500, 85, TrafficLevel.smooth),
+        const TrafficSegment('b', 500, 1200, 25, TrafficLevel.jammed),
+      ];
+      expect(
+          TrafficService.fetchMessage(
+              state: state(jam), cardinal: 'S', previews: const [], cms: null),
+          '台61南下 前方500公尺壅塞，長約1.2公里，車速25');
+    });
+
+    test('查詢失敗與看板事件', () {
+      expect(
+          TrafficService.fetchMessage(
+              state: null, cardinal: null, previews: const [], cms: null, failed: true),
+          '路況查詢失敗');
+      expect(
+          TrafficService.fetchMessage(
+              state: null,
+              cardinal: null,
+              previews: const [],
+              cms: const CmsNotice('CMS-1', '前方事故', 1234.4)),
+          '無路況；前方看板：前方事故');
+    });
+
+    test('連同 JSON 外框塞得進中繼器的 MQTT 封包（payload 233 bytes）', () {
+      final longCms = CmsNotice('CMS-1', '國1 高架北向27-25K壅塞 車速40以下 請改道台74 往台中市區請提早下交流道' * 2, 900);
+      final jam = [
+        const TrafficSegment('a', 0, 500, 85, TrafficLevel.smooth),
+        const TrafficSegment('b', 500, 1200, 25, TrafficLevel.jammed),
+      ];
+      final msg = TrafficService.fetchMessage(
+          state: state(jam), cardinal: 'S', previews: const [], cms: longCms);
+      expect(utf8.encode(msg).length, lessThanOrEqualTo(TrafficService.messageMaxBytes));
+      expect(msg, endsWith('…'));
+      // 與 dashboard_screen.dart 的 _sendTrafficInfoViaWs 相同欄位、最長的數值
+      final json = jsonEncode({
+        "_type": "BVB-7980",
+        "tid": "traffic-info",
+        "tst": 1791101887,
+        "lat": 24.198338,
+        "lon": 120.519775,
+        "msg": msg,
+      });
+      expect(utf8.encode(json).length, lessThanOrEqualTo(233));
+    });
+  });
+
   group('levelFor', () {
     test('國道門檻與 RoadRader 相同量級（速限 100：84/60/40）', () {
       int lv(double s) => TrafficService.levelFor(s, 100, fastRoad: true);

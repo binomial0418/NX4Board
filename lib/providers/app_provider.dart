@@ -98,6 +98,10 @@ class AppProvider extends ChangeNotifier {
   final _gpsDataController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get gpsDataStream => _gpsDataController.stream;
 
+  /// 每次 TDX 路況查詢後的一句路況摘要（見 [TrafficService.fetchMessage]）
+  final _trafficReportController = StreamController<String>.broadcast();
+  Stream<String> get trafficReportStream => _trafficReportController.stream;
+
   bool get isDemoEnabled => _isDemoEnabled;
 
   // Getters
@@ -229,6 +233,7 @@ class AppProvider extends ChangeNotifier {
       // 前方路況（TDX 路段）。車速是非同步查回來的，查到時要刷新畫面與推送
       await TrafficService().init();
       TrafficService().onChanged = notifyListeners;
+      TrafficService().onFetched = _trafficReportController.add;
 
       // Initialize Camera Service
       await CameraService().init();
@@ -348,6 +353,8 @@ class AppProvider extends ChangeNotifier {
     _demoTimer?.cancel();
     _highBeamDebounce?.cancel();
     _gpsDataController.close();
+    TrafficService().onFetched = null;
+    _trafficReportController.close();
     TtsService().dispose();
     DeviceStatusService().dispose();
     super.dispose();

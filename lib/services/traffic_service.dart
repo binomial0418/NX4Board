@@ -317,6 +317,9 @@ class TrafficService {
   /// 非同步取得車速後通知 UI
   VoidCallback? onChanged;
 
+  /// 每次 TDX 查詢結束（成功或失敗）時呼叫，內容是一句路況摘要（見 [fetchMessage]），供後端分析
+  void Function(String message)? onFetched;
+
   /// 路段資料與憑證都已載入
   bool get isAvailable => _matcher != null && _client != null;
 
@@ -651,6 +654,7 @@ class TrafficService {
   }
 
   Future<void> _fetch(TdxApi client, List<TdxSection> sections) async {
+    String? error;
     try {
       final speeds = <String, double>{};
       for (final api in const ['F', 'P']) {
@@ -705,8 +709,81 @@ class TrafficService {
       _rebuildState();
       onChanged?.call();
     } catch (e) {
+      error = e.toString();
       debugPrint('[Traffic] 即時路況查詢失敗: $e');
     }
+
+    final report = onFetched;
+    if (report == null) return;
+    try {
+      final st = _state;
+      final cur = st == null || st.segments.isEmpty
+          ? null
+          : sections.where((x) => x.id == st.segments.first.id).firstOrNull;
+      report(fetchMessage(
+        state: st,
+        cardinal: cur == null ? null : _index?.cardinalOf(cur),
+        previews: _previews,
+        cms: _cmsAhead,
+        failed: error != null,
+      ));
+    } catch (e) {
+      debugPrint('[Traffic] 查詢結果回報失敗: $e');
+    }
+  }
+
+  /// [fetchMessage] 的上限（UTF-8 bytes）。中繼器（esp32_relay_gateway）用 PubSubClient
+  /// 轉成 MQTT，預設封包上限 256 bytes：扣掉標頭與主題後 payload 約 233，
+  /// JSON 外框（類型、時間、經緯度）約 100，剩下給這句話。
+  static const int messageMaxBytes = 120;
+
+  /// 一次 TDX 查詢後的路況，一句話，給後端分析（見 dashboard_screen.dart 的 traffic-info）。
+  ///
+  /// 例：「台61南下 暢通，車速85」「台61南下 前方1.2公里壅塞，長約3公里，車速25」
+  /// 「上國道3號北上，前方2公里車流緩慢，長約1公里，車速45」「路況查詢失敗」；
+  /// 前方看板有事件時接在後面「…；前方看板：…」。超過 [messageMaxBytes] 截斷。
+  @visibleForTesting
+  static String fetchMessage({
+    required TrafficState? state,
+    required String? cardinal,
+    required List<RampPreview> previews,
+    required CmsNotice? cms,
+    bool failed = false,
+  }) {
+    String msg;
+    if (failed) {
+      msg = '路況查詢失敗';
+    } else if (state != null) {
+      final road = '${spokenRoad(state.system, state.ref)}${cardinalZh(cardinal ?? '')}';
+      final c = state.congestion;
+      final speed = state.segments.isEmpty ? null : state.segments.first.speed;
+      msg = c != null
+          ? '$road ${announcementFor(c)}'
+          : '$road 暢通${speed == null ? '' : '，車速${speed.round()}'}';
+    } else if (previews.isNotEmpty) {
+      final jammed = previews.where((p) => p.congestion != null).firstOrNull;
+      msg = jammed != null
+          ? rampAnnouncementFor(jammed, jammed.congestion!)
+          : previews
+              .map((p) => '上${spokenRoad(p.system, p.ref)}${cardinalZh(p.cardinal)}暢通')
+              .join('、');
+    } else {
+      msg = '無路況';
+    }
+    if (cms != null) msg = '$msg；${cmsAnnouncementFor(cms)}';
+    return truncateUtf8(msg, messageMaxBytes);
+  }
+
+  /// 截到 [maxBytes] 個 UTF-8 bytes 以內，不切斷字元
+  @visibleForTesting
+  static String truncateUtf8(String s, int maxBytes) {
+    if (utf8.encode(s).length <= maxBytes) return s;
+    final runes = s.runes.toList();
+    var n = runes.length;
+    while (n > 0 && utf8.encode('${String.fromCharCodes(runes.take(n))}…').length > maxBytes) {
+      n--;
+    }
+    return '${String.fromCharCodes(runes.take(n))}…';
   }
 
   /// 同一段壅塞（同路名、起點里程相差 [sameCongestionKm] 內）在冷卻時間內只播一次。
