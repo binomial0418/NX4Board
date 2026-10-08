@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/osm_road.dart';
 import 'road_matcher.dart';
 import 'speed_limit_service.dart';
@@ -163,6 +165,18 @@ class RoadTracker {
   final double skyPenalty;
   final double skyJump;
 
+  /// 車速佐證（車流反證的反方向）：在平面道路上，最近 [speedJumpWindow] 個定位點的
+  /// 平均車速比這條路的速限高 [speedJumpMarginKmh] 以上，而且 [overlapM] 內有高架的
+  /// 快速路主線，就允許以 [speedJump] 跳上去。
+  ///
+  /// 上匝道時匝道與底下的平面道路常幾乎重疊（梧棲交流道南下 2～6 m），匝道分到的機率
+  /// 很小，平行一段就被刪掉，之後只能靠頭頂開闊的證據上高架；但高架邊緣的平面道路
+  /// 頭頂也半開，衛星看起來一樣（2026-10 早上北上西濱路 23 顆、高架上 22 顆）。
+  /// 車速才分得開：上高架後 80～85，平面道路 66 以下。
+  final double speedJumpMarginKmh;
+  final int speedJumpWindow;
+  final double speedJump;
+
   /// 預設值來自 test/elevated_eval_test.dart 的參數掃描，
   /// 在高架情境與隨機市區路線驗證集之間取平衡。
   RoadTracker({
@@ -187,6 +201,9 @@ class RoadTracker {
     this.underM = 12,
     this.skyPenalty = 0.2,
     this.skyJump = 0.05,
+    this.speedJumpMarginKmh = 25,
+    this.speedJumpWindow = 5,
+    this.speedJump = 0.05,
   });
 
   /// 系統判定信心度低於此值視為不確定（實測此區間錯誤率 26~43%）
@@ -218,6 +235,9 @@ class RoadTracker {
 
   /// 上一個定位點的道路機率分布，key 為道路識別
   Map<String, double> _belief = {};
+
+  @visibleForTesting
+  Map<String, double> get beliefForTest => Map.unmodifiable(_belief);
 
   /// 上一個定位點，用來判斷這一步的移動路徑是否經過交會點
   double? _prevLat, _prevLon;
@@ -270,6 +290,13 @@ class RoadTracker {
         _recentSpeeds.length >= flowWindow &&
         _recentSpeeds.reduce((a, b) => a + b) / _recentSpeeds.length < fastFlowKmh * flowRatio;
 
+    final recentFast = _recentSpeeds.length >= speedJumpWindow
+        ? _recentSpeeds
+                .sublist(_recentSpeeds.length - speedJumpWindow)
+                .reduce((a, b) => a + b) /
+            speedJumpWindow
+        : 0.0;
+
     final heading =
         (headingDeg != null && headingDeg >= 0 && speedKmh >= headingMinSpeedKmh)
             ? headingDeg
@@ -321,6 +348,18 @@ class RoadTracker {
             // 天空反證：允許從被否定的那一層轉到重疊的另一層
             if (skyAgainst.contains(prevId) && skyToward.contains(id)) {
               jump = math.max(jump, skyJump);
+            }
+            // 車速佐證：平面道路上一直開得比速限快很多，允許跳上重疊的高架主線
+            if (prevObs != null &&
+                !_isFastSystem(prevId) &&
+                _isMainline(id) &&
+                entry.value.distance <= overlapM &&
+                isElevated(entry.value.road)) {
+              final limit = SpeedLimitService.parseMaxspeed(prevObs.road.maxspeed) ??
+                  SpeedLimitService.defaultLimitFor(prevObs.road.highway);
+              if (limit != null && recentFast >= limit + speedJumpMarginKmh) {
+                jump = math.max(jump, speedJump);
+              }
             }
             t = jump;
           }
@@ -415,7 +454,13 @@ class RoadTracker {
       (isElevated(o.road) ? elevated : ground)[id] = o;
     });
     if (elevated.isEmpty || ground.isEmpty) return none;
-    if (sky == SkyView.blocked) return (elevated.keys.toSet(), ground.keys.toSet());
+    if (sky == SkyView.blocked) {
+      // 匝道不否定：它從地面爬上去，起點就在橋面邊緣或底下，頭頂被擋很正常。
+      // 一起否定的話，上匝道前剛好判到被擋，匝道的機率就被刪光，之後再也上不了高架
+      // （2026-10-04 梧棲交流道南下上匝道，整段 80 秒被留在底下的港埠路）
+      final against = elevated.keys.where((id) => !id.endsWith('_link')).toSet();
+      return against.isEmpty ? none : (against, ground.keys.toSet());
+    }
     // 頭頂開闊：只否定真的在橋面下方的地面道路
     final out = <String>{};
     ground.forEach((id, g) {

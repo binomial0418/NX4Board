@@ -132,10 +132,24 @@ class SpeedLimitService {
 
   /// 以連續性追蹤所在道路，解決高架與平面重疊時逐點比對會來回跳動的問題
   final RoadTracker _tracker = RoadTracker();
-  DateTime? _lastTrackTime;
 
-  /// 定位中斷超過這個時間就重新開始追蹤，舊的道路狀態已不可信
+  @visibleForTesting
+  RoadTracker get trackerForTest => _tracker;
+  DateTime? _lastTrackTime;
+  double? _lastTrackLat, _lastTrackLon;
+
+  /// 定位中斷超過這個時間、而且期間移動超過 [_trackerResetMoveM]（或中斷超過
+  /// [_trackerStaleGap]）就重新開始追蹤，舊的道路狀態已不可信。
+  ///
+  /// 停車時手機常常不給定位點，等紅燈 30 秒以上很常見。車子沒動卻重設，
+  /// 會丟掉「一直在平面道路」的連續性：2026-10-05 台61 下的西濱路三段停了 52 秒，
+  /// 重設後 GPS 偏向高架中心線，起步不到 10 秒就被判上高架。
   static const Duration _trackerResetGap = Duration(seconds: 30);
+  static const Duration _trackerStaleGap = Duration(minutes: 10);
+  static const double _trackerResetMoveM = 100;
+
+  static bool shouldResetTracking(Duration gap, double movedM) =>
+      gap > _trackerResetGap && (movedM > _trackerResetMoveM || gap > _trackerStaleGap);
 
   /// 由道路追蹤推得的路型；圖資無法判定時為 null，呼叫端應退回 RoadTypeService
   RoadType? _trackedRoadType;
@@ -269,10 +283,14 @@ class SpeedLimitService {
     final roads = tiles.cachedTileAt(lat, lng);
     if (roads != null && roads.isNotEmpty) {
       final now = DateTime.now();
-      if (_lastTrackTime != null && now.difference(_lastTrackTime!) > _trackerResetGap) {
+      if (_lastTrackTime != null &&
+          shouldResetTracking(now.difference(_lastTrackTime!),
+              CameraAlgorithm.haversine(_lastTrackLat!, _lastTrackLon!, lat, lng) * 1000)) {
         _tracker.reset();
       }
       _lastTrackTime = now;
+      _lastTrackLat = lat;
+      _lastTrackLon = lng;
 
       final tracked = _tracker.update(
         roads,

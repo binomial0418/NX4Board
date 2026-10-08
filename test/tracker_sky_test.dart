@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nx4board/models/osm_road.dart';
 import 'package:nx4board/services/road_tracker.dart';
+import 'package:nx4board/services/sky_service.dart';
+import 'package:nx4board/services/speed_limit_service.dart';
 
 const _lat0 = 24.25, _lon0 = 120.55;
 const _mLat = 1 / 110540.0;
@@ -30,11 +32,12 @@ OsmRoad _road(String name, String highway, double x, double y0, double y1,
 }
 
 /// 依序餵定位點（往北 50 km/h，每秒約 14 m），回傳最後追到的道路名稱
-String? _drive(RoadTracker t, List<OsmRoad> roads, double x, double y0, double y1, SkyView sky) {
+String? _drive(RoadTracker t, List<OsmRoad> roads, double x, double y0, double y1, SkyView sky,
+    {double speedKmh = 50}) {
   String? name;
-  for (double y = y0; y <= y1; y += 14) {
+  for (double y = y0; y <= y1; y += speedKmh / 3.6) {
     final r = t.update(roads, _lat0 + y * _mLat, _lon0 + x * _mLon,
-        headingDeg: 0, speedKmh: 50, sky: sky);
+        headingDeg: 0, speedKmh: speedKmh, sky: sky);
     name = r?.road.name;
   }
   return name;
@@ -95,5 +98,71 @@ void main() {
     final t = RoadTracker();
     expect(_drive(t, roads, 6, 0, 900, SkyView.blocked), '港埠路');
     expect(t.lastSkyApplied, SkyView.unknown);
+  });
+
+  test('blocked sky does not rule out an on-ramp climbing beside the viaduct', () {
+    // 匝道起點在地面、緊貼橋面邊緣，頭頂被擋很正常，不能因此刪掉它
+    final ramp = _road('梧棲交流道', 'trunk_link', 0, 0, 3000, elevated: true);
+    final t = RoadTracker();
+    _drive(t, [ramp, ground], 3, 0, 600, SkyView.blocked);
+    expect(t.lastSkyApplied, SkyView.unknown);
+  });
+
+  test('driving far above the surface road limit lets the tracker jump onto the viaduct', () {
+    final roads = [viaduct, ground]; // 地面道路速限 50
+    RoadTracker onGround() {
+      final t = RoadTracker();
+      _drive(t, roads, 6, 0, 900, SkyView.unknown); // 只有地面道路
+      return t;
+    }
+
+    // 時速 85（≥ 50 + 25）：沒有天空證據也跳得上去
+    expect(_drive(onGround(), roads, 3, 1000, 1600, SkyView.unknown, speedKmh: 85), '台61');
+    // 時速 65：仍在平面
+    expect(_drive(onGround(), roads, 3, 1000, 1600, SkyView.unknown, speedKmh: 65), '港埠路');
+  });
+
+  group('SkyClassifier', () {
+    SkyView feed(SkyClassifier c, int t0, int seconds, int used, {int hiStrong = 2}) {
+      var v = SkyView.unknown;
+      for (var i = 0; i < seconds; i++) {
+        v = c.add(t0 + i * 1000, used: used, hiTotal: 6, hiStrong: hiStrong);
+      }
+      return v;
+    }
+
+    test('relative drop means blocked even with many satellites and strong overhead ones', () {
+      final c = SkyClassifier();
+      expect(feed(c, 0, 60, 36), SkyView.open);
+      // 衛星多的日子，橋下仍有 14 顆（> 絕對門檻 10），頭頂強訊號還有 3
+      expect(feed(c, 60000, 5, 14, hiStrong: 3), SkyView.blocked);
+    });
+
+    test('near the recent maximum means open even without strong overhead satellites', () {
+      final c = SkyClassifier();
+      feed(c, 0, 60, 36);
+      expect(feed(c, 60000, 5, 33, hiStrong: 0), SkyView.open);
+    });
+
+    test('a road along the viaduct edge (about 0.7 of the maximum) is neither', () {
+      final c = SkyClassifier();
+      feed(c, 0, 60, 33);
+      expect(feed(c, 60000, 5, 23), SkyView.unknown);
+    });
+
+    test('the reference outlives five minutes under the viaduct', () {
+      final c = SkyClassifier();
+      feed(c, 0, 60, 40);
+      feed(c, 60000, 6 * 60, 14);
+      // 橋下 6 分鐘後回到 21 顆：還遠低於 40，不是開闊
+      expect(feed(c, 60000 + 6 * 60000, 5, 21), isNot(SkyView.open));
+    });
+  });
+
+  test('a stop without fixes keeps the tracker; moving away or a long gap resets it', () {
+    expect(SpeedLimitService.shouldResetTracking(const Duration(seconds: 20), 500), isFalse);
+    expect(SpeedLimitService.shouldResetTracking(const Duration(seconds: 52), 8), isFalse);
+    expect(SpeedLimitService.shouldResetTracking(const Duration(seconds: 52), 300), isTrue);
+    expect(SpeedLimitService.shouldResetTracking(const Duration(minutes: 11), 0), isTrue);
   });
 }

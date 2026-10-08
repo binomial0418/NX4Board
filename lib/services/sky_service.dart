@@ -11,25 +11,84 @@ import 'package:path_provider/path_provider.dart';
 import 'road_tracker.dart' show SkyView, RoadTracker;
 import 'speed_limit_service.dart';
 
-/// 頭頂天空狀態：由衛星訊號判斷是否在高架橋面下（[SkyView]），給道路追蹤器當證據。
+/// 頭頂天空的判定本身（不碰平台串流與檔案），App 與重播測試（test/sky_replay_test.dart）共用。
 ///
-/// 依據：高架橋面擋住的是頭頂、高仰角的衛星。實測（台61 下的港埠路二段）開進橋下
-/// 幾秒內，仰角 ≥ 60° 的強訊號衛星從 2~3 顆掉到 0，出來立刻恢復；在橋上則一定看得到。
-/// 衛星總數本身會隨時段與手機位置浮動，不拿來當門檻。
+/// 依據：高架橋面擋住頭頂。開進橋下，用於定位的衛星數會掉一半以上，出來立刻恢復；
+/// 在橋上頭頂一定是開的。每秒一筆摘要（原生端 GnssSkyMonitor 在背景執行緒算好）：
+///   - 頭頂被擋：用於定位的衛星 ≤ 最近 [refWindowMs] 內最多時的 [blockedRatio]；
+///     或絕對門檻 ≤ [blockedMaxUsed] 且頭頂強訊號 ≤ [blockedMaxHiStrong]。
+///     頭頂該有 ≥ [minHiTotal] 顆
+///   - 頭頂開闊：用於定位的衛星 ≥ [openMinUsed]，且 ≥ 最近最多時的 [openRatio]
+///     （參考值不足 [minRefUsed] 時改用頭頂強訊號 ≥ [openHiStrong]）
+///   - 條件連續成立 [persistMs] 才改變判定，其他為 unknown
 ///
-/// 判定（每秒一筆，原生端 GnssSkyMonitor 在背景執行緒算好摘要）：
-///   - 頭頂被擋：用於定位的衛星 ≤ [blockedMaxUsed] 且頭頂強訊號 ≤ [blockedMaxHiStrong]
-///     （頭頂該有 ≥ [minHiTotal] 顆），連續 [persistS] 秒
-///   - 頭頂開闊：用於定位的衛星 ≥ [openMinUsed] 且頭頂強訊號 ≥ [openHiStrong]，連續 [persistS] 秒
-///   - 其他、資料超過 [staleMs] 沒更新：unknown
-///
-/// 門檻依 2026-10-03/04 兩天實車（1,440 筆）：高架上用於定位的衛星 p5 17 顆、中位 23；
-/// 已知在台61 下的港埠路 6~8 顆、頭頂強訊號 0~2（其中 1、2 交替出現，原本「連續 3 秒為 0」
-/// 幾乎判不到，還把兩秒的 2 當成開闊、把車推上高架）。一般道路 8~25，只在重疊路段才用，
-/// 所以市區衛星少不會誤判。衛星幾乎全失（< 4 顆）也算被擋——那正是橋下最深處。
-///
-/// 另外每個定位點記一行到 sky_YYYYMMDD.jsonl（設定頁可匯出），之後用實際行車
-/// 資料調門檻。
+/// 相對門檻的由來（2026-10-04～08 台61 梧棲—龍井實車，標記路段 825 筆）：衛星總數每天、
+/// 每個時段差很多，高架上中位 35 顆的日子，橋下也有 13 顆，原本的絕對門檻 ≤ 10 抓不到；
+/// 相對比（目前／最近最多）在高架上中位 0.92、橋下 0.32。頭頂強訊號太不穩（高架上整分鐘
+/// 為 0、橋下 2～4 都出現過），相對門檻成立時就不看它。高架邊緣的平面道路（早上北上
+/// 西濱路）相對比約 0.7，開闊門檻要高到 0.85 才不會把它當成在橋上。
+/// 參考窗 10 分鐘：在橋下開了 5 分鐘以後，5 分鐘的窗只剩橋下的低數值，會把橋下當開闊。
+class SkyClassifier {
+  static const int minHiTotal = 3;
+  static const int blockedMaxUsed = 10;
+  static const int blockedMaxHiStrong = 1;
+  static const int openMinUsed = 15;
+  static const int openHiStrong = 2;
+  static const int persistMs = 2000;
+
+  /// 相對門檻：和最近 [refWindowMs] 內用於定位的衛星最多時比較。
+  /// 衛星總數每天、每個時段差很多，絕對門檻只在衛星少的時候抓得到橋下。
+  static const int refWindowMs = 10 * 60 * 1000;
+  static const int minRefUsed = 20;
+  static const double blockedRatio = 0.5;
+  static const double openRatio = 0.85;
+
+  int? _blockedSince, _openSince;
+  SkyView _view = SkyView.unknown;
+  final List<(int, int)> _history = [];
+
+  SkyView get view => _view;
+
+  void reset() {
+    _blockedSince = _openSince = null;
+    _view = SkyView.unknown;
+    _history.clear();
+  }
+
+  SkyView add(int tMs, {required int used, required int hiTotal, required int hiStrong}) {
+    _history.add((tMs, used));
+    while (_history.isNotEmpty && tMs - _history.first.$1 > refWindowMs) {
+      _history.removeAt(0);
+    }
+    var ref = 0;
+    for (final h in _history) {
+      if (h.$2 > ref) ref = h.$2;
+    }
+    final relative = ref >= minRefUsed;
+    final blocked = hiTotal >= minHiTotal &&
+        ((used <= blockedMaxUsed && hiStrong <= blockedMaxHiStrong) ||
+            (relative && used <= ref * blockedRatio));
+    final open = used >= openMinUsed &&
+        (relative ? used >= ref * openRatio : hiStrong >= openHiStrong);
+    if (blocked) {
+      _blockedSince ??= tMs;
+      _openSince = null;
+    } else if (open) {
+      _openSince ??= tMs;
+      _blockedSince = null;
+    } else {
+      _blockedSince = _openSince = null;
+    }
+    _view = _blockedSince != null && tMs - _blockedSince! >= persistMs
+        ? SkyView.blocked
+        : (_openSince != null && tMs - _openSince! >= persistMs ? SkyView.open : SkyView.unknown);
+    return _view;
+  }
+}
+
+/// 頭頂天空狀態（[SkyView]）：接原生端的衛星摘要交給 [SkyClassifier] 判定，給道路追蹤器
+/// 當證據。另外每個定位點記一行到 sky_YYYYMMDD.jsonl（設定頁可匯出），用實際行車資料
+/// 調門檻、重播（test/sky_replay_test.dart）。
 class SkyService {
   SkyService._();
   static final SkyService _instance = SkyService._();
@@ -37,20 +96,13 @@ class SkyService {
 
   static const _channel = EventChannel('com.duckegg.nx4board/gnss_sky');
 
-  static const int minHiTotal = 3;
-  static const int blockedMaxUsed = 10;
-  static const int blockedMaxHiStrong = 1;
-  static const int openMinUsed = 15;
-  static const int openHiStrong = 2;
-  static const int persistS = 3;
   static const int staleMs = 3000;
   static const int _maxLogBytes = 100 * 1024 * 1024;
 
   StreamSubscription<dynamic>? _sub;
   Map<dynamic, dynamic>? _last;
   int _lastAtMs = 0;
-  int _blockedRun = 0, _openRun = 0;
-  SkyView _view = SkyView.unknown;
+  final SkyClassifier _classifier = SkyClassifier();
 
   IOSink? _log;
   String? _logDay;
@@ -58,7 +110,9 @@ class SkyService {
 
   /// 目前的頭頂天空狀態；資料過舊時為 unknown
   SkyView get view =>
-      DateTime.now().millisecondsSinceEpoch - _lastAtMs > staleMs ? SkyView.unknown : _view;
+      DateTime.now().millisecondsSinceEpoch - _lastAtMs > staleMs
+          ? SkyView.unknown
+          : _classifier.view;
 
   void start() {
     if (_sub != null || !Platform.isAndroid) return;
@@ -71,21 +125,10 @@ class SkyService {
     if (e is! Map) return;
     _last = e;
     _lastAtMs = DateTime.now().millisecondsSinceEpoch;
-    final used = (e['used'] as num?)?.toInt() ?? 0;
-    final hiTotal = (e['hiTotal'] as num?)?.toInt() ?? 0;
-    final hiStrong = (e['hiStrong'] as num?)?.toInt() ?? 0;
-    if (hiTotal >= minHiTotal && used <= blockedMaxUsed && hiStrong <= blockedMaxHiStrong) {
-      _blockedRun++;
-      _openRun = 0;
-    } else if (used >= openMinUsed && hiStrong >= openHiStrong) {
-      _openRun++;
-      _blockedRun = 0;
-    } else {
-      _blockedRun = _openRun = 0;
-    }
-    _view = _blockedRun >= persistS
-        ? SkyView.blocked
-        : (_openRun >= persistS ? SkyView.open : SkyView.unknown);
+    _classifier.add(_lastAtMs,
+        used: (e['used'] as num?)?.toInt() ?? 0,
+        hiTotal: (e['hiTotal'] as num?)?.toInt() ?? 0,
+        hiStrong: (e['hiStrong'] as num?)?.toInt() ?? 0);
   }
 
   // ── 紀錄 ────────────────────────────────────────────────────────────
