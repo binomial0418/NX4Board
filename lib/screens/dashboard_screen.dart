@@ -84,7 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   static const Duration _cameraWsCooldown = Duration(seconds: 300);
 
   // --- TDX 路況查詢結果後送 (tid: traffic-info) ---
-  StreamSubscription<Map<String, dynamic>>? _trafficReportSubscription;
+  StreamSubscription<String>? _trafficReportSubscription;
 
   // --- Screen Recording ---
   late ScreenRecorderService _screenRecorder;
@@ -1044,25 +1044,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ──────────────────────────────────────────────
   // 取得 TDX 路況時後送 WS（後端分析用）
   // ──────────────────────────────────────────────
-  /// 與 camera-info 相同走第一通道，附上查詢當下的位置與車速。
-  /// [report] 的欄位見 TrafficService.fetchReport。
-  void _sendTrafficInfoViaWs(Map<String, dynamic> report) {
+  /// 與 camera-info 相同走第一通道，只帶位置與一句路況摘要：中繼器轉 MQTT 時
+  /// 封包上限 256 bytes（見 TrafficService.messageMaxBytes），完整的路段清單塞不下。
+  void _sendTrafficInfoViaWs(String message) {
     if (!mounted || !_isWsConnected || _channel == null) return;
 
-    final provider = context.read<AppProvider>();
-    final pos = provider.currentPosition;
-
+    final pos = context.read<AppProvider>().currentPosition;
     final Map<String, dynamic> trafficData = {
       "_type": "BVB-7980",
       "tid": "traffic-info",
       "tst": DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      if (pos != null) "lat": pos.latitude,
-      if (pos != null) "lon": pos.longitude,
-      if (pos != null) "cog": double.parse(pos.heading.toStringAsFixed(1)),
-      "speed": _currentDisplaySpeed.round(),
-      "speed_limit": provider.roadSpeedLimit,
-      "road": provider.currentRoadName,
-      ...report,
+      if (pos != null) "lat": double.parse(pos.latitude.toStringAsFixed(6)),
+      if (pos != null) "lon": double.parse(pos.longitude.toStringAsFixed(6)),
+      "msg": message,
     };
 
     final jsonString = jsonEncode(trafficData);

@@ -98,9 +98,9 @@ class AppProvider extends ChangeNotifier {
   final _gpsDataController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get gpsDataStream => _gpsDataController.stream;
 
-  /// 每次 TDX 路況查詢的結果（見 [TrafficService.fetchReport]）
-  final _trafficReportController = StreamController<Map<String, dynamic>>.broadcast();
-  Stream<Map<String, dynamic>> get trafficReportStream => _trafficReportController.stream;
+  /// 每次 TDX 路況查詢後的一句路況摘要（見 [TrafficService.fetchMessage]）
+  final _trafficReportController = StreamController<String>.broadcast();
+  Stream<String> get trafficReportStream => _trafficReportController.stream;
 
   bool get isDemoEnabled => _isDemoEnabled;
 
