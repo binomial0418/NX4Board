@@ -108,18 +108,60 @@ void main() {
     expect(t.lastSkyApplied, SkyView.unknown);
   });
 
-  test('driving far above the surface road limit lets the tracker jump onto the viaduct', () {
-    final roads = [viaduct, ground]; // 地面道路速限 50
-    RoadTracker onGround() {
+  test('driving far above the surface road limit after an on-ramp jumps onto the viaduct', () {
+    // 上匝道：從地面道路 (6, 950) 分出，與高架 (0, 1150) 相接
+    final ramp = OsmRoad(
+      name: '上匝道',
+      ref: null,
+      highway: 'trunk_link',
+      maxspeed: null,
+      oneway: 'yes',
+      bridge: 'yes',
+      tunnel: null,
+      layer: '1',
+      lines: [
+        Float64List.fromList(
+            [_lon0 + 6 * _mLon, _lat0 + 950 * _mLat, _lon0, _lat0 + 1150 * _mLat])
+      ],
+    );
+    RoadTracker onGround(List<OsmRoad> roads) {
       final t = RoadTracker();
-      _drive(t, roads, 6, 0, 900, SkyView.unknown); // 只有地面道路
+      _drive(t, roads, 6, 0, 900, SkyView.unknown, speedKmh: 60);
       return t;
     }
 
-    // 時速 85（≥ 50 + 25）：沒有天空證據也跳得上去
-    expect(_drive(onGround(), roads, 3, 1000, 1600, SkyView.unknown, speedKmh: 85), '台61');
-    // 時速 65：仍在平面
-    expect(_drive(onGround(), roads, 3, 1000, 1600, SkyView.unknown, speedKmh: 65), '港埠路');
+    // 經過匝道口後時速 85（≥ 50 + 25）：沒有天空證據也跳得上去
+    final withRamp = [viaduct, ground, ramp];
+    expect(_drive(onGround(withRamp), withRamp, 3, 920, 1600, SkyView.unknown, speedKmh: 85),
+        '台61');
+    // 經過匝道口但時速 65：仍在平面
+    expect(_drive(onGround(withRamp), withRamp, 3, 920, 1600, SkyView.unknown, speedKmh: 65),
+        '港埠路');
+    // 沒經過上匝道起點，平面道路開到 78：仍在平面（要上高架一定要走匝道）
+    final noRamp = [viaduct, ground];
+    expect(_drive(onGround(noRamp), noRamp, 3, 920, 1600, SkyView.unknown, speedKmh: 78),
+        '港埠路');
+    // 經過的是下匝道的落地點（匝道最後一點接在地面道路上）：同樣不算
+    final offRamp = OsmRoad(
+      name: '下匝道',
+      ref: null,
+      highway: 'trunk_link',
+      maxspeed: null,
+      oneway: 'yes',
+      bridge: 'yes',
+      tunnel: null,
+      layer: '1',
+      lines: [
+        Float64List.fromList(
+            [_lon0, _lat0 + 750 * _mLat, _lon0 + 6 * _mLon, _lat0 + 950 * _mLat])
+      ],
+    );
+    final withOff = [viaduct, ground, offRamp];
+    expect(_drive(onGround(withOff), withOff, 3, 920, 1600, SkyView.unknown, speedKmh: 78),
+        '港埠路');
+    // 匝道口 GPS 斷訊的退路：沒看到匝道，但一直開到 ≥ 50 + 35
+    expect(_drive(onGround(noRamp), noRamp, 3, 920, 1600, SkyView.unknown, speedKmh: 90),
+        '台61');
   });
 
   group('SkyClassifier', () {

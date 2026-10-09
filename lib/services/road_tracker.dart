@@ -177,6 +177,16 @@ class RoadTracker {
   final int speedJumpWindow;
   final double speedJump;
 
+  /// 車速佐證只在剛經過平面道路與匝道的交會點、這個距離內才成立：要上高架一定要
+  /// 走匝道。少了這條，平面道路開快一點就會被推上去（2026-10-09 北上西濱路二段
+  /// 時速 75～77，OSM 沒標速限、預設 50，被判上台61 30 秒；10-04 真的上高架時
+  /// 剛經過梧棲交流道上匝道口約 600 m）。
+  final double speedJumpRampM;
+
+  /// 沒經過上匝道起點時，要比速限高這麼多才算（匝道口 GPS 斷訊時的退路：2026-10-04
+  /// 早上龍井上匝道附近衛星 0 顆兩分鐘，之後在台61 上時速 85～89）
+  final double speedJumpNoRampMarginKmh;
+
   /// 預設值來自 test/elevated_eval_test.dart 的參數掃描，
   /// 在高架情境與隨機市區路線驗證集之間取平衡。
   RoadTracker({
@@ -204,6 +214,8 @@ class RoadTracker {
     this.speedJumpMarginKmh = 25,
     this.speedJumpWindow = 5,
     this.speedJump = 0.05,
+    this.speedJumpRampM = 1500,
+    this.speedJumpNoRampMarginKmh = 35,
   });
 
   /// 系統判定信心度低於此值視為不確定（實測此區間錯誤率 26~43%）
@@ -245,6 +257,9 @@ class RoadTracker {
   /// 最近 [flowWindow] 個定位點的車速，車流佐證用
   final List<double> _recentSpeeds = [];
 
+  /// 上次從平面道路經過匝道交會點之後開了多遠（公尺），車速佐證用
+  double _sinceRampM = double.infinity;
+
   /// 最近一次的觀測結果，供 [alternative] 查詢
   Map<String, _Observation> _lastObs = const {};
 
@@ -258,6 +273,7 @@ class RoadTracker {
     _prevLat = null;
     _prevLon = null;
     _recentSpeeds.clear();
+    _sinceRampM = double.infinity;
   }
 
   /// 道路識別：同一條路在不同 tile、不同 layer 會被切成多段，
@@ -314,6 +330,10 @@ class RoadTracker {
     }
 
     final topo = _topologyFor(roads);
+    _trackRampPassage(topo, roads, obs.keys, fromLat, fromLon, lat, lon);
+    // 車速佐證只從「目前最可能的平面道路」出發：機率很小的小巷、無名道路速限預設 40，
+    // 拿它們比會讓平面道路開到 75 就被推上高架
+    final mainGround = _mainGround();
     // 天空證據要「該是高架」與「該是地面」的候選各自是誰
     final (skyAgainst, skyToward) = _skyEvidence(obs, sky, lat, lon);
     _lastSkyApplied = skyAgainst.isNotEmpty ? sky : SkyView.unknown;
@@ -351,13 +371,16 @@ class RoadTracker {
             }
             // 車速佐證：平面道路上一直開得比速限快很多，允許跳上重疊的高架主線
             if (prevObs != null &&
-                !_isFastSystem(prevId) &&
+                prevId == mainGround &&
                 _isMainline(id) &&
                 entry.value.distance <= overlapM &&
                 isElevated(entry.value.road)) {
               final limit = SpeedLimitService.parseMaxspeed(prevObs.road.maxspeed) ??
                   SpeedLimitService.defaultLimitFor(prevObs.road.highway);
-              if (limit != null && recentFast >= limit + speedJumpMarginKmh) {
+              final margin = _sinceRampM <= speedJumpRampM
+                  ? speedJumpMarginKmh
+                  : speedJumpNoRampMarginKmh;
+              if (limit != null && recentFast >= limit + margin) {
                 jump = math.max(jump, speedJump);
               }
             }
@@ -401,6 +424,65 @@ class RoadTracker {
     final best = obs[bestId]!;
     if (best.distance > maxDistanceM) return null;
     return TrackedRoad(best.road, bestP, best.distance);
+  }
+
+  /// 目前機率最高的平面道路（不含快速路系統）
+  String? _mainGround() {
+    String? ground;
+    double best = 0;
+    _belief.forEach((id, p) {
+      if (!_isFastSystem(id) && p > best) {
+        best = p;
+        ground = id;
+      }
+    });
+    return ground;
+  }
+
+  /// 更新 [_sinceRampM]：這一步從目前最可能的平面道路經過某條上匝道的起點，就歸零。
+  ///
+  /// 只認上匝道的起點：OSM 單行道依行駛方向繪製，上匝道的第一個點接在平面道路上；
+  /// 下匝道則是最後一個點落地。經過下匝道落地處不代表要上高架（2026-10-09 北上
+  /// 西濱路三段經過台61 北上出口匝道的落地點，時速 76～78，又被判上高架）。
+  void _trackRampPassage(_Topology topo, List<OsmRoad> roads, Iterable<String> candidates,
+      double fromLat, double fromLon, double lat, double lon) {
+    final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180.0);
+    _sinceRampM += math.sqrt(math.pow((lon - fromLon) * mPerDegLon, 2) +
+        math.pow((lat - fromLat) * _mPerDegLat, 2));
+    final ground = _mainGround();
+    if (ground == null) return;
+    // 行進方向：這一步的移動方向（太短就不判斷）
+    final dx = (lon - fromLon) * mPerDegLon, dy = (lat - fromLat) * _mPerDegLat;
+    if (dx * dx + dy * dy < 25) return;
+    final heading = math.atan2(dx, dy) * 180 / math.pi;
+    for (final id in candidates) {
+      // 只有快速路的匝道通得到高架主線；陸橋引道（primary_link…）不算
+      if (!(id.endsWith('|trunk_link') || id.endsWith('|motorway_link')) ||
+          !topo.passedJunction(ground, id, fromLat, fromLon, lat, lon, junctionRadiusM)) {
+        continue;
+      }
+      for (final r in roads) {
+        if (identityOf(r) != id || r.oneway == '-1') continue;
+        for (final line in r.lines) {
+          if (line.length < 4) continue;
+          final d = _pointSegmentDistance((fromLon - line[0]) * mPerDegLon,
+              (fromLat - line[1]) * _mPerDegLat, (lon - line[0]) * mPerDegLon,
+              (lat - line[1]) * _mPerDegLat);
+          // 匝道起始方向要與行進方向相近：雙向道路上對向的上匝道起點不算
+          // （10-09 北上西濱路三段經過南下上匝道的起點）
+          final rampHeading = math.atan2((line[2] - line[0]) * mPerDegLon,
+                  (line[3] - line[1]) * _mPerDegLat) *
+              180 /
+              math.pi;
+          var diff = (rampHeading - heading).abs() % 360;
+          if (diff > 180) diff = 360 - diff;
+          if (d <= junctionRadiusM && diff <= 60) {
+            _sinceRampM = 0;
+            return;
+          }
+        }
+      }
+    }
   }
 
   /// 目前位置的高架重疊狀態；附近只有單一層時為 null。
