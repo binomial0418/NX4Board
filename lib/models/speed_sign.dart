@@ -48,14 +48,26 @@ class SpeedSign {
 }
 
 // Simple Math class for trigonometric functions
+//
+// 2026-10-09：原本的 sqrt 從 x 本身開始只做 10 次牛頓法，x 很小時根本沒收斂
+// （haversine 裡的 a 約 1e-8，結果大了約 10 倍），1 km 外的牌面算成 12 km，
+// 省道牌面從來對不到、一律退回分級推定；atan 的級數在 |x| > 1 時發散。
+// 演算法修正，仍不依賴 dart:math。
 class Math {
   static const double pi = 3.14159265359;
-  
+
+  /// 把角度收到 [-π, π]，Taylor 級數在這個範圍內 10 項就夠準
+  static double _wrap(double x) {
+    const twoPi = 2 * pi;
+    if (x > pi || x < -pi) x -= twoPi * ((x + pi) / twoPi).floorToDouble();
+    return x;
+  }
+
   static double sin(double x) {
-    // Using Taylor series approximation for sin
+    x = _wrap(x);
     double result = 0;
     double term = x;
-    for (int i = 1; i <= 10; i++) {
+    for (int i = 1; i <= 12; i++) {
       result += term;
       term *= -x * x / ((2 * i) * (2 * i + 1));
     }
@@ -63,22 +75,25 @@ class Math {
   }
 
   static double cos(double x) {
-    // Using Taylor series approximation for cos
+    x = _wrap(x);
     double result = 1;
     double term = 1;
-    for (int i = 1; i <= 10; i++) {
+    for (int i = 1; i <= 12; i++) {
       term *= -x * x / ((2 * i - 1) * (2 * i));
       result += term;
     }
     return result;
   }
 
+  /// 牛頓法開根號，疊代到收斂。從 max(x, 1) 起算：x < 1 時從 x 起算會收斂得極慢
   static double sqrt(double x) {
     if (x < 0) return double.nan;
     if (x == 0) return 0;
-    double guess = x;
-    for (int i = 0; i < 10; i++) {
-      guess = (guess + x / guess) / 2;
+    double guess = x >= 1 ? x : 1.0;
+    for (int i = 0; i < 200; i++) {
+      final next = (guess + x / guess) / 2;
+      if ((next - guess).abs() <= next * 1e-15) return next;
+      guess = next;
     }
     return guess;
   }
@@ -92,12 +107,17 @@ class Math {
     return 0;
   }
 
+  /// 級數只在 |x| 小時收斂得快：|x| > 1 用 atan(x) = ±π/2 − atan(1/x)，
+  /// 再用 atan(x) = 2·atan(x / (1 + √(1 + x²))) 縮到 |x| < 0.4
   static double atan(double x) {
+    if (x > 1) return pi / 2 - atan(1 / x);
+    if (x < -1) return -pi / 2 - atan(1 / x);
+    if (x > 0.4 || x < -0.4) return 2 * atan(x / (1 + sqrt(1 + x * x)));
     double result = 0;
     double term = x;
     for (int i = 0; i < 20; i++) {
-      result += term;
-      term *= -x * x * (2 * i + 1) / (2 * i + 3);
+      result += term / (2 * i + 1);
+      term *= -x * x;
     }
     return result;
   }

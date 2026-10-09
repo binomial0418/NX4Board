@@ -95,6 +95,19 @@ void main() {
       expect(svc.source, LimitSource.inferred);
     });
 
+    test('牌面之間的空檔沿用上一面，換路或超過 2 km 才放掉', () {
+      // 台1 牌面約每 1.5 km 一面：比對到之後，離開 500 m 範圍仍沿用 70
+      svc.setSignsForTest([_sign('台1', 70)]);
+      expect(svc.resolveLimitForTest(_road(ref: '1'), _lat, _lon), 70);
+      expect(svc.resolveLimitForTest(_road(ref: '1'), _lat + 0.01, _lon), 70); // 約 1.1 km
+      expect(svc.source, LimitSource.sign);
+      // 不同路線編號不沿用
+      expect(svc.resolveLimitForTest(_road(ref: '17'), _lat + 0.01, _lon), 60);
+      expect(svc.source, LimitSource.inferred);
+      // 超過 2 km 不沿用
+      expect(svc.resolveLimitForTest(_road(ref: '1'), _lat + 0.025, _lon), 60);
+    });
+
     test('快速公路主線不採用牌面，避免抓到匝道的牌子', () {
       // 牌面資料沒有區分主線與匝道，而匝道的公路編號和主線相同
       svc.setSignsForTest([_sign('台61', 40)]);

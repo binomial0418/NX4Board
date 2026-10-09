@@ -219,6 +219,7 @@ class SpeedLimitService {
   @visibleForTesting
   void setSignsForTest(List<SpeedSign> signs) {
     _allSigns = signs;
+    _lastSign = null;
     _initialized = true;
   }
 
@@ -426,6 +427,7 @@ class SpeedLimitService {
   }
 
   void _clearSystemState() {
+    _lastSign = null;
     _overlap = null;
     _levelLean = false;
     _levelUncertain = false;
@@ -450,9 +452,29 @@ class SpeedLimitService {
     }
   }
 
+  /// 最近一次在所在道路上比對到的省道牌面：(路線編號, 速限, 比對當下的位置)
+  (Set<String>, int, double, double)? _lastSign;
+
+  /// 牌面的速限適用到下一面牌為止，但牌面資料只在 [_signRadiusM] 內比對得到。
+  /// 台1 梧棲—龍井的牌面約每 1.5 km 一面，空檔裡原本退回分級推定（primary 60），
+  /// 路牌明明寫 70（2026-10-09：246 筆中 57 筆）。同一條路線編號、離上次比對到的
+  /// 位置這個距離內，沿用那面牌。
+  static const double _signHoldM = 2000;
+
   /// 決定速限並更新目前狀態：OSM 標註 → 同路省道牌面 → 分級推定
   int? _resolveLimit(OsmRoad road, double lat, double lng) {
-    final (limit, source) = _limitFor(road, lat, lng);
+    var (limit, source) = _limitFor(road, lat, lng);
+    if (source == LimitSource.sign && limit != null) {
+      _lastSign = (normalizedRefs(road.ref), limit, lat, lng);
+    } else if (source == LimitSource.inferred && _lastSign != null) {
+      final (refs, held, hLat, hLng) = _lastSign!;
+      if (!_skipSignClasses.contains(road.highway) &&
+          normalizedRefs(road.ref).any(refs.contains) &&
+          CameraAlgorithm.haversine(hLat, hLng, lat, lng) * 1000 <= _signHoldM) {
+        limit = held;
+        source = LimitSource.sign;
+      }
+    }
     _source = source;
     if (limit != null) _currentLimit = limit;
     return limit;
