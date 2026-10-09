@@ -132,10 +132,24 @@ class SpeedLimitService {
 
   /// 以連續性追蹤所在道路，解決高架與平面重疊時逐點比對會來回跳動的問題
   final RoadTracker _tracker = RoadTracker();
-  DateTime? _lastTrackTime;
 
-  /// 定位中斷超過這個時間就重新開始追蹤，舊的道路狀態已不可信
+  @visibleForTesting
+  RoadTracker get trackerForTest => _tracker;
+  DateTime? _lastTrackTime;
+  double? _lastTrackLat, _lastTrackLon;
+
+  /// 定位中斷超過這個時間、而且期間移動超過 [_trackerResetMoveM]（或中斷超過
+  /// [_trackerStaleGap]）就重新開始追蹤，舊的道路狀態已不可信。
+  ///
+  /// 停車時手機常常不給定位點，等紅燈 30 秒以上很常見。車子沒動卻重設，
+  /// 會丟掉「一直在平面道路」的連續性：2026-10-05 台61 下的西濱路三段停了 52 秒，
+  /// 重設後 GPS 偏向高架中心線，起步不到 10 秒就被判上高架。
   static const Duration _trackerResetGap = Duration(seconds: 30);
+  static const Duration _trackerStaleGap = Duration(minutes: 10);
+  static const double _trackerResetMoveM = 100;
+
+  static bool shouldResetTracking(Duration gap, double movedM) =>
+      gap > _trackerResetGap && (movedM > _trackerResetMoveM || gap > _trackerStaleGap);
 
   /// 由道路追蹤推得的路型；圖資無法判定時為 null，呼叫端應退回 RoadTypeService
   RoadType? _trackedRoadType;
@@ -205,6 +219,7 @@ class SpeedLimitService {
   @visibleForTesting
   void setSignsForTest(List<SpeedSign> signs) {
     _allSigns = signs;
+    _lastSign = null;
     _initialized = true;
   }
 
@@ -269,10 +284,14 @@ class SpeedLimitService {
     final roads = tiles.cachedTileAt(lat, lng);
     if (roads != null && roads.isNotEmpty) {
       final now = DateTime.now();
-      if (_lastTrackTime != null && now.difference(_lastTrackTime!) > _trackerResetGap) {
+      if (_lastTrackTime != null &&
+          shouldResetTracking(now.difference(_lastTrackTime!),
+              CameraAlgorithm.haversine(_lastTrackLat!, _lastTrackLon!, lat, lng) * 1000)) {
         _tracker.reset();
       }
       _lastTrackTime = now;
+      _lastTrackLat = lat;
+      _lastTrackLon = lng;
 
       final tracked = _tracker.update(
         roads,
@@ -408,6 +427,7 @@ class SpeedLimitService {
   }
 
   void _clearSystemState() {
+    _lastSign = null;
     _overlap = null;
     _levelLean = false;
     _levelUncertain = false;
@@ -432,9 +452,29 @@ class SpeedLimitService {
     }
   }
 
+  /// 最近一次在所在道路上比對到的省道牌面：(路線編號, 速限, 比對當下的位置)
+  (Set<String>, int, double, double)? _lastSign;
+
+  /// 牌面的速限適用到下一面牌為止，但牌面資料只在 [_signRadiusM] 內比對得到。
+  /// 台1 梧棲—龍井的牌面約每 1.5 km 一面，空檔裡原本退回分級推定（primary 60），
+  /// 路牌明明寫 70（2026-10-09：246 筆中 57 筆）。同一條路線編號、離上次比對到的
+  /// 位置這個距離內，沿用那面牌。
+  static const double _signHoldM = 2000;
+
   /// 決定速限並更新目前狀態：OSM 標註 → 同路省道牌面 → 分級推定
   int? _resolveLimit(OsmRoad road, double lat, double lng) {
-    final (limit, source) = _limitFor(road, lat, lng);
+    var (limit, source) = _limitFor(road, lat, lng);
+    if (source == LimitSource.sign && limit != null) {
+      _lastSign = (normalizedRefs(road.ref), limit, lat, lng);
+    } else if (source == LimitSource.inferred && _lastSign != null) {
+      final (refs, held, hLat, hLng) = _lastSign!;
+      if (!_skipSignClasses.contains(road.highway) &&
+          normalizedRefs(road.ref).any(refs.contains) &&
+          CameraAlgorithm.haversine(hLat, hLng, lat, lng) * 1000 <= _signHoldM) {
+        limit = held;
+        source = LimitSource.sign;
+      }
+    }
     _source = source;
     if (limit != null) _currentLimit = limit;
     return limit;
